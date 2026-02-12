@@ -320,6 +320,133 @@ interface TestError {
 }
 ```
 
+## Process Flow Diagram
+
+### Complete System Process Flow
+
+```mermaid
+flowchart TD
+    Start([Developer Opens PR]) --> WebhookReceived{Webhook Received?}
+    
+    WebhookReceived -->|Yes| ValidateSignature[Validate Webhook Signature]
+    WebhookReceived -->|No - Webhook Failed| PollingFallback[Activate Polling Fallback<br/>Check every 5 min]
+    
+    ValidateSignature -->|Valid| SendToEventBridge[Send to EventBridge]
+    ValidateSignature -->|Invalid| RejectWebhook[Return 401 Unauthorized]
+    
+    PollingFallback --> SendToEventBridge
+    RejectWebhook --> End1([End])
+    
+    SendToEventBridge --> TriggerStepFunctions[Trigger Step Functions<br/>Orchestrator]
+    
+    TriggerStepFunctions --> ParallelStart{Start Parallel<br/>Workflows}
+    
+    ParallelStart --> SentinelWorkflow[Sentinel Review<br/>Workflow]
+    ParallelStart --> FortressWorkflow[Fortress Test<br/>Generation Workflow]
+    ParallelStart --> VisualCortexWorkflow[Visual Cortex<br/>Update Workflow]
+    
+    %% Sentinel Workflow
+    SentinelWorkflow --> FetchPRDiff[Fetch PR Diff<br/>from GitHub]
+    FetchPRDiff --> QueryKB[Query Knowledge Base<br/>for Context]
+    QueryKB --> RouteToModel1{Route to<br/>AI Model}
+    RouteToModel1 -->|Complex Reasoning| UseClaude[Use Claude 3.5 Sonnet<br/>for Analysis]
+    RouteToModel1 -->|Simple Task| UseLlama1[Use Llama 3]
+    
+    UseClaude --> AnalyzeCode[Analyze Code:<br/>- Security Vulnerabilities<br/>- Logic Errors<br/>- Style Issues]
+    UseLlama1 --> AnalyzeCode
+    
+    AnalyzeCode --> GenerateFeedback[Generate Mentorship<br/>Feedback with Explanations]
+    GenerateFeedback --> CheckIssues{Critical<br/>Issues Found?}
+    
+    CheckIssues -->|Yes| BlockMerge[Block Merge<br/>Request Changes]
+    CheckIssues -->|No| ApprovePR[Approve PR]
+    
+    BlockMerge --> PostReviewComments[Post Review Comments<br/>to GitHub]
+    ApprovePR --> PostReviewComments
+    
+    PostReviewComments --> UpdateXP[Update Developer XP<br/>in DynamoDB]
+    UpdateXP --> SentinelComplete([Sentinel Complete])
+    
+    %% Fortress Workflow
+    FortressWorkflow --> DetectUntested[Detect Files<br/>Without Tests]
+    DetectUntested --> RouteToModel2{Route to<br/>AI Model}
+    RouteToModel2 --> UseLlama2[Use Llama 3<br/>for Test Generation]
+    
+    UseLlama2 --> GenerateTests[Generate Unit Tests<br/>Target: 80% Coverage]
+    GenerateTests --> StoreInS3[Store Test Files<br/>in S3]
+    StoreInS3 --> ExecuteTests[Execute Tests<br/>in CodeBuild]
+    
+    ExecuteTests --> TestsPass{Tests<br/>Pass?}
+    
+    TestsPass -->|Yes| CommitTests[Commit Tests to<br/>PR Branch]
+    TestsPass -->|No| AnalyzeFailure[Analyze Failure<br/>Using Claude 3.5]
+    
+    AnalyzeFailure --> IdentifyIssue{Issue in Test<br/>or Implementation?}
+    
+    IdentifyIssue -->|Test Code Issue| CheckIteration{Iteration<br/>< 5?}
+    IdentifyIssue -->|Implementation Issue| ReportToDevImplementation[Report to Developer<br/>with Suggested Fixes]
+    
+    CheckIteration -->|Yes| RegenerateTests[Regenerate Tests<br/>with Corrections]
+    CheckIteration -->|No| EscalateToHuman[Escalate to Human<br/>with Diagnostics]
+    
+    RegenerateTests --> ExecuteTests
+    ReportToDevImplementation --> FortressComplete([Fortress Complete])
+    CommitTests --> FortressComplete
+    EscalateToHuman --> FortressComplete
+    
+    %% Visual Cortex Workflow
+    VisualCortexWorkflow --> FetchChangedFiles[Fetch Changed Files<br/>from GitHub]
+    FetchChangedFiles --> ParallelAnalysis{Parallel<br/>Analysis}
+    
+    ParallelAnalysis --> ParseDependencies[Parse Imports &<br/>Dependencies]
+    ParallelAnalysis --> DetectServices[Detect New<br/>Services/APIs]
+    ParallelAnalysis --> GenerateDescriptions[Generate Descriptions<br/>Using Llama 3]
+    
+    ParseDependencies --> MergeAnalysis[Merge Analysis<br/>Results]
+    DetectServices --> MergeAnalysis
+    GenerateDescriptions --> MergeAnalysis
+    
+    MergeAnalysis --> FetchCurrentMap[Fetch Current<br/>Cognitive Map from DynamoDB]
+    FetchCurrentMap --> ComputeDiff[Compute Diff<br/>New Nodes & Edges]
+    ComputeDiff --> UpdateMap[Update Map<br/>Increment Version]
+    UpdateMap --> StoreVisualization[Store Visualization<br/>Assets in S3]
+    StoreVisualization --> PostVizLink[Post Comment with<br/>Visualization Link]
+    PostVizLink --> VisualCortexComplete([Visual Cortex Complete])
+    
+    %% Convergence
+    SentinelComplete --> AllComplete{All Workflows<br/>Complete?}
+    FortressComplete --> AllComplete
+    VisualCortexComplete --> AllComplete
+    
+    AllComplete -->|Yes| NotifyDeveloper[Notify Developer<br/>Review Complete]
+    AllComplete -->|No| WaitForCompletion[Wait for Other<br/>Workflows]
+    
+    WaitForCompletion --> AllComplete
+    NotifyDeveloper --> End2([End])
+    
+    %% Error Handling Paths
+    UseClaude -.->|API Failure| RetryWithBackoff[Retry 3x with<br/>Exponential Backoff]
+    UseLlama1 -.->|API Failure| RetryWithBackoff
+    UseLlama2 -.->|API Failure| RetryWithBackoff
+    
+    RetryWithBackoff -.->|All Retries Failed| FallbackToAlternative[Fallback to<br/>Alternative Model]
+    FallbackToAlternative -.->|Still Failed| EscalateError[Escalate to<br/>Human Review]
+    
+    ExecuteTests -.->|CodeBuild Failure| RetryCodeBuild[Retry CodeBuild<br/>3x with 30s Delay]
+    RetryCodeBuild -.->|All Failed| MarkInfraFailure[Mark as<br/>Infrastructure Failure]
+    
+    style Start fill:#90EE90
+    style End1 fill:#FFB6C1
+    style End2 fill:#90EE90
+    style SentinelComplete fill:#87CEEB
+    style FortressComplete fill:#87CEEB
+    style VisualCortexComplete fill:#87CEEB
+    style EscalateToHuman fill:#FFD700
+    style EscalateError fill:#FF6347
+    style BlockMerge fill:#FFA500
+    style ApprovePR fill:#90EE90
+```
+
 ## Component Interactions
 
 ### Sentinel Agent Workflow
