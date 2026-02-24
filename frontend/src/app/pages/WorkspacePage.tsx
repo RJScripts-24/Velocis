@@ -80,6 +80,17 @@ const initialMessages: Message[] = [
   }
 ];
 
+const handleEditorWillMount = (monaco: any) => {
+  monaco.editor.defineTheme('velocis-dark', {
+    base: 'vs-dark',
+    inherit: true,
+    rules: [],
+    colors: {
+      'editor.background': '#010308',
+    },
+  });
+};
+
 const regionalMessages: Record<string, Message[]> = {
   en: initialMessages,
   hi: [
@@ -252,7 +263,7 @@ export function WorkspacePage() {
         {/* Main Workspace (70 / 30 Split) */}
         <div className="flex-1 flex overflow-hidden p-4 sm:p-6 gap-6 relative z-10 max-w-[1920px] mx-auto w-full">
           {/* Code Editor Panel (70%) */}
-          <div className="flex-1 lg:w-[70%] flex flex-col rounded-2xl border border-zinc-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 shadow-sm overflow-hidden relative transition-colors duration-300">
+          <div className="flex-1 lg:w-[70%] flex flex-col rounded-2xl border border-zinc-200 dark:border-slate-800 bg-white dark:bg-[#010308]/50 shadow-sm overflow-hidden relative transition-colors duration-300">
             {/* Subtle glow behind editor */}
             <div className="absolute top-0 right-1/4 w-96 h-96 bg-indigo-50/50 dark:bg-indigo-900/10 rounded-full blur-[100px] pointer-events-none" />
 
@@ -284,7 +295,8 @@ export function WorkspacePage() {
                 height="100%"
                 width="100%"
                 defaultLanguage="typescript"
-                theme={isDarkMode ? 'vs-dark' : 'light'}
+                theme={isDarkMode ? 'velocis-dark' : 'light'}
+                beforeMount={handleEditorWillMount}
                 value={codeExample}
                 options={{
                   fontFamily: 'JetBrains Mono, monospace',
