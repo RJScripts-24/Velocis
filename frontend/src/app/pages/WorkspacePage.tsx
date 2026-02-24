@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChevronDown, Shield, Send, Paperclip, FileCode, Sun, Moon, AlertCircle, Lightbulb, Info, Home, Folder, Sparkles, Zap, CheckCircle2, Activity } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router';
+import Editor from '@monaco-editor/react';
 
 const codeExample = `import { Controller, Post, Body, UseGuards, Req } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
@@ -166,7 +167,7 @@ export function WorkspacePage() {
 
   return (
     <div className={`${themeClass} w-full h-full`}>
-      <div className="h-screen flex flex-col bg-zinc-50 dark:bg-slate-900 font-['Geist_Sans',_'Inter',_sans-serif] overflow-hidden transition-colors duration-300 relative">
+      <div className="h-screen flex flex-col bg-zinc-50 dark:bg-[#010308] font-['Geist_Sans',_'Inter',_sans-serif] overflow-hidden transition-colors duration-300 relative">
 
         {/* Dark Mode Radial & Noise Overlays */}
         {isDarkMode && (
@@ -278,63 +279,30 @@ export function WorkspacePage() {
             </div>
 
             {/* Editor Area */}
-            <div className="flex-1 overflow-auto bg-transparent p-2 sm:p-4 relative z-10">
-              <pre className="text-[13px] leading-[1.65] font-['JetBrains_Mono',_monospace]">
-                {codeExample.split('\n').map((line, index) => {
-                  const lineNumber = index + 1;
-                  const annotation = annotations.find(a => a.line === lineNumber);
-
-                  return (
-                    <div
-                      key={index}
-                      className="flex items-start group relative transition-colors duration-150 rounded-md"
-                      onMouseEnter={() => annotation && setHoveredLine(lineNumber)}
-                      onMouseLeave={() => setHoveredLine(null)}
-                    >
-                      {/* Line number */}
-                      <span className="inline-block w-10 text-right mr-4 sm:mr-6 select-none flex-shrink-0 text-zinc-300 dark:text-slate-600 group-hover:text-zinc-400 dark:group-hover:text-slate-500 transition-colors">
-                        {lineNumber}
-                      </span>
-
-                      {/* Annotation marker */}
-                      {annotation && (
-                        <div className="absolute left-0 top-0 w-[3px] h-full rounded-full overflow-hidden">
-                          {annotation.type === 'warning' && <div className="w-full h-full bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.6)] dark:shadow-[0_0_8px_rgba(99,102,241,0.4)]" />}
-                          {annotation.type === 'suggestion' && <div className="w-full h-full bg-emerald-400 dark:bg-emerald-500" />}
-                          {annotation.type === 'info' && <div className="w-full h-full bg-sky-400 dark:bg-sky-500" />}
-                        </div>
-                      )}
-
-                      {/* Code */}
-                      <span className={`flex-1 px-2 py-0.5 rounded-md transition-all ${annotation ? 'bg-indigo-50/80 dark:bg-indigo-500/10 text-zinc-900 dark:text-slate-200 font-medium shadow-[inset_2px_0_0_rgba(99,102,241,0.2)] dark:shadow-[inset_2px_0_0_rgba(99,102,241,0.4)]' : 'text-zinc-700 dark:text-slate-300 hover:bg-zinc-100/50 dark:hover:bg-slate-800/50'}`}>
-                        {line || ' '}
-                      </span>
-
-                      {/* Tooltip on hover */}
-                      {annotation && hoveredLine === lineNumber && (
-                        <motion.div
-                          initial={{ opacity: 0, scale: 0.95, y: -4 }}
-                          animate={{ opacity: 1, scale: 1, y: 0 }}
-                          className="absolute left-10 sm:left-16 top-full mt-1 z-20 rounded-xl p-3 shadow-xl max-w-sm border backdrop-blur-md dark:border-slate-700"
-                          style={{
-                            backgroundColor: isDarkMode ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.98)',
-                            borderColor: annotation.type === 'warning' ? (isDarkMode ? '#312e81' : '#e0e7ff') : annotation.type === 'suggestion' ? (isDarkMode ? '#064e3b' : '#d1fae5') : (isDarkMode ? '#0c4a6e' : '#e0f2fe')
-                          }}
-                        >
-                          <div className="flex items-start gap-2.5">
-                            {annotation.type === 'warning' && <AlertCircle className="w-4 h-4 mt-0.5 text-indigo-500 dark:text-indigo-400 shrink-0" />}
-                            {annotation.type === 'suggestion' && <Lightbulb className="w-4 h-4 mt-0.5 text-emerald-500 dark:text-emerald-400 shrink-0" />}
-                            {annotation.type === 'info' && <Info className="w-4 h-4 mt-0.5 text-sky-500 dark:text-sky-400 shrink-0" />}
-                            <p className="text-[13px] text-zinc-700 dark:text-slate-300 leading-relaxed font-['Geist_Sans',_'Inter',_sans-serif]">
-                              {annotation.message}
-                            </p>
-                          </div>
-                        </motion.div>
-                      )}
-                    </div>
-                  );
-                })}
-              </pre>
+            <div className="flex-1 overflow-auto bg-transparent relative z-10 pt-2 pb-0">
+              <Editor
+                height="100%"
+                width="100%"
+                defaultLanguage="typescript"
+                theme={isDarkMode ? 'vs-dark' : 'light'}
+                value={codeExample}
+                options={{
+                  fontFamily: 'JetBrains Mono, monospace',
+                  fontSize: 13,
+                  lineHeight: 1.65,
+                  minimap: { enabled: false },
+                  scrollBeyondLastLine: false,
+                  smoothScrolling: true,
+                  cursorBlinking: 'smooth',
+                  padding: { top: 16 },
+                  renderLineHighlight: 'all',
+                  scrollbar: {
+                    verticalScrollbarSize: 8,
+                    horizontalScrollbarSize: 8,
+                  },
+                }}
+                className="transition-colors duration-300"
+              />
             </div>
           </div>
 
