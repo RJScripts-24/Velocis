@@ -125,6 +125,7 @@ export function InfrastructurePage() {
   const [environment, setEnvironment] = useState<'production' | 'staging' | 'preview'>('production');
   const [monthlyCost, setMonthlyCost] = useState(18.42);
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isWhyInfraExpanded, setIsWhyInfraExpanded] = useState(false);
 
   const themeClass = isDarkMode ? 'dark' : '';
 
