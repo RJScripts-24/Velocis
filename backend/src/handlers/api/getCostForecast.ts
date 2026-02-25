@@ -85,7 +85,7 @@ import {
   type AwsResourceEstimate,
   type AwsEnvironment,
   type DetectedAwsPattern,
-} from "../predictor/generateIac";
+} from "../../functions/predictor/generateIac";
 import { logger } from "../../utils/logger";
 import { config } from "../../utils/config";
 

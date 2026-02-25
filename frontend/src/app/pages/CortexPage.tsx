@@ -2,7 +2,7 @@
 
 import { useState, useRef, useMemo, Suspense } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { Html, MapControls, Grid, Line, RoundedBox } from '@react-three/drei';
+import { Html, MapControls, Grid, RoundedBox, Text } from '@react-three/drei';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ChevronLeft, Search, Shield, TestTube2, Eye, RefreshCw,
@@ -82,15 +82,31 @@ function ServiceNode({
 }) {
   const meshRef = useRef<THREE.Mesh>(null!);
   const glowRef = useRef<THREE.Mesh>(null!);
+  const boxMatRef = useRef<THREE.MeshStandardMaterial>(null!);
+  const [hovered, setHovered] = useState(false);
+
   const isCrit = svc.id === CRITICAL_ID;
+  const isHealthy = svc.status === 'healthy';
   const cfg = STATUS[svc.status];
   const sparkC = svc.status === 'critical' ? '#ef4444' : svc.status === 'warning' ? '#f59e0b' : '#22c55e';
 
-  // Animate the critical node glow
+  // Dynamic parameters based on ID to group sizes
+  const height = 0.4 + (svc.id % 3) * 0.4;
+
+  // Materials that communicate state explicitly independent of Dark/Light for the 3D meshes
+  const matColor = '#1e293b'; // sleek dark slate
+  const emissiveColor = isCrit ? '#ef4444' : svc.status === 'warning' ? '#f59e0b' : '#10b981';
+  const baseEmissiveIntensity = isCrit ? 1.5 : (hovered || isSelected) ? 0.8 : 0.2;
+
+  // Animate the critical node glow pulsating and position
   useFrame((state) => {
     if (meshRef.current) {
-      // Subtle float
-      meshRef.current.position.y = svc.pos[1] + Math.sin(state.clock.elapsedTime * 0.8 + svc.id) * 0.06;
+      // Subtle float, accounting for dynamic height offset
+      meshRef.current.position.y = (height / 2 - 0.25) + Math.sin(state.clock.elapsedTime * 0.8 + svc.id) * 0.06;
+    }
+    if (boxMatRef.current && isCrit) {
+      // Pulse bright red emissive glow
+      boxMatRef.current.emissiveIntensity = 2 + Math.sin(state.clock.elapsedTime * 4) * 1.5;
     }
     if (glowRef.current && isCrit) {
       const s = 1 + Math.sin(state.clock.elapsedTime * 2.5) * 0.15;
@@ -98,16 +114,6 @@ function ServiceNode({
       (glowRef.current.material as THREE.MeshBasicMaterial).opacity = 0.12 + Math.sin(state.clock.elapsedTime * 2.5) * 0.08;
     }
   });
-
-  // Materials
-  const matColor = isCrit
-    ? (isDark ? '#2a1215' : '#fef2f2')
-    : svc.status === 'warning'
-      ? (isDark ? '#27200f' : '#fffbeb')
-      : (isDark ? '#0f1318' : '#f9fafb');
-
-  const emissiveColor = isCrit ? '#ef4444' : svc.status === 'warning' ? '#f59e0b' : '#000000';
-  const emissiveIntensity = isCrit ? 0.6 : svc.status === 'warning' ? 0.15 : 0;
 
   return (
     <group position={[svc.pos[0], svc.pos[1], svc.pos[2]]}>
@@ -122,21 +128,22 @@ function ServiceNode({
       {/* 3D Box */}
       <RoundedBox
         ref={meshRef}
-        args={[3, 0.5, 2]}
+        args={[3, height, 2]}
         radius={0.08}
         smoothness={4}
         castShadow
         receiveShadow
         onClick={(e) => { e.stopPropagation(); onSelect(isSelected ? null : svc.id); }}
-        onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
-        onPointerOut={() => { document.body.style.cursor = 'default'; }}
+        onPointerOver={() => { document.body.style.cursor = 'pointer'; setHovered(true); }}
+        onPointerOut={() => { document.body.style.cursor = 'default'; setHovered(false); }}
       >
         <meshStandardMaterial
+          ref={boxMatRef}
           color={matColor}
           emissive={emissiveColor}
-          emissiveIntensity={emissiveIntensity}
-          roughness={0.65}
-          metalness={0.15}
+          emissiveIntensity={baseEmissiveIntensity}
+          roughness={0.2}
+          metalness={0.8}
         />
       </RoundedBox>
 
@@ -150,62 +157,81 @@ function ServiceNode({
 
       {/* ── HTML OVERLAY (always billboard / face camera) ── */}
       <Html
-        position={[0, 0.8, 0]}
+        position={[0, height / 2 + 0.5, 0]}
         center
-        distanceFactor={14}
+        distanceFactor={18}
         style={{ pointerEvents: 'auto', userSelect: 'none' }}
         transform={false}
       >
         <div
-          className="relative"
-          style={{ width: 170, fontFamily: "'Inter','Geist Sans',sans-serif" }}
+          className="relative transition-all"
+          style={{ width: !isCrit && !hovered && !isSelected ? 'auto' : 150, fontFamily: "'Inter','Geist Sans',sans-serif" }}
           onClick={(e) => { e.stopPropagation(); onSelect(isSelected ? null : svc.id); }}
         >
-          {/* Card */}
-          <div
-            style={{
-              background: isDark ? '#0e1117' : '#ffffff',
-              border: `1.5px solid ${isSelected ? cfg.dot : (isDark ? '#1e2535' : '#e5e7eb')}`,
-              borderRadius: 10,
-              padding: '10px 12px',
-              boxShadow: isSelected
-                ? `0 0 0 2px ${cfg.dot}55, 0 6px 24px rgba(0,0,0,0.5)`
-                : isDark
-                  ? '0 4px 16px rgba(0,0,0,0.5)'
-                  : '0 4px 16px rgba(0,0,0,0.12)',
-              cursor: 'pointer',
-              transition: 'border-color 0.15s',
-            }}
-          >
-            {/* Name row */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 7 }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: cfg.dot, boxShadow: `0 0 6px ${cfg.dot}`, flexShrink: 0 }} />
-              <span style={{ fontSize: 12, fontWeight: 600, color: isDark ? '#f1f5f9' : '#111827', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {svc.name}
-              </span>
+          {!isCrit && !hovered && !isSelected ? (
+            /* Hyper-minimalist Badge for unhovered healthy/warning nodes */
+            <div
+              className={`flex items-center gap-2 px-2 py-1 rounded-full border shadow-sm text-[10px] font-mono cursor-pointer transition-colors ${isDark ? 'bg-zinc-800 border-zinc-700 text-zinc-300' : 'bg-white border-gray-200 text-gray-700'
+                }`}
+              style={{
+                backgroundColor: isDark ? '#27272a' : '#ffffff',
+                borderColor: isDark ? '#3f3f46' : '#e5e7eb',
+                color: isDark ? '#d4d4d8' : '#374151'
+              }}
+              onPointerEnter={() => setHovered(true)}
+            >
+              <div style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: cfg.dot }} />
+              {svc.name}
             </div>
+          ) : (
+            /* Full Detailed Card */
+            <div
+              style={{
+                background: isDark ? 'rgba(14,17,23,0.92)' : 'rgba(255,255,255,0.95)',
+                backdropFilter: 'blur(12px)',
+                border: `1.5px solid ${isSelected ? cfg.dot : (isDark ? '#1e2535' : '#e5e7eb')}`,
+                borderRadius: 8,
+                padding: '10px 12px',
+                boxShadow: isSelected
+                  ? `0 0 0 2px ${cfg.dot}55, 0 6px 24px rgba(0,0,0,0.5)`
+                  : isDark
+                    ? '0 4px 16px rgba(0,0,0,0.5)'
+                    : '0 4px 16px rgba(0,0,0,0.12)',
+                cursor: 'pointer',
+                transition: 'border-color 0.15s',
+              }}
+              onPointerLeave={() => setHovered(false)}
+            >
+              {/* Name row */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 7 }}>
+                <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: cfg.dot, boxShadow: `0 0 6px ${cfg.dot}`, flexShrink: 0 }} />
+                <span style={{ fontSize: 11, fontWeight: 600, color: isDark ? '#f1f5f9' : '#111827', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {svc.name}
+                </span>
+              </div>
 
-            {/* Status */}
-            <div style={{
-              display: 'inline-flex', alignItems: 'center', gap: 4,
-              padding: '2px 7px', borderRadius: 5, marginBottom: 8,
-              backgroundColor: cfg.bg, color: cfg.text, fontSize: 10, fontWeight: 700,
-            }}>
-              {svc.status === 'critical' && <AlertCircle style={{ width: 10, height: 10 }} />}
-              {svc.status === 'warning' && <AlertTriangle style={{ width: 10, height: 10 }} />}
-              {svc.status === 'healthy' && <CheckCircle style={{ width: 10, height: 10 }} />}
-              {cfg.label}
+              {/* Status */}
+              <div style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+                padding: '2px 6px', borderRadius: 4, marginBottom: 8,
+                backgroundColor: cfg.bg, color: cfg.text, fontSize: 9, fontWeight: 700,
+              }}>
+                {svc.status === 'critical' && <AlertCircle style={{ width: 9, height: 9 }} />}
+                {svc.status === 'warning' && <AlertTriangle style={{ width: 9, height: 9 }} />}
+                {svc.status === 'healthy' && <CheckCircle style={{ width: 9, height: 9 }} />}
+                {cfg.label}
+              </div>
+
+              {/* Telemetry */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, fontFamily: 'monospace', color: isDark ? '#9ca3af' : '#6b7280', marginBottom: 6 }}>
+                <span>p95 <strong style={{ color: isDark ? '#f8fafc' : '#111827' }}>{svc.p95}</strong></span>
+                <span>err <strong style={{ color: cfg.text }}>{svc.errRate}</strong></span>
+              </div>
+
+              {/* Sparkline */}
+              <Sparkline data={svc.sparkline} color={sparkC} />
             </div>
-
-            {/* Telemetry */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, fontFamily: 'monospace', color: isDark ? '#6b7280' : '#9ca3af', marginBottom: 6 }}>
-              <span>p95 <strong style={{ color: isDark ? '#e2e8f0' : '#111827' }}>{svc.p95}</strong></span>
-              <span>err <strong style={{ color: cfg.text }}>{svc.errRate}</strong></span>
-            </div>
-
-            {/* Sparkline */}
-            <Sparkline data={svc.sparkline} color={sparkC} />
-          </div>
+          )}
 
           {/* Fortress badge */}
           {isCrit && filters.fortress && (
@@ -218,6 +244,7 @@ function ServiceNode({
                 border: `1px solid ${isDark ? 'rgba(245,158,11,0.5)' : '#fcd34d'}`,
                 color: isDark ? '#fbbf24' : '#92400e',
                 boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+                zIndex: 10,
               }}
             >
               <Loader2 style={{ width: 11, height: 11, animation: 'spin 1s linear infinite' }} />
@@ -235,42 +262,58 @@ function ServiceNode({
 ═══════════════════════════════════════════ */
 function Connections({ isDark }: { isDark: boolean }) {
   const lines = useMemo(() => {
-    const result: { points: [number, number, number][]; color: string; width: number }[] = [];
+    const result: { curve: THREE.QuadraticBezierCurve3; color: string; emissive: string; intensity: number; thickness: number }[] = [];
     services.forEach(svc => {
       svc.connections.forEach(tid => {
         const tgt = services.find(s => s.id === tid);
         if (!tgt) return;
         const key = `${svc.id}-${tid}`;
         const isBlast = BLAST_PAIRS.has(key);
-        // orthogonal routing: go X, then Z
+
+        // Node heights to compute curve start/end
+        const h0 = 0.4 + (svc.id % 3) * 0.4;
+        const h1 = 0.4 + (tgt.id % 3) * 0.4;
+
+        const top0 = svc.pos[1] + h0 - 0.2;
+        const top1 = tgt.pos[1] + h1 - 0.2;
+
         const midX = (svc.pos[0] + tgt.pos[0]) / 2;
-        const y = 0.05;
+        const midZ = (svc.pos[2] + tgt.pos[2]) / 2;
+        const dist = Math.hypot(svc.pos[0] - tgt.pos[0], svc.pos[2] - tgt.pos[2]);
+        const archHeight = Math.max(top0, top1) + dist * 0.3 + 1.0;
+
+        const start = new THREE.Vector3(svc.pos[0], top0, svc.pos[2]);
+        const mid = new THREE.Vector3(midX, archHeight, midZ);
+        const end = new THREE.Vector3(tgt.pos[0], top1, tgt.pos[2]);
+
         result.push({
-          points: [
-            [svc.pos[0], y, svc.pos[2]],
-            [midX, y, svc.pos[2]],
-            [midX, y, tgt.pos[2]],
-            [tgt.pos[0], y, tgt.pos[2]],
-          ],
-          color: isBlast ? '#ef4444' : (isDark ? '#374151' : '#c0c4cc'),
-          width: isBlast ? 2.5 : 1.2,
+          curve: new THREE.QuadraticBezierCurve3(start, mid, end),
+          color: isBlast ? '#ef4444' : '#3b82f6',
+          emissive: isBlast ? '#ef4444' : '#1d4ed8',
+          intensity: isBlast ? 3.0 : 0.8,
+          thickness: isBlast ? 0.1 : 0.04,
         });
       });
     });
     return result;
-  }, [isDark]);
+  }, []);
 
   return (
     <>
       {lines.map((l, i) => (
-        <Line
-          key={i}
-          points={l.points}
-          color={l.color}
-          lineWidth={l.width}
-          transparent
-          opacity={l.color === '#ef4444' ? 0.9 : 0.45}
-        />
+        <mesh key={i}>
+          <tubeGeometry args={[l.curve, 32, l.thickness, 8, false]} />
+          <meshStandardMaterial
+            color={l.color}
+            emissive={l.emissive}
+            emissiveIntensity={l.intensity}
+            transparent={true}
+            opacity={l.color === '#ef4444' ? 1.0 : 0.4}
+            roughness={0.2}
+            metalness={0.8}
+            depthWrite={false}
+          />
+        </mesh>
       ))}
     </>
   );
@@ -330,19 +373,18 @@ function SwimlanePlatform({
         <boxGeometry args={[size[0], 0.1, 0.08]} />
         <meshStandardMaterial color={color} transparent opacity={0.35} />
       </mesh>
-      {/* Label */}
-      <Html
-        position={[-size[0] / 2 + 0.4, 0.02, -size[1] / 2 + 0.4]}
-        transform={false}
-        style={{ pointerEvents: 'none' }}
+      {/* Label embedded in floor */}
+      <Text
+        position={[0, 0.01, 0]}
+        rotation={[-Math.PI / 2, 0, 0]}
+        fontSize={1.8}
+        color="#9ca3af"
+        fillOpacity={0.2}
+        letterSpacing={0.1}
+        fontWeight="bold"
       >
-        <span style={{
-          fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase',
-          color: color, opacity: 0.7, whiteSpace: 'nowrap', fontFamily: "'Inter',sans-serif",
-        }}>
-          ⬡ {label}
-        </span>
-      </Html>
+        {label.toUpperCase()}
+      </Text>
     </group>
   );
 }

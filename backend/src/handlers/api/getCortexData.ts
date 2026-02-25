@@ -78,7 +78,7 @@ import {
   type CortexEdge,
   type NodeType,
   type NodeStatus,
-} from "../cortex/graphBuilder";
+} from "../../functions/cortex/graphBuilder";
 import { logger } from "../../utils/logger";
 import { config } from "../../utils/config";
 

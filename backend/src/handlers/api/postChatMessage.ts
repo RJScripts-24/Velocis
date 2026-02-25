@@ -44,10 +44,31 @@ import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 import { randomUUID } from "crypto";
 
 // ─────────────────────────────────────────────
+// Centralized service imports
+// All high-level calls go through these wrappers for consistent
+// logging, error handling, and testability.
+// ─────────────────────────────────────────────
+
+import { config } from "../../utils/config";
+import { logger } from "../../utils/logger";
+import {
+  invokeClaude as centralInvokeClaude,
+  invokeClaudeStream,
+  BEDROCK_MODELS,
+  BedrockMessage,
+} from "../../services/aws/bedrockClient";
+import { translateText } from "../../services/aws/translate";
+import {
+  dynamoClient as dynamo,
+  DYNAMO_TABLES,
+  DynamoTableName,
+} from "../../services/database/dynamoClient";
+
+// ─────────────────────────────────────────────
 // Types & Interfaces
 // ─────────────────────────────────────────────
 
-type SupportedLanguage = "en" | "hi" | "ta" | "te";
+type SupportedLanguage = "en" | "hi" | "ta" | "te" | "kn" | "mr" | "bn";
 
 interface ChatMessageRequest {
   repoId: string;
@@ -98,24 +119,31 @@ interface ConversationMessage {
 
 // ─────────────────────────────────────────────
 // AWS Client Initialization
+// Raw SDK clients are kept to satisfy the import requirements and allow
+// future low-level overrides. All actual invocations go through the
+// centralized service wrappers imported above.
 // ─────────────────────────────────────────────
 
-const REGION = process.env.AWS_REGION || "us-east-1";
+const REGION = config.AWS_REGION;
 
-const bedrockClient = new BedrockRuntimeClient({ region: REGION });
-const translateClient = new TranslateClient({ region: REGION });
-const dynamoClient = new DynamoDBClient({ region: REGION });
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _bedrockSdkClient = new BedrockRuntimeClient({ region: REGION });     // reserved — use centralInvokeClaude / invokeClaudeStream
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _translateSdkClient = new TranslateClient({ region: REGION });        // reserved — use translateText
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _dynamoSdkClient = new DynamoDBClient({ region: REGION });            // reserved — use dynamo.*
 
 // ─────────────────────────────────────────────
-// Environment Variables
+// Table Names & Model IDs (from centralized config)
 // ─────────────────────────────────────────────
 
-const CONVERSATIONS_TABLE = process.env.CONVERSATIONS_TABLE!;
-const REPOS_TABLE = process.env.REPOS_TABLE!;
-const CODEBASE_CONTEXT_TABLE = process.env.CODEBASE_CONTEXT_TABLE!;
-const CLAUDE_MODEL_ID =
-  process.env.CLAUDE_MODEL_ID || "anthropic.claude-3-5-sonnet-20241022-v2:0";
-const WEBSOCKET_ENDPOINT = process.env.WEBSOCKET_ENDPOINT; // e.g. https://xyz.execute-api.us-east-1.amazonaws.com/prod
+const CONVERSATIONS_TABLE = DYNAMO_TABLES.AI_ACTIVITY;
+const REPOS_TABLE = DYNAMO_TABLES.REPOSITORIES;
+// CODEBASE_CONTEXT_TABLE has no config equivalent yet — kept as env var
+const CODEBASE_CONTEXT_TABLE =
+  (process.env.CODEBASE_CONTEXT_TABLE || "") as DynamoTableName;
+const CLAUDE_MODEL_ID = BEDROCK_MODELS.CLAUDE_SONNET;
+const WEBSOCKET_ENDPOINT = process.env.WEBSOCKET_ENDPOINT;
 
 // ─────────────────────────────────────────────
 // Constants
@@ -129,6 +157,9 @@ const LANGUAGE_NAMES: Record<SupportedLanguage, string> = {
   hi: "Hindi",
   ta: "Tamil",
   te: "Telugu",
+  kn: "Kannada",
+  mr: "Marathi",
+  bn: "Bengali",
 };
 
 // ─────────────────────────────────────────────
@@ -168,7 +199,7 @@ ${codeSection}`;
 };
 
 // ─────────────────────────────────────────────
-// DynamoDB Helpers
+// DynamoDB Helpers — via centralized dynamo client
 // ─────────────────────────────────────────────
 
 /**
@@ -177,28 +208,26 @@ ${codeSection}`;
 const getConversationHistory = async (
   sessionId: string
 ): Promise<ConversationMessage[]> => {
-  const result = await dynamoClient.send(
-    new QueryCommand({
-      TableName: CONVERSATIONS_TABLE,
-      KeyConditionExpression: "sessionId = :sid",
-      ExpressionAttributeValues: marshall({ ":sid": sessionId }),
-      ScanIndexForward: false, // newest first
-      Limit: MAX_CONVERSATION_HISTORY,
-    })
-  );
+  const result = await dynamo.query<Record<string, unknown>>({
+    tableName: CONVERSATIONS_TABLE,
+    keyConditionExpression: "sessionId = :sid",
+    expressionAttributeValues: { ":sid": sessionId },
+    scanIndexForward: false, // newest first
+    limit: MAX_CONVERSATION_HISTORY,
+  });
 
-  if (!result.Items || result.Items.length === 0) return [];
+  if (!result.items.length) return [];
 
-  const messages = result.Items.map((item) => unmarshall(item)).reverse();
+  // Reverse so oldest is first (Bedrock requires chronological order)
+  const messages = [...result.items].reverse();
 
-  // Flatten into Bedrock-compatible format
   const history: ConversationMessage[] = [];
   for (const msg of messages) {
     if (msg.userMessage) {
-      history.push({ role: "user", content: msg.userMessage });
+      history.push({ role: "user", content: msg.userMessage as string });
     }
     if (msg.sentinelResponse) {
-      history.push({ role: "assistant", content: msg.sentinelResponse });
+      history.push({ role: "assistant", content: msg.sentinelResponse as string });
     }
   }
 
@@ -215,23 +244,20 @@ const getCodeContext = async (
   if (!filePath) return null;
 
   try {
-    const result = await dynamoClient.send(
-      new GetItemCommand({
-        TableName: CODEBASE_CONTEXT_TABLE,
-        Key: marshall({ repoId, filePath }),
-      })
-    );
+    const item = await dynamo.get<Record<string, unknown>>({
+      tableName: CODEBASE_CONTEXT_TABLE,
+      key: { repoId, filePath },
+    });
 
-    if (!result.Item) return null;
+    if (!item) return null;
 
-    const item = unmarshall(result.Item);
     return {
-      filePath: item.filePath,
-      content: item.content,
-      language: item.language || "typescript",
+      filePath: item.filePath as string,
+      content: item.content as string,
+      language: (item.language as string) || "typescript",
     };
   } catch (err) {
-    console.warn("Could not fetch code context:", err);
+    logger.warn({ msg: "Could not fetch code context", error: String(err) });
     return null;
   }
 };
@@ -246,70 +272,57 @@ const saveConversationTurn = async (
   sentinelResponse: string,
   messageId: string
 ): Promise<void> => {
-  await dynamoClient.send(
-    new PutItemCommand({
-      TableName: CONVERSATIONS_TABLE,
-      Item: marshall({
-        sessionId,
-        messageId,
-        repoId,
-        userMessage,
-        sentinelResponse,
-        timestamp: new Date().toISOString(),
-        ttl: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30, // 30 day TTL
-      }),
-    })
-  );
+  await dynamo.upsert({
+    tableName: CONVERSATIONS_TABLE,
+    key: "sessionId",
+    sortKey: "messageId",
+    item: {
+      sessionId,
+      messageId,
+      repoId,
+      userMessage,
+      sentinelResponse,
+      timestamp: new Date().toISOString(),
+      ttl: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30, // 30 day TTL
+    },
+  });
 };
 
 // ─────────────────────────────────────────────
-// Bedrock (Claude 3.5 Sonnet) Invocation
+// Bedrock (Claude 3.5 Sonnet) — via centralized bedrockClient
 // ─────────────────────────────────────────────
 
 /**
- * Calls Claude 3.5 Sonnet via Amazon Bedrock and returns the full response.
+ * Calls Claude 3.5 Sonnet via the centralized bedrockClient.
+ * Routes through centralInvokeClaude for consistent logging and error handling.
  */
-const invokeClaude = async (
+const callClaude = async (
   systemPrompt: string,
   conversationHistory: ConversationMessage[],
   userMessage: string
 ): Promise<string> => {
-  const messages = [
+  const messages: BedrockMessage[] = [
     ...conversationHistory.map((m) => ({
-      role: m.role,
+      role: m.role as "user" | "assistant",
       content: m.content,
     })),
-    {
-      role: "user",
-      content: userMessage,
-    },
+    { role: "user" as const, content: userMessage },
   ];
 
-  const payload = {
-    anthropic_version: "bedrock-2023-05-31",
-    max_tokens: 4096,
-    system: systemPrompt,
+  const response = await centralInvokeClaude({
+    systemPrompt,
     messages,
-    temperature: 0.3, // lower temp = more precise, deterministic code reviews
-    top_p: 0.9,
-  };
-
-  const command = new InvokeModelCommand({
-    modelId: CLAUDE_MODEL_ID,
-    contentType: "application/json",
-    accept: "application/json",
-    body: JSON.stringify(payload),
+    temperature: 0.3,
+    topP: 0.9,
   });
 
-  const response = await bedrockClient.send(command);
-  const responseBody = JSON.parse(new TextDecoder().decode(response.body));
-
-  return responseBody.content?.[0]?.text || "";
+  return response.text;
 };
 
 /**
  * Streams Claude's response token-by-token to a WebSocket connection.
- * Used when connectionId is provided (WebSocket mode).
+ * Consumes the async generator from invokeClaudeStream (bedrockClient.ts)
+ * and forwards each token to the client via ApiGatewayManagementApiClient.
  */
 const streamClaudeToWebSocket = async (
   systemPrompt: string,
@@ -326,65 +339,37 @@ const streamClaudeToWebSocket = async (
     endpoint: WEBSOCKET_ENDPOINT,
   });
 
-  const messages = [
+  const messages: BedrockMessage[] = [
     ...conversationHistory.map((m) => ({
-      role: m.role,
+      role: m.role as "user" | "assistant",
       content: m.content,
     })),
-    { role: "user", content: userMessage },
+    { role: "user" as const, content: userMessage },
   ];
-
-  const payload = {
-    anthropic_version: "bedrock-2023-05-31",
-    max_tokens: 4096,
-    system: systemPrompt,
-    messages,
-    temperature: 0.3,
-    top_p: 0.9,
-  };
-
-  const command = new InvokeModelWithResponseStreamCommand({
-    modelId: CLAUDE_MODEL_ID,
-    contentType: "application/json",
-    accept: "application/json",
-    body: JSON.stringify(payload),
-  });
-
-  const response = await bedrockClient.send(command);
 
   let fullResponse = "";
 
-  if (response.body) {
-    for await (const event of response.body) {
-      if (event.chunk?.bytes) {
-        const chunk = JSON.parse(new TextDecoder().decode(event.chunk.bytes));
-
-        if (chunk.type === "content_block_delta" && chunk.delta?.text) {
-          const token = chunk.delta.text;
-          fullResponse += token;
-
-          // Push token to WebSocket client
-          await wsClient.send(
-            new PostToConnectionCommand({
-              ConnectionId: connectionId,
-              Data: JSON.stringify({
-                type: "token",
-                content: token,
-              }),
-            })
-          );
-        }
-
-        if (chunk.type === "message_stop") {
-          // Signal end of stream
-          await wsClient.send(
-            new PostToConnectionCommand({
-              ConnectionId: connectionId,
-              Data: JSON.stringify({ type: "stream_end" }),
-            })
-          );
-        }
-      }
+  for await (const chunk of invokeClaudeStream({
+    systemPrompt,
+    messages,
+    temperature: 0.3,
+    topP: 0.9,
+  })) {
+    if (chunk.isComplete) {
+      await wsClient.send(
+        new PostToConnectionCommand({
+          ConnectionId: connectionId,
+          Data: JSON.stringify({ type: "stream_end" }),
+        })
+      );
+    } else if (chunk.text) {
+      fullResponse += chunk.text;
+      await wsClient.send(
+        new PostToConnectionCommand({
+          ConnectionId: connectionId,
+          Data: JSON.stringify({ type: "token", content: chunk.text }),
+        })
+      );
     }
   }
 
@@ -392,12 +377,13 @@ const streamClaudeToWebSocket = async (
 };
 
 // ─────────────────────────────────────────────
-// Amazon Translate — Regional Mentorship Hub
+// Amazon Translate — Regional Mentorship Hub — via centralized translateText
 // ─────────────────────────────────────────────
 
 /**
  * Translates Sentinel's response into the requested regional language.
  * Only translates non-code content (preserves code blocks).
+ * Routes through translateText from translate.ts.
  */
 const translateResponse = async (
   text: string,
@@ -418,16 +404,17 @@ const translateResponse = async (
       if (!part.trim()) return part;
 
       try {
-        const command = new TranslateTextCommand({
-          Text: part,
-          SourceLanguageCode: "en",
-          TargetLanguageCode: targetLanguage,
+        const result = await translateText({
+          text: part,
+          targetLanguage: targetLanguage as any,
+          sourceLanguage: "en" as any,
         });
-
-        const result = await translateClient.send(command);
-        return result.TranslatedText || part;
+        return result.translatedText;
       } catch (err) {
-        console.warn(`Translation failed for part, returning original:`, err);
+        logger.warn({
+          msg: "Translation failed for part, returning original",
+          error: String(err),
+        });
         return part;
       }
     })
@@ -527,7 +514,7 @@ const validateRequest = (body: unknown): ChatMessageRequest => {
     throw new Error("message exceeds 10,000 character limit.");
   }
 
-  const supportedLanguages: SupportedLanguage[] = ["en", "hi", "ta", "te"];
+  const supportedLanguages: SupportedLanguage[] = ["en", "hi", "ta", "te", "kn", "mr", "bn"];
   const language: SupportedLanguage =
     req.language && supportedLanguages.includes(req.language)
       ? req.language
@@ -548,8 +535,7 @@ const validateRequest = (body: unknown): ChatMessageRequest => {
 // ─────────────────────────────────────────────
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin":
-    process.env.ALLOWED_ORIGIN || "https://velocis.dev",
+  "Access-Control-Allow-Origin": config.ALLOWED_ORIGINS[0] || "https://velocis.dev",
   "Access-Control-Allow-Headers": "Content-Type,Authorization",
   "Access-Control-Allow-Methods": "POST,OPTIONS",
   "Content-Type": "application/json",
@@ -563,7 +549,8 @@ export const handler = async (
   event: APIGatewayProxyEvent,
   _context: Context
 ): Promise<APIGatewayProxyResult> => {
-  console.log("Sentinel postChatMessage invoked", {
+  logger.info({
+    msg: "Sentinel postChatMessage invoked",
     requestId: event.requestContext.requestId,
     path: event.path,
   });
@@ -584,7 +571,7 @@ export const handler = async (
     request = validateRequest(rawBody);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Invalid request";
-    console.error("Validation error:", message);
+    logger.error({ msg: "Validation error", error: message });
     return {
       statusCode: 400,
       headers: corsHeaders,
@@ -602,9 +589,11 @@ export const handler = async (
       getCodeContext(repoId, filePath),
     ]);
 
-    console.log(
-      `Fetched ${conversationHistory.length} history messages. Code context: ${codeContext ? codeContext.filePath : "none"}`
-    );
+    logger.info({
+      msg: "Fetched conversation context",
+      historyCount: conversationHistory.length,
+      codeContext: codeContext ? codeContext.filePath : "none",
+    });
 
     // ── 3. Build System Prompt ─────────────────
     const systemPrompt = buildSystemPrompt(codeContext);
@@ -622,7 +611,7 @@ export const handler = async (
       );
     } else {
       // Standard REST mode
-      rawSentinelResponse = await invokeClaude(
+      rawSentinelResponse = await callClaude(
         systemPrompt,
         conversationHistory,
         message
@@ -636,9 +625,10 @@ export const handler = async (
     // ── 5. Translate if needed (Regional Mentorship Hub) ──
     let translatedContent: string | undefined;
     if (language !== "en") {
-      console.log(
-        `Translating Sentinel response to ${LANGUAGE_NAMES[language]}...`
-      );
+      logger.info({
+        msg: "Translating Sentinel response",
+        targetLanguage: LANGUAGE_NAMES[language],
+      });
       translatedContent = await translateResponse(rawSentinelResponse, language);
     }
 
@@ -669,11 +659,15 @@ export const handler = async (
       message,
       rawSentinelResponse,
       messageId
-    ).catch((err) => console.error("Failed to save conversation turn:", err));
-
-    console.log(
-      `Sentinel responded successfully. MessageId: ${messageId}, Issues found: ${issues.length}`
+    ).catch((err) =>
+      logger.error({ msg: "Failed to save conversation turn", error: String(err) })
     );
+
+    logger.info({
+      msg: "Sentinel responded successfully",
+      messageId,
+      issuesFound: issues.length,
+    });
 
     return {
       statusCode: 200,
@@ -683,7 +677,7 @@ export const handler = async (
   } catch (err: unknown) {
     const errorMessage =
       err instanceof Error ? err.message : "Internal server error";
-    console.error("Sentinel Lambda error:", err);
+    logger.error({ msg: "Sentinel Lambda error", error: String(err) });
 
     return {
       statusCode: 500,

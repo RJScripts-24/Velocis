@@ -95,9 +95,9 @@ jest.mock("../src/utils/config", () => ({
 // IMPORTS — After mocks are set up
 // ─────────────────────────────────────────────
 
-import { writeTests, WriteTestsParams } from "../src/functions/fortress/writeTests";
-import { executeTests, ExecuteTestsParams } from "../src/functions/fortress/executeTests";
-import { selfHeal, SelfHealParams } from "../src/functions/fortress/selfHeal";
+import { writeTests, WriteTestsInput as WriteTestsParams } from "../src/functions/fortress/writeTests";
+import { executeTests, ExecuteTestsInput as ExecuteTestsParams } from "../src/functions/fortress/executeTests";
+import { selfHeal, SelfHealInput as SelfHealParams } from "../src/functions/fortress/selfHeal";
 import { invokeLlama, invokeClaude } from "../src/services/aws/bedrockClient";
 import { repoOps } from "../src/services/github/repoOps";
 import { dynamoClient } from "../src/services/database/dynamoClient";

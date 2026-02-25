@@ -700,6 +700,29 @@ export const dynamoClient = {
 };
 
 // ─────────────────────────────────────────────
+// NAMED OPERATION ALIASES
+// Allow named function imports instead of going through the
+// dynamoClient object. Useful for fine-grained mocking in tests.
+// ─────────────────────────────────────────────
+
+/** Named alias for dynamoClient.upsert — write or create a DynamoDB item */
+export async function putItem(params: DynamoUpsertParams): Promise<void> {
+  return upsert(params);
+}
+
+/** Named alias for dynamoClient.get — fetch a DynamoDB item by primary key */
+export async function getItem<T>(params: DynamoGetParams): Promise<T | null> {
+  return get<T>(params);
+}
+
+/** Named alias for dynamoClient.update — partially update an existing DynamoDB item */
+export async function updateItem(
+  params: DynamoUpdateParams
+): Promise<Record<string, unknown> | undefined> {
+  return update(params);
+}
+
+// ─────────────────────────────────────────────
 // INTERNAL UTILITY: Build UpdateExpression
 // Converts a plain object into DynamoDB expression syntax
 // ─────────────────────────────────────────────

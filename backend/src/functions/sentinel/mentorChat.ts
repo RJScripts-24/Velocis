@@ -71,10 +71,11 @@ import {
 import { dynamoClient } from "../../services/database/dynamoClient";
 import { fetchFileContent } from "../../services/github/repoOps";
 import { translateText } from "../../services/aws/translate";
+import { invokeClaude } from "../../services/aws/bedrockClient";
 import { analyzeLogic } from "./analyzeLogic";
 import { logger } from "../../utils/logger";
 import { config } from "../../utils/config";
-import { stripMarkdownCodeBlocks } from "../../utils/codeExtractor";
+import { stripCodeFences as stripMarkdownCodeBlocks } from "../../utils/codeExtractor";
 import type {
   SupportedLanguage,
   ReviewFinding,
@@ -751,7 +752,11 @@ async function translateResponse(
         // Even indices are prose, odd indices are code blocks
         if (i % 2 === 1) return part; // Keep code blocks as-is
         if (!part.trim()) return part;
-        return translateText(part, "en", TRANSLATE_CODES[targetLanguage]);
+        return (await translateText({
+          text: part,
+          targetLanguage: TRANSLATE_CODES[targetLanguage] as any,
+          sourceLanguage: "en" as any,
+        })).translatedText;
       })
     );
     return translatedParts.join("");
@@ -1535,6 +1540,162 @@ export async function handleRestChat(input: RestChatInput): Promise<RestChatOutp
 // ─────────────────────────────────────────────────────────────────────────────
 // LAMBDA / API GATEWAY WEBSOCKET HANDLER EXPORT
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SIMPLIFIED REST / TEST API
+// handleMentorChat + buildMentorContext provide a non-WebSocket, non-streaming
+// entry point for REST callers and for unit tests. They use the shared
+// invokeClaude from bedrockClient.ts so tests can mock it cleanly.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface MentorChatInput {
+  connectionId: string;
+  repoId: string;
+  repoOwner?: string;
+  repoName?: string;
+  userId?: string;
+  accessToken?: string;
+  message: string;
+  language?: SupportedLanguage;
+  latestReview?: string;
+}
+
+export interface MentorChatOutput {
+  connectionId: string;
+  reply: string;
+  translatedReply?: string;
+  translationFailed?: boolean;
+  language: SupportedLanguage;
+}
+
+export interface BuildMentorContextInput {
+  repoId: string;
+  repoName?: string;
+  repoOwner?: string;
+  latestReview?: string;
+  language?: SupportedLanguage;
+}
+
+/**
+ * Builds the Sentinel system-prompt string for mentor chat sessions.
+ * Exported for direct use in tests and for REST-mode chat.
+ *
+ * @example
+ * const systemPrompt = buildMentorContext({ repoId, latestReview, language: "hi" });
+ */
+export function buildMentorContext(input: BuildMentorContextInput): string {
+  const {
+    repoId,
+    repoName = repoId,
+    repoOwner = "unknown",
+    latestReview,
+    language = "en",
+  } = input;
+
+  const minimalSession: ChatSession = {
+    sessionId: repoId,
+    connectionId: "rest",
+    repoId,
+    repoOwner,
+    repoName,
+    accessToken: "",
+    language,
+    messages: [],
+    sessionFindings: [],
+    learnedContext: latestReview
+      ? [`Latest review:\n${latestReview.slice(0, 1000)}`]
+      : [],
+    totalInputTokens: 0,
+    isGenerating: false,
+    createdAt: new Date().toISOString(),
+    lastActivityAt: new Date().toISOString(),
+  };
+
+  return buildChatSystemPrompt(minimalSession);
+}
+
+/**
+ * Simplified, non-streaming Sentinel chat handler.
+ * Designed for REST endpoints and unit tests — bypasses the WebSocket /
+ * session infrastructure of the full WebSocket handler.
+ * Uses invokeClaude from bedrockClient.ts for clean mock support.
+ *
+ * @example
+ * const { reply } = await handleMentorChat({
+ *   connectionId: "ws-conn-abc",
+ *   repoId: "repo_123",
+ *   message: "Why is string interpolation in SQL dangerous?",
+ *   language: "en",
+ * });
+ */
+export async function handleMentorChat(
+  input: MentorChatInput
+): Promise<MentorChatOutput> {
+  const {
+    connectionId,
+    repoId,
+    repoOwner = "unknown",
+    repoName = repoId,
+    message,
+    language = "en",
+    latestReview,
+  } = input;
+
+  if (!connectionId) {
+    throw new Error("MentorChatError: connectionId is required");
+  }
+  if (!message?.trim()) {
+    throw new Error("MentorChatError: Message cannot be empty");
+  }
+
+  const systemPrompt = buildMentorContext({
+    repoId,
+    repoOwner,
+    repoName,
+    latestReview,
+    language,
+  });
+
+  let rawReply: string;
+  try {
+    const bedrockResponse = await invokeClaude({
+      systemPrompt,
+      messages: [{ role: "user", content: message }],
+      temperature: 0.3,
+    });
+    rawReply = bedrockResponse.text;
+  } catch (err: any) {
+    throw new Error(
+      `MentorChatError: Bedrock invocation failed — ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+  }
+
+  let translatedReply: string | undefined;
+  let translationFailed = false;
+
+  if (language !== "en") {
+    try {
+      const result = await translateText({
+        text: rawReply,
+        targetLanguage: language as any,
+        sourceLanguage: "en" as any,
+      });
+      translatedReply = result.translatedText;
+    } catch {
+      translationFailed = true;
+    }
+  }
+
+  return {
+    connectionId,
+    reply: translatedReply ?? rawReply,
+    ...(translatedReply && { translatedReply }),
+    ...(translationFailed && { translationFailed }),
+    language,
+  };
+}
 
 /**
  * AWS Lambda handler export for API Gateway WebSocket routes.

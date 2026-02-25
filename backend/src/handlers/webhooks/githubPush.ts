@@ -13,7 +13,7 @@ import { dynamoClient } from "../../services/database/dynamoClient";
 import { repoOps } from "../../services/github/repoOps";
 import { logger } from "../../utils/logger";
 import { config } from "../../utils/config";
-import { WebhookEvent } from "../../models/interfaces/WebhookEvent";
+import { PushEventPayload } from "../../models/interfaces/WebhookEvent";
 import { Repository } from "../../models/interfaces/Repository";
 
 // ─────────────────────────────────────────────
@@ -67,7 +67,7 @@ export const handler = async (
     });
   }
 
-  const webhookEvent = validationResult.data as WebhookEvent;
+  const webhookEvent = validationResult.data as PushEventPayload;
 
   // ── STEP 3: Extract core context from the webhook ─────────────────────────
   const {

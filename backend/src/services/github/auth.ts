@@ -612,6 +612,42 @@ function decryptToken(encrypted: string): string {
 }
 
 // ─────────────────────────────────────────────
+// REPO ACCESS VERIFICATION
+// ─────────────────────────────────────────────
+
+/**
+ * Verifies that an access token has at least read permissions on a given repository.
+ * Used by API handlers (getCortexData, getCostForecast) to gate requests before
+ * allowing any data access or expensive AI operations.
+ *
+ * @param owner        Repository owner login e.g. "acme-corp"
+ * @param name         Repository name e.g. "my-api"
+ * @param accessToken  OAuth user access token
+ * @returns true if the token can read the repo, false on 403/404
+ * @throws GitHubAuthError on unexpected API errors
+ */
+export async function verifyRepoAccess(
+  owner: string,
+  name: string,
+  accessToken: string
+): Promise<boolean> {
+  const octokit = new Octokit({ auth: accessToken });
+  try {
+    await octokit.repos.get({ owner, repo: name });
+    return true;
+  } catch (err: any) {
+    if (err.status === 404 || err.status === 403) {
+      return false;
+    }
+    throw new GitHubAuthError(
+      `verifyRepoAccess: unexpected error for ${owner}/${name}: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
 // CUSTOM ERROR
 // ─────────────────────────────────────────────
 

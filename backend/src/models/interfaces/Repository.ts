@@ -2,8 +2,9 @@
 
 /**
  * Represents the supported regional languages for Sentinel's Mentorship Hub.
+ * Must stay in sync with SupportedLanguage in analyzeLogic.ts and mentorChat.ts.
  */
-export type MentorshipLanguage = 'en' | 'hi' | 'ta' | 'te';
+export type MentorshipLanguage = 'en' | 'hi' | 'ta' | 'te' | 'kn' | 'mr' | 'bn';
 
 /**
  * Tracks the autonomous health and execution status of the Fortress TDD Engine.
@@ -74,4 +75,13 @@ export interface Repository {
   // --- Timestamps ---
   createdAt: string;           // ISO 8601 Timestamp
   updatedAt: string;           // ISO 8601 Timestamp
+
+  // --- Operational / Push Webhook Fields ---
+  // Set on each processed GitHub push event (githubPush.ts)
+  repoId?: string;             // DynamoDB convenience alias for id
+  repoFullName?: string;       // DynamoDB convenience alias for fullName
+  lastPushAt?: string;         // ISO 8601 — timestamp of the last processed push
+  lastPushedBy?: string;       // GitHub login of the pusher
+  lastCommitSha?: string;      // SHA of the most recent processed commit
+  status?: 'idle' | 'processing' | 'healthy' | 'degraded'; // Agent pipeline state
 }

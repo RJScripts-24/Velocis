@@ -1134,6 +1134,140 @@ async function updateCheckRun(params: UpdateCheckRunParams): Promise<void> {
 export { getInstallationToken };
 
 // ─────────────────────────────────────────────
+// NAMED HELPER EXPORTS
+// Convenience wrappers — allow named imports instead of going
+// through the repoOps object. Useful for direct invocation and
+// for fine-grained mocking in unit tests.
+// ─────────────────────────────────────────────
+
+/**
+ * Fetches a single file's content from GitHub.
+ * Wraps fetchFileContents for ergonomic single-file use.
+ *
+ * @param repoOwner  Owner login e.g. "acme-corp"
+ * @param repoName   Repository name e.g. "my-api"
+ * @param filePath   Path inside the repo e.g. "src/index.ts"
+ * @param token      Installation or user access token
+ * @param ref        Optional branch, tag, or commit SHA
+ */
+export async function fetchFileContent(
+  repoOwner: string,
+  repoName: string,
+  filePath: string,
+  token: string,
+  ref?: string
+): Promise<string> {
+  const result = await fetchFileContents({
+    repoFullName: `${repoOwner}/${repoName}`,
+    filePaths: [filePath],
+    token,
+    ...(ref && { ref }),
+  });
+  const file = result.files[filePath];
+  if (!file) {
+    throw new RepoOpsError(
+      "fetchFileContent",
+      `${repoOwner}/${repoName}`,
+      new Error(`File not found or failed to fetch: ${filePath}`)
+    );
+  }
+  return file.content;
+}
+
+/**
+ * Commits a fix back to GitHub.
+ * Used by Fortress selfHeal.ts to push corrected source code.
+ * Automatically resolves the existing file SHA before committing
+ * (required by the GitHub Contents API for updates).
+ *
+ * @returns { sha: string } — The new commit SHA
+ */
+export async function pushFixCommit(
+  repoOwner: string,
+  repoName: string,
+  filePath: string,
+  content: string,
+  commitMessage: string,
+  token: string,
+  branch = "main"
+): Promise<{ sha: string }> {
+  const octokit = buildOctokit(token);
+
+  // Get the existing file SHA — required to update an existing file
+  // via the GitHub Contents API.
+  let existingFileSha: string | undefined;
+  try {
+    const { data } = await octokit.repos.getContent({
+      owner: repoOwner,
+      repo: repoName,
+      path: filePath,
+      ref: branch,
+    });
+    if (!Array.isArray(data) && data.type === "file") {
+      existingFileSha = data.sha;
+    }
+  } catch {
+    // File does not exist yet — it will be created fresh.
+  }
+
+  const encodedContent = Buffer.from(content, "utf8").toString("base64");
+
+  const response = await octokit.repos.createOrUpdateFileContents({
+    owner: repoOwner,
+    repo: repoName,
+    path: filePath,
+    message: commitMessage,
+    content: encodedContent,
+    branch,
+    ...(existingFileSha && { sha: existingFileSha }),
+    committer: {
+      name: "Velocis AI",
+      email: "velocis-bot@velocis.dev",
+    },
+    author: {
+      name: "Velocis AI",
+      email: "velocis-bot@velocis.dev",
+    },
+  });
+
+  return { sha: response.data.commit.sha ?? "" };
+}
+
+/**
+ * Posts a top-level comment on a Pull Request.
+ * Convenience wrapper over repoOps.pushPRComment.
+ * Used by Sentinel's analyzeLogic.ts to post review findings.
+ */
+export async function postPullRequestComment(
+  repoOwner: string,
+  repoName: string,
+  prNumber: number,
+  body: string,
+  token: string
+): Promise<void> {
+  return pushPRComment({
+    repoFullName: `${repoOwner}/${repoName}`,
+    prNumber,
+    body,
+    token,
+  });
+}
+
+/**
+ * Alias for fetchDiff — used in sentinel.test.ts as `getFileDiff`.
+ * @see fetchDiff for full documentation
+ */
+export const getFileDiff = (params: FetchDiffParams): ReturnType<typeof fetchDiff> =>
+  fetchDiff(params);
+
+/**
+ * Alias for pushPRComment — used in sentinel.test.ts as `postPRComment`.
+ * @see pushPRComment for full documentation
+ */
+export const postPRComment = (params: PushPRCommentParams): Promise<void> =>
+  pushPRComment(params);
+
+// ─────────────────────────────────────────────
 // EXPORTED CLIENT OBJECT
 // ─────────────────────────────────────────────
 

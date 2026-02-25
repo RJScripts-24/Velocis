@@ -64,7 +64,7 @@ import { fetchFileContent, postPullRequestComment } from "../../services/github/
 import { translateText } from "../../services/aws/translate";
 import { logger } from "../../utils/logger";
 import { config } from "../../utils/config";
-import { stripMarkdownCodeBlocks } from "../../utils/codeExtractor";
+import { stripCodeFences as stripMarkdownCodeBlocks } from "../../utils/codeExtractor";
 import * as path from "path";
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -57,7 +57,7 @@ import { dynamoClient } from "../../services/database/dynamoClient";
 import { pushFixCommit, fetchFileContent } from "../../services/github/repoOps";
 import { logger } from "../../utils/logger";
 import { config } from "../../utils/config";
-import { stripMarkdownCodeBlocks } from "../../utils/codeExtractor";
+import { stripCodeFences as stripMarkdownCodeBlocks } from "../../utils/codeExtractor";
 import type { TestExecutionResult } from "./executeTests";
 
 // ─────────────────────────────────────────────────────────────────────────────

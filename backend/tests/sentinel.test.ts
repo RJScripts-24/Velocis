@@ -27,15 +27,37 @@ jest.mock("../src/services/aws/translate", () => ({
 
 // Mock DynamoDB client
 jest.mock("../src/services/database/dynamoClient", () => ({
+  dynamoClient: {
+    get: jest.fn(),
+    upsert: jest.fn(),
+    update: jest.fn(),
+    remove: jest.fn(),
+    query: jest.fn(),
+    queryAll: jest.fn(),
+    batchWrite: jest.fn(),
+  },
   putItem: jest.fn(),
   getItem: jest.fn(),
   updateItem: jest.fn(),
+  DYNAMO_TABLES: {
+    REPOSITORIES: "velocis-repositories",
+    USERS: "velocis-users",
+    AI_ACTIVITY: "velocis-ai-activity",
+  },
 }));
 
 // Mock GitHub repo operations
 jest.mock("../src/services/github/repoOps", () => ({
+  fetchFileContent: jest.fn(),
+  postPullRequestComment: jest.fn(),
   getFileDiff: jest.fn(),
   postPRComment: jest.fn(),
+  repoOps: {
+    fetchFileContents: jest.fn(),
+    pushPRComment: jest.fn(),
+    fetchDiff: jest.fn(),
+    getInstallationToken: jest.fn(),
+  },
 }));
 
 // Mock logger to keep test output clean
@@ -47,7 +69,8 @@ jest.mock("../src/utils/logger", () => ({
 
 // Mock code extractor utility
 jest.mock("../src/utils/codeExtractor", () => ({
-  stripMarkdownBlocks: jest.fn((raw: string) => raw.trim()),
+  stripCodeFences: jest.fn((raw: string) => raw.trim()),
+  stripMarkdownCodeBlocks: jest.fn((raw: string) => raw.trim()),
 }));
 
 // ─── Import after mocks are registered ────────────────────────────────────────
@@ -58,7 +81,7 @@ import { invokeClaude } from "../src/services/aws/bedrockClient";
 import { translateText } from "../src/services/aws/translate";
 import { getFileDiff, postPRComment } from "../src/services/github/repoOps";
 import { putItem, getItem } from "../src/services/database/dynamoClient";
-import { stripMarkdownBlocks } from "../src/utils/codeExtractor";
+import { stripCodeFences as stripMarkdownBlocks } from "../src/utils/codeExtractor";
 
 // ─── Shared Test Fixtures ──────────────────────────────────────────────────────
 

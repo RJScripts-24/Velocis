@@ -53,7 +53,7 @@ import { dynamoClient } from "../../services/database/dynamoClient";
 import { fetchFileContent } from "../../services/github/repoOps";
 import { logger } from "../../utils/logger";
 import { config } from "../../utils/config";
-import { stripMarkdownCodeBlocks } from "../../utils/codeExtractor";
+import { stripCodeFences as stripMarkdownCodeBlocks } from "../../utils/codeExtractor";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES & INTERFACES
