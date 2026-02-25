@@ -1,1004 +1,830 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useRef, useMemo, Suspense } from 'react';
+import { Canvas, useFrame } from '@react-three/fiber';
+import { Html, MapControls, Grid, Line, RoundedBox } from '@react-three/drei';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  ChevronLeft, Search, Shield, TestTube2, Eye, RefreshCw, Maximize2,
-  Camera, Target, RotateCcw, Grid3x3, AlertCircle, CheckCircle,
-  TrendingUp, ChevronRight, Sun, Moon, AlertTriangle, Loader2
+  ChevronLeft, Search, Shield, TestTube2, Eye, RefreshCw,
+  Maximize2, Camera, Target, RotateCcw, Grid3x3, AlertCircle,
+  CheckCircle, ChevronRight, Sun, Moon, AlertTriangle, Loader2,
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router';
+import * as THREE from 'three';
 
-/* ─────────────────────────────────────────────
-   Service Data Model
-───────────────────────────────────────────── */
-const services = [
-  {
-    id: 1, name: 'auth-service', status: 'healthy',
-    layer: 'edge',
-    x: 18, y: 28,
-    connections: [2, 3],
-    p95: '38ms', errRate: '0.0%', sparkline: [60, 75, 65],
-    tests: 100, errors: 0, deployment: '2h ago'
-  },
-  {
-    id: 2, name: 'api-gateway', status: 'warning',   // degraded due to blast radius
-    layer: 'edge',
-    x: 38, y: 22,
-    connections: [4, 5, 6],
-    p95: '91ms', errRate: '3.2%', sparkline: [55, 80, 95],
-    tests: 94, errors: 4, deployment: '3h ago'
-  },
-  {
-    id: 3, name: 'user-db', status: 'healthy',
-    layer: 'data',
-    x: 18, y: 72,
-    connections: [],
-    p95: '12ms', errRate: '0.0%', sparkline: [40, 42, 38],
-    tests: 100, errors: 0, deployment: '1d ago'
-  },
-  {
-    id: 4, name: 'payment-service', status: 'warning',
-    layer: 'compute',
-    x: 58, y: 18,
-    connections: [7],
-    p95: '74ms', errRate: '2.1%', sparkline: [50, 68, 74],
-    tests: 94, errors: 2, deployment: '30m ago'
-  },
-  {
-    id: 5, name: 'notification-svc', status: 'healthy',
-    layer: 'compute',
-    x: 58, y: 48,
-    connections: [8],
-    p95: '29ms', errRate: '0.0%', sparkline: [30, 28, 32],
-    tests: 100, errors: 0, deployment: '5h ago'
-  },
-  {
-    id: 6, name: 'analytics-service', status: 'critical', // failing node
-    layer: 'compute',
-    x: 58, y: 74,
-    connections: [9],
-    p95: '820ms', errRate: '14.3%', sparkline: [45, 72, 100],
-    tests: 85, errors: 12, deployment: '15m ago'
-  },
-  {
-    id: 7, name: 'stripe-api', status: 'healthy',
-    layer: 'edge',
-    x: 82, y: 18,
-    connections: [],
-    p95: '55ms', errRate: '0.0%', sparkline: [55, 57, 54],
-    tests: 100, errors: 0, deployment: '1d ago'
-  },
-  {
-    id: 8, name: 'email-queue', status: 'healthy',
-    layer: 'data',
-    x: 82, y: 48,
-    connections: [],
-    p95: '8ms', errRate: '0.0%', sparkline: [20, 22, 19],
-    tests: 100, errors: 0, deployment: '6h ago'
-  },
-  {
-    id: 9, name: 'postgres-db', status: 'healthy',
-    layer: 'data',
-    x: 82, y: 74,
-    connections: [],
-    p95: '15ms', errRate: '0.0%', sparkline: [42, 40, 44],
-    tests: 100, errors: 0, deployment: '2d ago'
-  },
+/* ═══════════════════════════════════════════
+   DATA
+═══════════════════════════════════════════ */
+interface Service {
+  id: number; name: string; status: 'healthy' | 'warning' | 'critical';
+  layer: 'edge' | 'compute' | 'data';
+  pos: [number, number, number]; // 3D world position (x, y=height, z)
+  connections: number[];
+  p95: string; errRate: string; sparkline: number[];
+  tests: number; errors: number; deployment: string;
+}
+
+const services: Service[] = [
+  { id: 1, name: 'auth-service', status: 'healthy', layer: 'edge', pos: [-8, 0.3, -4], connections: [2, 3], p95: '38ms', errRate: '0.0%', sparkline: [60, 75, 65], tests: 100, errors: 0, deployment: '2h ago' },
+  { id: 2, name: 'api-gateway', status: 'warning', layer: 'edge', pos: [-2, 0.3, -6], connections: [4, 5, 6], p95: '91ms', errRate: '3.2%', sparkline: [55, 80, 95], tests: 94, errors: 4, deployment: '3h ago' },
+  { id: 3, name: 'user-db', status: 'healthy', layer: 'data', pos: [-8, 0.3, 6], connections: [], p95: '12ms', errRate: '0.0%', sparkline: [40, 42, 38], tests: 100, errors: 0, deployment: '1d ago' },
+  { id: 4, name: 'payment-service', status: 'warning', layer: 'compute', pos: [4, 0.3, -5], connections: [7], p95: '74ms', errRate: '2.1%', sparkline: [50, 68, 74], tests: 94, errors: 2, deployment: '30m ago' },
+  { id: 5, name: 'notification-svc', status: 'healthy', layer: 'compute', pos: [4, 0.3, 1], connections: [8], p95: '29ms', errRate: '0.0%', sparkline: [30, 28, 32], tests: 100, errors: 0, deployment: '5h ago' },
+  { id: 6, name: 'analytics-service', status: 'critical', layer: 'compute', pos: [4, 0.3, 6], connections: [9], p95: '820ms', errRate: '14.3%', sparkline: [45, 72, 100], tests: 85, errors: 12, deployment: '15m ago' },
+  { id: 7, name: 'stripe-api', status: 'healthy', layer: 'edge', pos: [10, 0.3, -5], connections: [], p95: '55ms', errRate: '0.0%', sparkline: [55, 57, 54], tests: 100, errors: 0, deployment: '1d ago' },
+  { id: 8, name: 'email-queue', status: 'healthy', layer: 'data', pos: [10, 0.3, 1], connections: [], p95: '8ms', errRate: '0.0%', sparkline: [20, 22, 19], tests: 100, errors: 0, deployment: '6h ago' },
+  { id: 9, name: 'postgres-db', status: 'healthy', layer: 'data', pos: [10, 0.3, 6], connections: [], p95: '15ms', errRate: '0.0%', sparkline: [42, 40, 44], tests: 100, errors: 0, deployment: '2d ago' },
 ];
 
-/* Edges that touch the failing node (id=6) or its upstream (id=2→6) */
-const BLAST_EDGE = '2-6';
+const BLAST_PAIRS = new Set(['2-6', '6-9']);
 const CRITICAL_ID = 6;
 
-/* ─────────────────────────────────────────────
-   Timeline Events
-───────────────────────────────────────────── */
 const timelineEvents = [
-  { position: 8, type: 'deploy', label: 'Deploy v2.0', color: '#22c55e' },
-  { position: 20, type: 'scan', label: 'Sentinel Scan', color: '#8b5cf6' },
-  { position: 34, type: 'deploy', label: 'Deploy v2.1', color: '#22c55e' },
-  { position: 48, type: 'scan', label: 'Sentinel Scan', color: '#8b5cf6' },
-  { position: 61, type: 'anomaly', label: 'Anomaly Detected', color: '#ef4444' },
-  { position: 72, type: 'scan', label: 'Sentinel Scan', color: '#8b5cf6' },
-  { position: 83, type: 'deploy', label: 'Rollback Initiated', color: '#f59e0b' },
-  { position: 91, type: 'anomaly', label: 'analytics-service CRIT', color: '#ef4444' },
+  { position: 7, label: 'Deploy v2.0', color: '#22c55e' },
+  { position: 19, label: 'Sentinel Scan', color: '#8b5cf6' },
+  { position: 33, label: 'Deploy v2.1', color: '#22c55e' },
+  { position: 47, label: 'Sentinel Scan', color: '#8b5cf6' },
+  { position: 60, label: 'Anomaly Detected', color: '#ef4444' },
+  { position: 71, label: 'Sentinel Scan', color: '#8b5cf6' },
+  { position: 82, label: 'Rollback Initiated', color: '#f59e0b' },
+  { position: 91, label: 'analytics-service CRIT', color: '#ef4444' },
 ];
 
-/* ─────────────────────────────────────────────
-   Swimlane config
-───────────────────────────────────────────── */
-const swimlanes = [
-  { id: 'edge', label: 'Edge / Gateway', yStart: 5, yEnd: 38 },
-  { id: 'compute', label: 'Compute Services', yStart: 40, yEnd: 68 },
-  { id: 'data', label: 'Data / Persistence', yStart: 70, yEnd: 95 },
-];
-
-/* ─────────────────────────────────────────────
-   Helpers
-───────────────────────────────────────────── */
-const statusConfig = {
-  healthy: { dot: '#22c55e', border: '#22c55e', shadow: '#22c55e40', label: 'Healthy', badgeBg: 'rgba(34,197,94,0.12)', text: '#22c55e' },
-  warning: { dot: '#f59e0b', border: '#f59e0b', shadow: '#f59e0b40', label: 'Degraded', badgeBg: 'rgba(245,158,11,0.12)', text: '#f59e0b' },
-  critical: { dot: '#ef4444', border: '#ef4444', shadow: '#ef444440', label: 'Failed', badgeBg: 'rgba(239,68,68,0.12)', text: '#ef4444' },
+const STATUS: Record<string, { dot: string; label: string; bg: string; text: string }> = {
+  healthy: { dot: '#22c55e', label: 'Healthy', bg: 'rgba(34,197,94,0.10)', text: '#22c55e' },
+  warning: { dot: '#f59e0b', label: 'Degraded', bg: 'rgba(245,158,11,0.10)', text: '#f59e0b' },
+  critical: { dot: '#ef4444', label: 'Failed', bg: 'rgba(239,68,68,0.10)', text: '#ef4444' },
 };
 
+/* ═══════════════════════════════════════════
+   Sparkline
+═══════════════════════════════════════════ */
 function Sparkline({ data, color }: { data: number[]; color: string }) {
   const max = Math.max(...data, 1);
   return (
-    <div className="flex items-end gap-[2px] h-[14px]">
+    <div className="flex items-end gap-[2px]" style={{ height: 14 }}>
       {data.map((v, i) => (
-        <div
-          key={i}
-          className="w-[4px] rounded-sm"
-          style={{ height: `${(v / max) * 14}px`, backgroundColor: color, opacity: 0.8 }}
-        />
+        <div key={i} style={{ width: 5, height: `${(v / max) * 14}px`, backgroundColor: color, opacity: 0.85, borderRadius: 1 }} />
       ))}
     </div>
   );
 }
 
-/* ─────────────────────────────────────────────
-   Main Component
-───────────────────────────────────────────── */
+/* ═══════════════════════════════════════════
+   3D SERVICE NODE
+═══════════════════════════════════════════ */
+function ServiceNode({
+  svc, isDark, isSelected, onSelect, filters
+}: {
+  svc: Service; isDark: boolean; isSelected: boolean;
+  onSelect: (id: number | null) => void;
+  filters: { sentinel: boolean; fortress: boolean; cortex: boolean };
+}) {
+  const meshRef = useRef<THREE.Mesh>(null!);
+  const glowRef = useRef<THREE.Mesh>(null!);
+  const isCrit = svc.id === CRITICAL_ID;
+  const cfg = STATUS[svc.status];
+  const sparkC = svc.status === 'critical' ? '#ef4444' : svc.status === 'warning' ? '#f59e0b' : '#22c55e';
+
+  // Animate the critical node glow
+  useFrame((state) => {
+    if (meshRef.current) {
+      // Subtle float
+      meshRef.current.position.y = svc.pos[1] + Math.sin(state.clock.elapsedTime * 0.8 + svc.id) * 0.06;
+    }
+    if (glowRef.current && isCrit) {
+      const s = 1 + Math.sin(state.clock.elapsedTime * 2.5) * 0.15;
+      glowRef.current.scale.set(s, s, s);
+      (glowRef.current.material as THREE.MeshBasicMaterial).opacity = 0.12 + Math.sin(state.clock.elapsedTime * 2.5) * 0.08;
+    }
+  });
+
+  // Materials
+  const matColor = isCrit
+    ? (isDark ? '#2a1215' : '#fef2f2')
+    : svc.status === 'warning'
+      ? (isDark ? '#27200f' : '#fffbeb')
+      : (isDark ? '#0f1318' : '#f9fafb');
+
+  const emissiveColor = isCrit ? '#ef4444' : svc.status === 'warning' ? '#f59e0b' : '#000000';
+  const emissiveIntensity = isCrit ? 0.6 : svc.status === 'warning' ? 0.15 : 0;
+
+  return (
+    <group position={[svc.pos[0], svc.pos[1], svc.pos[2]]}>
+      {/* Critical glow sphere */}
+      {isCrit && (
+        <mesh ref={glowRef} position={[0, 0, 0]}>
+          <sphereGeometry args={[2.5, 16, 16]} />
+          <meshBasicMaterial color="#ef4444" transparent opacity={0.12} depthWrite={false} />
+        </mesh>
+      )}
+
+      {/* 3D Box */}
+      <RoundedBox
+        ref={meshRef}
+        args={[3, 0.5, 2]}
+        radius={0.08}
+        smoothness={4}
+        castShadow
+        receiveShadow
+        onClick={(e) => { e.stopPropagation(); onSelect(isSelected ? null : svc.id); }}
+        onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
+        onPointerOut={() => { document.body.style.cursor = 'default'; }}
+      >
+        <meshStandardMaterial
+          color={matColor}
+          emissive={emissiveColor}
+          emissiveIntensity={emissiveIntensity}
+          roughness={0.65}
+          metalness={0.15}
+        />
+      </RoundedBox>
+
+      {/* Selection ring */}
+      {isSelected && (
+        <mesh position={[0, 0.01, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[2, 2.15, 32]} />
+          <meshBasicMaterial color={cfg.dot} transparent opacity={0.6} side={THREE.DoubleSide} />
+        </mesh>
+      )}
+
+      {/* ── HTML OVERLAY (always billboard / face camera) ── */}
+      <Html
+        position={[0, 0.8, 0]}
+        center
+        distanceFactor={14}
+        style={{ pointerEvents: 'auto', userSelect: 'none' }}
+        transform={false}
+      >
+        <div
+          className="relative"
+          style={{ width: 170, fontFamily: "'Inter','Geist Sans',sans-serif" }}
+          onClick={(e) => { e.stopPropagation(); onSelect(isSelected ? null : svc.id); }}
+        >
+          {/* Card */}
+          <div
+            style={{
+              background: isDark ? '#0e1117' : '#ffffff',
+              border: `1.5px solid ${isSelected ? cfg.dot : (isDark ? '#1e2535' : '#e5e7eb')}`,
+              borderRadius: 10,
+              padding: '10px 12px',
+              boxShadow: isSelected
+                ? `0 0 0 2px ${cfg.dot}55, 0 6px 24px rgba(0,0,0,0.5)`
+                : isDark
+                  ? '0 4px 16px rgba(0,0,0,0.5)'
+                  : '0 4px 16px rgba(0,0,0,0.12)',
+              cursor: 'pointer',
+              transition: 'border-color 0.15s',
+            }}
+          >
+            {/* Name row */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 7 }}>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: cfg.dot, boxShadow: `0 0 6px ${cfg.dot}`, flexShrink: 0 }} />
+              <span style={{ fontSize: 12, fontWeight: 600, color: isDark ? '#f1f5f9' : '#111827', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {svc.name}
+              </span>
+            </div>
+
+            {/* Status */}
+            <div style={{
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+              padding: '2px 7px', borderRadius: 5, marginBottom: 8,
+              backgroundColor: cfg.bg, color: cfg.text, fontSize: 10, fontWeight: 700,
+            }}>
+              {svc.status === 'critical' && <AlertCircle style={{ width: 10, height: 10 }} />}
+              {svc.status === 'warning' && <AlertTriangle style={{ width: 10, height: 10 }} />}
+              {svc.status === 'healthy' && <CheckCircle style={{ width: 10, height: 10 }} />}
+              {cfg.label}
+            </div>
+
+            {/* Telemetry */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, fontFamily: 'monospace', color: isDark ? '#6b7280' : '#9ca3af', marginBottom: 6 }}>
+              <span>p95 <strong style={{ color: isDark ? '#e2e8f0' : '#111827' }}>{svc.p95}</strong></span>
+              <span>err <strong style={{ color: cfg.text }}>{svc.errRate}</strong></span>
+            </div>
+
+            {/* Sparkline */}
+            <Sparkline data={svc.sparkline} color={sparkC} />
+          </div>
+
+          {/* Fortress badge */}
+          {isCrit && filters.fortress && (
+            <div
+              style={{
+                position: 'absolute', top: 'calc(100% + 6px)', left: '50%', transform: 'translateX(-50%)',
+                whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 5,
+                padding: '5px 10px', borderRadius: 7, fontSize: 10, fontWeight: 600,
+                backgroundColor: isDark ? 'rgba(120,53,15,0.95)' : '#fffbeb',
+                border: `1px solid ${isDark ? 'rgba(245,158,11,0.5)' : '#fcd34d'}`,
+                color: isDark ? '#fbbf24' : '#92400e',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+              }}
+            >
+              <Loader2 style={{ width: 11, height: 11, animation: 'spin 1s linear infinite' }} />
+              Fortress: Rerouting…
+            </div>
+          )}
+        </div>
+      </Html>
+    </group>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   3D CONNECTIONS
+═══════════════════════════════════════════ */
+function Connections({ isDark }: { isDark: boolean }) {
+  const lines = useMemo(() => {
+    const result: { points: [number, number, number][]; color: string; width: number }[] = [];
+    services.forEach(svc => {
+      svc.connections.forEach(tid => {
+        const tgt = services.find(s => s.id === tid);
+        if (!tgt) return;
+        const key = `${svc.id}-${tid}`;
+        const isBlast = BLAST_PAIRS.has(key);
+        // orthogonal routing: go X, then Z
+        const midX = (svc.pos[0] + tgt.pos[0]) / 2;
+        const y = 0.05;
+        result.push({
+          points: [
+            [svc.pos[0], y, svc.pos[2]],
+            [midX, y, svc.pos[2]],
+            [midX, y, tgt.pos[2]],
+            [tgt.pos[0], y, tgt.pos[2]],
+          ],
+          color: isBlast ? '#ef4444' : (isDark ? '#374151' : '#c0c4cc'),
+          width: isBlast ? 2.5 : 1.2,
+        });
+      });
+    });
+    return result;
+  }, [isDark]);
+
+  return (
+    <>
+      {lines.map((l, i) => (
+        <Line
+          key={i}
+          points={l.points}
+          color={l.color}
+          lineWidth={l.width}
+          transparent
+          opacity={l.color === '#ef4444' ? 0.9 : 0.45}
+        />
+      ))}
+    </>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   SENTINEL LASER (scanning plane)
+═══════════════════════════════════════════ */
+function SentinelLaser() {
+  const meshRef = useRef<THREE.Mesh>(null!);
+  const matRef = useRef<THREE.MeshBasicMaterial>(null!);
+  useFrame((state) => {
+    if (meshRef.current && matRef.current) {
+      const t = (state.clock.elapsedTime % 6) / 6;           // 6s period
+      meshRef.current.position.x = THREE.MathUtils.lerp(-12, 14, t);
+      matRef.current.opacity = t < 0.05 || t > 0.95 ? 0 : 0.18;
+    }
+  });
+  return (
+    <mesh ref={meshRef} position={[0, 3, 0]} rotation={[0, 0, 0]}>
+      <planeGeometry args={[0.06, 14]} />
+      <meshBasicMaterial ref={matRef} color="#8b5cf6" transparent opacity={0.18} side={THREE.DoubleSide} depthWrite={false} />
+    </mesh>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   SWIMLANE PLATFORM
+═══════════════════════════════════════════ */
+function SwimlanePlatform({
+  position, size, label, color, isDark,
+}: {
+  position: [number, number, number]; size: [number, number];
+  label: string; color: string; isDark: boolean;
+}) {
+  const opacity = isDark ? 0.08 : 0.06;
+  return (
+    <group position={position}>
+      {/* Glass plate */}
+      <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={size} />
+        <meshStandardMaterial
+          color={color}
+          transparent
+          opacity={opacity}
+          roughness={0.8}
+          metalness={0.1}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+      {/* Thick bottom edge */}
+      <mesh position={[0, -0.05, size[1] / 2]}>
+        <boxGeometry args={[size[0], 0.1, 0.08]} />
+        <meshStandardMaterial color={color} transparent opacity={0.35} />
+      </mesh>
+      <mesh position={[0, -0.05, -size[1] / 2]}>
+        <boxGeometry args={[size[0], 0.1, 0.08]} />
+        <meshStandardMaterial color={color} transparent opacity={0.35} />
+      </mesh>
+      {/* Label */}
+      <Html
+        position={[-size[0] / 2 + 0.4, 0.02, -size[1] / 2 + 0.4]}
+        transform={false}
+        style={{ pointerEvents: 'none' }}
+      >
+        <span style={{
+          fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase',
+          color: color, opacity: 0.7, whiteSpace: 'nowrap', fontFamily: "'Inter',sans-serif",
+        }}>
+          ⬡ {label}
+        </span>
+      </Html>
+    </group>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   3D SCENE (everything inside <Canvas>)
+═══════════════════════════════════════════ */
+function Scene({
+  isDark, selectedNode, setSelectedNode, filters
+}: {
+  isDark: boolean; selectedNode: number | null;
+  setSelectedNode: (id: number | null) => void;
+  filters: { sentinel: boolean; fortress: boolean; cortex: boolean };
+}) {
+  return (
+    <>
+      {/* Lighting */}
+      <ambientLight intensity={isDark ? 0.4 : 0.6} />
+      <directionalLight
+        position={[8, 12, 6]}
+        intensity={isDark ? 0.6 : 0.9}
+        castShadow
+        shadow-mapSize-width={1024}
+        shadow-mapSize-height={1024}
+        shadow-camera-far={50}
+        shadow-camera-left={-15}
+        shadow-camera-right={15}
+        shadow-camera-top={15}
+        shadow-camera-bottom={-15}
+      />
+      <directionalLight position={[-6, 8, -4]} intensity={isDark ? 0.15 : 0.25} />
+
+      {/* Grid floor */}
+      <Grid
+        position={[0, -0.01, 0]}
+        cellSize={1}
+        cellThickness={0.5}
+        cellColor={isDark ? '#1a1f2e' : '#c0c4cc'}
+        sectionSize={5}
+        sectionThickness={1}
+        sectionColor={isDark ? '#252d3d' : '#a0a4b0'}
+        fadeDistance={30}
+        fadeStrength={1.5}
+        infiniteGrid
+      />
+
+      {/* Swimlane platforms */}
+      <SwimlanePlatform position={[-1, 0, -5.5]} size={[22, 5]} label="Edge / Gateway" color="#6366f1" isDark={isDark} />
+      <SwimlanePlatform position={[1.5, 0, 1]} size={[18, 6]} label="Compute Services" color="#10b981" isDark={isDark} />
+      <SwimlanePlatform position={[1.5, 0, 6.5]} size={[22, 5]} label="Data / Persistence" color="#f59e0b" isDark={isDark} />
+
+      {/* Connections */}
+      <Connections isDark={isDark} />
+
+      {/* Sentinel laser */}
+      {filters.sentinel && <SentinelLaser />}
+
+      {/* Service nodes */}
+      {services.map(svc => (
+        <ServiceNode
+          key={svc.id}
+          svc={svc}
+          isDark={isDark}
+          isSelected={selectedNode === svc.id}
+          onSelect={setSelectedNode}
+          filters={filters}
+        />
+      ))}
+
+      {/* Map controls */}
+      <MapControls
+        enableDamping
+        dampingFactor={0.12}
+        maxPolarAngle={Math.PI / 2.3}
+        minDistance={5}
+        maxDistance={32}
+        screenSpacePanning
+      />
+    </>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   CSS
+═══════════════════════════════════════════ */
+const pageCSS = `
+  @keyframes liveBlip { 0%,100%{opacity:1;} 50%{opacity:0.35;} }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .live-dot  { animation: liveBlip 1.1s ease-in-out infinite; }
+  .iso-scroll::-webkit-scrollbar { width:5px; }
+  .iso-scroll::-webkit-scrollbar-track { background:transparent; }
+  .iso-scroll::-webkit-scrollbar-thumb { background:rgba(100,100,130,0.3); border-radius:6px; }
+  .iso-scroll::-webkit-scrollbar-thumb:hover { background:rgba(100,100,130,0.6); }
+`;
+
+/* ═══════════════════════════════════════════
+   MAIN PAGE COMPONENT
+═══════════════════════════════════════════ */
 export function CortexPage() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const [selectedNode, setSelectedNode] = useState<number | null>(null);
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   const [view, setView] = useState<'graph' | 'service' | 'flow'>('graph');
-  const [isDarkMode, setIsDarkMode] = useState(true);
+  const [isDark, setIsDark] = useState(true);
   const [filters, setFilters] = useState({ sentinel: true, fortress: true, cortex: true });
-  const [layers, setLayers] = useState({
-    microservices: true, apis: true, databases: true, external: true, queues: true
-  });
+  const [layers, setLayers] = useState({ microservices: true, apis: true, databases: true, external: true, queues: true });
   const [hoveredEvent, setHoveredEvent] = useState<number | null>(null);
 
-  const repoName =
-    id === 'infrazero' ? 'InfraZero' :
-      id === 'immersa' ? 'Immersa' :
-        id === 'velocis-core' ? 'velocis-core' :
-          id === 'ai-observatory' ? 'ai-observatory' :
-            id === 'distributed-lab' ? 'distributed-lab' : 'test-sandbox';
+  const repoName = id === 'infrazero' ? 'InfraZero' : id === 'immersa' ? 'Immersa' :
+    id === 'velocis-core' ? 'velocis-core' : id === 'ai-observatory' ? 'ai-observatory' :
+      id === 'distributed-lab' ? 'distributed-lab' : 'test-sandbox';
 
   const selectedService = selectedNode ? services.find(s => s.id === selectedNode) : null;
 
-  const themeClass = isDarkMode ? 'dark' : '';
-
-  /* ── CSS Animations ── */
-  const keyframes = `
-    @keyframes dashFlow {
-      to { stroke-dashoffset: -40; }
-    }
-    @keyframes sentinelSweep {
-      0%   { left: -2%; opacity: 0; }
-      5%   { opacity: 1; }
-      90%  { opacity: 1; }
-      100% { left: 102%; opacity: 0; }
-    }
-    @keyframes fortressPing {
-      0%   { transform: translate(-50%,-50%) scale(0.8); opacity: 0.7; }
-      100% { transform: translate(-50%,-50%) scale(2.4); opacity: 0; }
-    }
-    @keyframes liveBlip {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50%       { opacity: 0.4; transform: scale(0.75); }
-    }
-    .animate-dash-flow {
-      stroke-dasharray: 8 5;
-      animation: dashFlow 1.6s linear infinite;
-    }
-    .animate-sentinel-sweep {
-      animation: sentinelSweep 5s ease-in-out infinite;
-    }
-    .animate-fortress-ping {
-      animation: fortressPing 1.5s ease-out infinite;
-    }
-    .animate-live-blip {
-      animation: liveBlip 1.1s ease-in-out infinite;
-    }
-    /* Premium custom scrollbar */
-    .cc-scroll::-webkit-scrollbar { width: 5px; }
-    .cc-scroll::-webkit-scrollbar-track { background: transparent; }
-    .cc-scroll::-webkit-scrollbar-thumb { background: rgba(100,100,120,0.3); border-radius: 6px; }
-    .cc-scroll::-webkit-scrollbar-thumb:hover { background: rgba(100,100,120,0.6); }
-  `;
+  const bg = isDark ? '#080a0f' : '#eef0f4';
+  const panelBg = isDark ? 'rgba(10,12,18,0.97)' : 'rgba(255,255,255,0.97)';
+  const border = isDark ? '#1a1f2e' : '#e5e7eb';
+  const muted = isDark ? '#4b5563' : '#9ca3af';
+  const text = isDark ? '#f1f5f9' : '#111827';
 
   return (
-    <div className={`${themeClass} w-full h-full`}>
-      <style>{keyframes}</style>
+    <div className="w-full h-full" style={{ colorScheme: isDark ? 'dark' : 'light' }}>
+      <style>{pageCSS}</style>
 
-      <div
-        className="w-full h-screen flex flex-col overflow-hidden font-['Inter','Geist_Sans',sans-serif] transition-colors duration-300"
-        style={{ backgroundColor: isDarkMode ? '#080a0f' : '#f4f5f7' }}
-      >
+      <div className="w-full h-screen flex flex-col overflow-hidden"
+        style={{ backgroundColor: bg, fontFamily: "'Inter','Geist Sans',sans-serif", transition: 'background 0.3s' }}>
 
-        {/* ── Top Navigation Bar ── */}
-        <div
-          className="flex-none z-50 flex items-center justify-between px-5 h-[54px] border-b transition-colors"
-          style={{
-            backgroundColor: isDarkMode ? 'rgba(12,14,20,0.95)' : 'rgba(255,255,255,0.95)',
-            borderColor: isDarkMode ? '#1a1f2e' : '#e5e7eb',
-            backdropFilter: 'blur(16px)'
-          }}
-        >
-          {/* Left – Brand + Breadcrumb */}
+        {/* ══════════ TOP BAR ══════════ */}
+        <div className="flex-none z-50 flex items-center justify-between px-5 h-[54px] border-b"
+          style={{ backgroundColor: panelBg, borderColor: border, backdropFilter: 'blur(16px)' }}>
+
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-md bg-white flex items-center justify-center shadow-sm border border-gray-100 dark:border-zinc-700 dark:bg-zinc-800">
-                <span className="text-black dark:text-white font-bold text-xs">V</span>
+              <div className="w-7 h-7 rounded-md flex items-center justify-center shadow-sm"
+                style={{ backgroundColor: isDark ? '#1e2535' : '#f3f4f6', border: `1px solid ${border}` }}>
+                <span className="font-bold text-xs" style={{ color: text }}>V</span>
               </div>
-              <span className={`font-semibold text-sm ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Velocis</span>
+              <span className="font-semibold text-sm" style={{ color: text }}>Velocis</span>
             </div>
-            <div className={`flex items-center gap-2 text-[13px] font-medium ${isDarkMode ? 'text-zinc-500' : 'text-gray-400'}`}>
-              <button onClick={() => navigate('/dashboard')} className={`hover:${isDarkMode ? 'text-white' : 'text-gray-900'} transition-colors`}>Dashboard</button>
+            <div className="flex items-center gap-2 text-[13px]" style={{ color: muted }}>
+              <button onClick={() => navigate('/dashboard')} className="hover:opacity-80 transition-opacity" style={{ color: muted }}>Dashboard</button>
               <span>/</span>
-              <button onClick={() => navigate(`/repo/${id}`)} className={`hover:${isDarkMode ? 'text-white' : 'text-gray-900'} transition-colors`}>{repoName}</button>
+              <button onClick={() => navigate(`/repo/${id}`)} style={{ color: muted }}>{repoName}</button>
               <span>/</span>
-              <span className={isDarkMode ? 'text-white font-semibold' : 'text-gray-900 font-semibold'}>Visual Cortex</span>
+              <span className="font-semibold" style={{ color: text }}>Visual Cortex</span>
             </div>
           </div>
 
-          {/* Center – View Toggle */}
-          <div
-            className="hidden md:flex items-center rounded-lg p-[3px] gap-[2px]"
-            style={{
-              backgroundColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)',
-              border: `1px solid ${isDarkMode ? '#1a1f2e' : '#e5e7eb'}`
-            }}
-          >
-            {(['graph', 'service', 'flow'] as const).map(viewType => (
-              <button
-                key={viewType}
-                onClick={() => setView(viewType)}
-                className="px-3.5 py-1.5 rounded-md text-[13px] font-semibold transition-all capitalize"
+          <div className="hidden md:flex items-center p-[3px] rounded-lg gap-[2px]"
+            style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)', border: `1px solid ${border}` }}>
+            {(['graph', 'service', 'flow'] as const).map(v => (
+              <button key={v} onClick={() => setView(v)}
+                className="px-3.5 py-1.5 rounded-md text-[13px] font-semibold capitalize transition-all"
                 style={{
-                  backgroundColor: view === viewType
-                    ? (isDarkMode ? '#1e2535' : '#ffffff')
-                    : 'transparent',
-                  color: view === viewType
-                    ? (isDarkMode ? '#e2e8f0' : '#111827')
-                    : (isDarkMode ? '#6b7280' : '#9ca3af'),
-                  boxShadow: view === viewType ? '0 1px 4px rgba(0,0,0,0.3)' : 'none'
-                }}
-              >
-                {viewType === 'graph' ? 'Graph View' : viewType === 'service' ? 'Service Map' : 'Dep. Flow'}
+                  backgroundColor: view === v ? (isDark ? '#1e2535' : '#ffffff') : 'transparent',
+                  color: view === v ? text : muted,
+                  boxShadow: view === v ? '0 1px 4px rgba(0,0,0,0.3)' : 'none',
+                }}>
+                {v === 'graph' ? '3D View' : v === 'service' ? 'Service Map' : 'Dep. Flow'}
               </button>
             ))}
           </div>
 
-          {/* Right – Actions */}
           <div className="flex items-center gap-2">
-            {/* Sentinel Active badge */}
-            <div
-              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold"
-              style={{
-                backgroundColor: 'rgba(139,92,246,0.12)',
-                border: '1px solid rgba(139,92,246,0.3)',
-                color: '#a78bfa'
-              }}
-            >
-              <div className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-live-blip" />
+            <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold"
+              style={{ backgroundColor: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.3)', color: '#a78bfa' }}>
+              <div className="w-1.5 h-1.5 rounded-full bg-violet-400 live-dot" />
               Sentinel Active
             </div>
-
-            {[
-              { icon: RefreshCw, title: 'Refresh' },
-              { icon: Target, title: 'Fit to screen' },
-              { icon: Maximize2, title: 'Fullscreen' },
-            ].map(({ icon: Icon, title }) => (
-              <button
-                key={title}
-                className="p-1.5 rounded-md transition-colors"
-                style={{ color: isDarkMode ? '#6b7280' : '#9ca3af' }}
-                title={title}
-                onMouseEnter={e => (e.currentTarget.style.backgroundColor = isDarkMode ? '#1e2535' : '#f3f4f6')}
-                onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
-              >
+            {[RefreshCw, Target, Maximize2].map((Icon, i) => (
+              <button key={i} className="p-1.5 rounded-md transition-colors" style={{ color: muted }}
+                onMouseEnter={e => (e.currentTarget.style.backgroundColor = isDark ? '#1e2535' : '#f3f4f6')}
+                onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}>
                 <Icon className="w-4 h-4" />
               </button>
             ))}
-
-            <button
-              onClick={() => setIsDarkMode(!isDarkMode)}
-              className="p-1.5 rounded-md transition-colors"
-              style={{ color: isDarkMode ? '#6b7280' : '#9ca3af' }}
-              onMouseEnter={e => (e.currentTarget.style.backgroundColor = isDarkMode ? '#1e2535' : '#f3f4f6')}
-              onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
-            >
-              {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            <button onClick={() => setIsDark(!isDark)} className="p-1.5 rounded-md" style={{ color: muted }}
+              onMouseEnter={e => (e.currentTarget.style.backgroundColor = isDark ? '#1e2535' : '#f3f4f6')}
+              onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}>
+              {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
-
-            <div
-              className="w-7 h-7 rounded-full flex items-center justify-center ml-1 text-xs font-bold cursor-pointer"
+            <div className="w-7 h-7 rounded-full flex items-center justify-center ml-1 text-xs font-bold cursor-pointer"
               style={{
-                backgroundColor: isDarkMode ? '#1e2535' : '#ede9fe',
-                color: isDarkMode ? '#a78bfa' : '#7c3aed',
-                border: `1px solid ${isDarkMode ? 'rgba(139,92,246,0.3)' : 'rgba(139,92,246,0.2)'}`
-              }}
-            >
-              R
-            </div>
+                backgroundColor: isDark ? '#1e2535' : '#ede9fe', color: isDark ? '#a78bfa' : '#7c3aed',
+                border: `1px solid ${isDark ? 'rgba(139,92,246,0.3)' : 'rgba(139,92,246,0.2)'}`
+              }}>R</div>
           </div>
         </div>
 
-        {/* ── Main Body ── */}
+        {/* ══════════ BODY ══════════ */}
         <div className="flex-1 flex overflow-hidden">
 
-          {/* ── Left Control Panel ── */}
+          {/* ── Left Sidebar ── */}
           <AnimatePresence>
             {leftPanelOpen && (
-              <motion.div
-                initial={{ x: -290, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                exit={{ x: -290, opacity: 0 }}
-                transition={{ duration: 0.22 }}
-                className="w-[270px] flex-none border-r flex flex-col overflow-hidden cc-scroll transition-colors z-30"
-                style={{
-                  backgroundColor: isDarkMode ? 'rgba(10,12,18,0.97)' : 'rgba(255,255,255,0.97)',
-                  borderColor: isDarkMode ? '#1a1f2e' : '#e5e7eb'
-                }}
-              >
-                <div className="flex-1 overflow-y-auto cc-scroll p-5 space-y-7">
+              <motion.div initial={{ x: -270 }} animate={{ x: 0 }} exit={{ x: -270 }} transition={{ duration: 0.22 }}
+                className="w-[260px] flex-none border-r flex flex-col overflow-hidden z-30 iso-scroll"
+                style={{ backgroundColor: panelBg, borderColor: border }}>
+                <div className="flex-1 overflow-y-auto iso-scroll p-5 space-y-6">
 
-                  {/* Search */}
                   <div className="relative">
-                    <Search
-                      className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5"
-                      style={{ color: isDarkMode ? '#4b5563' : '#9ca3af' }}
-                    />
-                    <input
-                      type="text"
-                      placeholder="Search services…"
-                      className="w-full pl-9 pr-3 py-2 rounded-lg text-[13px] focus:outline-none focus:ring-1 focus:ring-violet-500/40 transition-all"
-                      style={{
-                        backgroundColor: isDarkMode ? '#111827' : '#f9fafb',
-                        border: `1px solid ${isDarkMode ? '#1a1f2e' : '#e5e7eb'}`,
-                        color: isDarkMode ? '#e2e8f0' : '#111827'
-                      }}
-                    />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5" style={{ color: muted }} />
+                    <input type="text" placeholder="Search services…"
+                      className="w-full pl-9 pr-3 py-2 rounded-lg text-[13px] focus:outline-none focus:ring-1 focus:ring-violet-500/40"
+                      style={{ backgroundColor: isDark ? '#111827' : '#f9fafb', border: `1px solid ${border}`, color: text }} />
                   </div>
 
-                  {/* Agent Filters */}
                   <div>
-                    <h3
-                      className="text-[10px] font-bold tracking-widest uppercase mb-3"
-                      style={{ color: isDarkMode ? '#4b5563' : '#9ca3af' }}
-                    >
-                      Agent Filters
-                    </h3>
+                    <h3 className="text-[10px] font-bold tracking-widest uppercase mb-3" style={{ color: muted }}>Agent Filters</h3>
                     <div className="space-y-2">
                       {[
-                        { key: 'sentinel', label: 'Sentinel Signals', icon: Shield, activeColor: '#8b5cf6', activeBg: 'rgba(139,92,246,0.1)', activeBorder: 'rgba(139,92,246,0.4)' },
-                        { key: 'fortress', label: 'Fortress Failures', icon: TestTube2, activeColor: '#3b82f6', activeBg: 'rgba(59,130,246,0.1)', activeBorder: 'rgba(59,130,246,0.4)' },
-                        { key: 'cortex', label: 'Cortex Layers', icon: Eye, activeColor: '#10b981', activeBg: 'rgba(16,185,129,0.1)', activeBorder: 'rgba(16,185,129,0.4)' },
-                      ].map(filter => {
-                        const active = filters[filter.key as keyof typeof filters];
+                        { key: 'sentinel', label: 'Sentinel Signals', icon: Shield, ac: '#8b5cf6', ab: 'rgba(139,92,246,0.1)', abr: 'rgba(139,92,246,0.4)' },
+                        { key: 'fortress', label: 'Fortress Failures', icon: TestTube2, ac: '#3b82f6', ab: 'rgba(59,130,246,0.1)', abr: 'rgba(59,130,246,0.4)' },
+                        { key: 'cortex', label: 'Cortex Layers', icon: Eye, ac: '#10b981', ab: 'rgba(16,185,129,0.1)', abr: 'rgba(16,185,129,0.4)' },
+                      ].map(f => {
+                        const on = filters[f.key as keyof typeof filters];
                         return (
-                          <button
-                            key={filter.key}
-                            onClick={() => setFilters({ ...filters, [filter.key]: !active })}
+                          <button key={f.key} onClick={() => setFilters({ ...filters, [f.key]: !on })}
                             className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-all"
                             style={{
-                              backgroundColor: active
-                                ? filter.activeBg
-                                : (isDarkMode ? 'transparent' : '#f9fafb'),
-                              border: `1px solid ${active ? filter.activeBorder : (isDarkMode ? '#1a1f2e' : '#e5e7eb')}`,
-                              color: active
-                                ? filter.activeColor
-                                : (isDarkMode ? '#6b7280' : '#9ca3af')
-                            }}
-                          >
-                            <filter.icon className="w-3.5 h-3.5 flex-shrink-0" />
-                            <span>{filter.label}</span>
-                            {/* Active indicator pip */}
-                            {active && (
-                              <div
-                                className="ml-auto w-1.5 h-1.5 rounded-full"
-                                style={{ backgroundColor: filter.activeColor }}
-                              />
-                            )}
+                              backgroundColor: on ? f.ab : (isDark ? 'transparent' : '#f9fafb'),
+                              border: `1px solid ${on ? f.abr : border}`, color: on ? f.ac : muted,
+                            }}>
+                            <f.icon className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span>{f.label}</span>
+                            {on && <div className="ml-auto w-1.5 h-1.5 rounded-full" style={{ backgroundColor: f.ac }} />}
                           </button>
                         );
                       })}
                     </div>
                   </div>
 
-                  {/* Layer Controls */}
                   <div>
-                    <h3
-                      className="text-[10px] font-bold tracking-widest uppercase mb-3"
-                      style={{ color: isDarkMode ? '#4b5563' : '#9ca3af' }}
-                    >
-                      Layer Controls
-                    </h3>
+                    <h3 className="text-[10px] font-bold tracking-widest uppercase mb-3" style={{ color: muted }}>Layer Controls</h3>
                     <div className="space-y-1.5">
                       {[
-                        { key: 'microservices', label: 'Microservices' },
-                        { key: 'apis', label: 'APIs' },
-                        { key: 'databases', label: 'Databases' },
-                        { key: 'external', label: 'External Services' },
+                        { key: 'microservices', label: 'Microservices' }, { key: 'apis', label: 'APIs' },
+                        { key: 'databases', label: 'Databases' }, { key: 'external', label: 'External Services' },
                         { key: 'queues', label: 'Queues' },
-                      ].map(layer => {
-                        const active = layers[layer.key as keyof typeof layers];
+                      ].map(l => {
+                        const on = layers[l.key as keyof typeof layers];
                         return (
-                          <label
-                            key={layer.key}
-                            className="flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-all"
-                            style={{
-                              backgroundColor: active ? (isDarkMode ? 'rgba(255,255,255,0.03)' : '#f3f4f6') : 'transparent'
-                            }}
-                          >
-                            {/* Custom checkbox */}
-                            <div
-                              className="w-4 h-4 rounded flex items-center justify-center flex-shrink-0 transition-all"
-                              style={{
-                                backgroundColor: active ? '#8b5cf6' : 'transparent',
-                                border: `1.5px solid ${active ? '#8b5cf6' : (isDarkMode ? '#374151' : '#d1d5db')}`
-                              }}
-                            >
-                              {active && <CheckCircle className="w-3 h-3 text-white" />}
+                          <label key={l.key} className="flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-all"
+                            style={{ backgroundColor: on ? (isDark ? 'rgba(255,255,255,0.03)' : '#f3f4f6') : 'transparent' }}>
+                            <div className="w-4 h-4 rounded flex items-center justify-center flex-shrink-0 transition-all"
+                              style={{ backgroundColor: on ? '#8b5cf6' : 'transparent', border: `1.5px solid ${on ? '#8b5cf6' : (isDark ? '#374151' : '#d1d5db')}` }}>
+                              {on && <CheckCircle className="w-3 h-3 text-white" />}
                             </div>
-                            <input
-                              type="checkbox"
-                              checked={active}
-                              onChange={() => setLayers({ ...layers, [layer.key]: !active })}
-                              className="sr-only"
-                            />
-                            <span
-                              className="text-[13px] font-medium"
-                              style={{ color: active ? (isDarkMode ? '#e2e8f0' : '#111827') : (isDarkMode ? '#4b5563' : '#9ca3af') }}
-                            >
-                              {layer.label}
-                            </span>
+                            <input type="checkbox" checked={on} onChange={() => setLayers({ ...layers, [l.key]: !on })} className="sr-only" />
+                            <span className="text-[13px] font-medium" style={{ color: on ? text : muted }}>{l.label}</span>
                           </label>
                         );
                       })}
                     </div>
                   </div>
 
-                  {/* Graph Density */}
-                  <div>
-                    <h3
-                      className="text-[10px] font-bold tracking-widest uppercase mb-3"
-                      style={{ color: isDarkMode ? '#4b5563' : '#9ca3af' }}
-                    >
-                      Graph Density
-                    </h3>
-                    <input
-                      type="range" min="0" max="100" defaultValue="70"
-                      className="w-full accent-violet-500"
-                      style={{ accentColor: '#8b5cf6' }}
-                    />
-                    <div
-                      className="flex justify-between text-[11px] mt-1 font-medium"
-                      style={{ color: isDarkMode ? '#4b5563' : '#9ca3af' }}
-                    >
-                      <span>Minimal</span><span>Full</span>
-                    </div>
-                  </div>
-
-                  {/* System Summary */}
-                  <div
-                    className="rounded-xl p-4 space-y-3"
-                    style={{
-                      backgroundColor: isDarkMode ? '#0e1117' : '#f9fafb',
-                      border: `1px solid ${isDarkMode ? '#1a1f2e' : '#e5e7eb'}`
-                    }}
-                  >
-                    <div className="text-[10px] font-bold tracking-widest uppercase" style={{ color: isDarkMode ? '#4b5563' : '#9ca3af' }}>
-                      System Status
-                    </div>
+                  <div className="rounded-xl p-4 space-y-3"
+                    style={{ backgroundColor: isDark ? '#0e1117' : '#f9fafb', border: `1px solid ${border}` }}>
+                    <div className="text-[10px] font-bold tracking-widest uppercase" style={{ color: muted }}>System Status</div>
                     {[
                       { label: 'Healthy', count: services.filter(s => s.status === 'healthy').length, color: '#22c55e' },
                       { label: 'Degraded', count: services.filter(s => s.status === 'warning').length, color: '#f59e0b' },
                       { label: 'Critical', count: services.filter(s => s.status === 'critical').length, color: '#ef4444' },
-                    ].map(stat => (
-                      <div key={stat.label} className="flex items-center justify-between">
+                    ].map(({ label, count, color }) => (
+                      <div key={label} className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: stat.color }} />
-                          <span className="text-[12px]" style={{ color: isDarkMode ? '#6b7280' : '#6b7280' }}>{stat.label}</span>
+                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
+                          <span className="text-[12px]" style={{ color: muted }}>{label}</span>
                         </div>
-                        <span className="text-[13px] font-semibold" style={{ color: isDarkMode ? '#e2e8f0' : '#111827' }}>{stat.count}</span>
+                        <span className="text-[13px] font-semibold" style={{ color: text }}>{count}</span>
                       </div>
                     ))}
                   </div>
-
                 </div>
               </motion.div>
             )}
           </AnimatePresence>
 
-          {/* ── Main Graph Canvas ── */}
+          {/* ══════════ 3D CANVAS ══════════ */}
           <div className="flex-1 relative overflow-hidden">
 
-            {/* Background Grid */}
-            <div
-              className="absolute inset-0"
-              style={{
-                backgroundImage: `
-                  linear-gradient(${isDarkMode ? 'rgba(255,255,255,0.025)' : 'rgba(0,0,0,0.04)'} 1px, transparent 1px),
-                  linear-gradient(90deg, ${isDarkMode ? 'rgba(255,255,255,0.025)' : 'rgba(0,0,0,0.04)'} 1px, transparent 1px)
-                `,
-                backgroundSize: '24px 24px',
-                backgroundColor: isDarkMode ? '#080a0f' : '#f4f5f7'
-              }}
-            />
-            {/* Vignette */}
-            <div
-              className="absolute inset-0 pointer-events-none"
-              style={{ background: 'radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.45) 100%)' }}
-            />
-
-            {/* ── Sentinel Scanning Laser ── */}
-            {filters.sentinel && (
-              <div
-                className="animate-sentinel-sweep absolute top-0 h-full pointer-events-none z-10"
-                style={{
-                  width: '2px',
-                  background: 'linear-gradient(to bottom, transparent 0%, rgba(139,92,246,0.7) 40%, rgba(167,139,250,0.5) 60%, transparent 100%)',
-                  boxShadow: '0 0 18px 4px rgba(139,92,246,0.25)',
-                  opacity: 0.7
-                }}
-              />
-            )}
-
-            {/* ── Swimlane Plates ── */}
-            {swimlanes.map(lane => (
-              <div
-                key={lane.id}
-                className="absolute pointer-events-none"
-                style={{
-                  left: '2%', right: selectedNode ? '34%' : '2%',
-                  top: `${lane.yStart}%`, height: `${lane.yEnd - lane.yStart}%`,
-                  border: `1px dashed ${isDarkMode ? 'rgba(99,102,241,0.18)' : 'rgba(99,102,241,0.15)'}`,
-                  borderRadius: '12px',
-                  backgroundColor: isDarkMode
-                    ? 'rgba(99,102,241,0.025)'
-                    : 'rgba(99,102,241,0.03)',
-                  transition: 'right 0.25s ease'
-                }}
-              >
-                <span
-                  className="absolute top-2 left-3 text-[10px] font-semibold tracking-widest uppercase select-none"
-                  style={{ color: isDarkMode ? 'rgba(99,102,241,0.5)' : 'rgba(99,102,241,0.4)' }}
-                >
-                  {lane.label}
-                </span>
-              </div>
-            ))}
-
-            {/* ── SVG Edge Layer ── */}
-            <svg className="absolute inset-0 w-full h-full" style={{ zIndex: 5 }}>
-              <defs>
-                <marker id="arrowHealthy" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-                  <path d="M0,0 L6,3 L0,6 Z" fill="#4b5563" />
-                </marker>
-                <marker id="arrowRed" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-                  <path d="M0,0 L6,3 L0,6 Z" fill="#ef4444" />
-                </marker>
-              </defs>
-
-              {services.map(service =>
-                service.connections.map(targetId => {
-                  const target = services.find(s => s.id === targetId);
-                  if (!target) return null;
-                  const edgeKey = `${service.id}-${targetId}`;
-                  const isBlast = edgeKey === BLAST_EDGE || targetId === CRITICAL_ID || service.id === CRITICAL_ID;
-                  const strokeColor = isBlast ? '#ef4444' : (isDarkMode ? '#374151' : '#d1d5db');
-                  const x1 = `${service.x}%`, y1 = `${service.y}%`;
-                  const x2 = `${target.x}%`, y2 = `${target.y}%`;
-                  // cubic bezier control points for organic curves
-                  const cx1 = `${(service.x + target.x) / 2 + (target.y - service.y) * 0.15}%`;
-                  const cy1 = `${service.y}%`;
-                  const cx2 = `${(service.x + target.x) / 2 + (target.y - service.y) * 0.15}%`;
-                  const cy2 = `${target.y}%`;
-
-                  return (
-                    <path
-                      key={edgeKey}
-                      d={`M ${x1} ${y1} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${x2} ${y2}`}
-                      fill="none"
-                      stroke={strokeColor}
-                      strokeWidth={isBlast ? 2 : 1.5}
-                      strokeOpacity={isBlast ? 0.9 : 0.55}
-                      className="animate-dash-flow"
-                      markerEnd={isBlast ? 'url(#arrowRed)' : 'url(#arrowHealthy)'}
-                    />
-                  );
-                })
-              )}
-            </svg>
-
-            {/* ── Service Nodes ── */}
-            <div className="absolute inset-0" style={{ zIndex: 10 }}>
-              {services.map((service, index) => {
-                const cfg = statusConfig[service.status as keyof typeof statusConfig];
-                const isCritical = service.id === CRITICAL_ID;
-                const sparkColor = service.status === 'critical' ? '#ef4444' : service.status === 'warning' ? '#f59e0b' : '#22c55e';
-
-                return (
-                  <motion.div
-                    key={service.id}
-                    initial={{ scale: 0, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    transition={{ duration: 0.4, delay: index * 0.07 }}
-                    className="absolute cursor-pointer group"
-                    style={{
-                      left: `${service.x}%`,
-                      top: `${service.y}%`,
-                      transform: 'translate(-50%, -50%)'
-                    }}
-                    onClick={() => setSelectedNode(service.id === selectedNode ? null : service.id)}
-                  >
-                    {/* Ping rings for critical node */}
-                    {isCritical && (
-                      <>
-                        <div
-                          className="absolute rounded-full pointer-events-none animate-fortress-ping"
-                          style={{
-                            width: '90px', height: '90px',
-                            top: '50%', left: '50%',
-                            border: '2px solid rgba(239,68,68,0.5)',
-                            animationDelay: '0s'
-                          }}
-                        />
-                        <div
-                          className="absolute rounded-full pointer-events-none animate-fortress-ping"
-                          style={{
-                            width: '90px', height: '90px',
-                            top: '50%', left: '50%',
-                            border: '2px solid rgba(239,68,68,0.3)',
-                            animationDelay: '0.5s'
-                          }}
-                        />
-                        <div
-                          className="absolute rounded-full pointer-events-none animate-fortress-ping"
-                          style={{
-                            width: '90px', height: '90px',
-                            top: '50%', left: '50%',
-                            border: '2px solid rgba(239,68,68,0.15)',
-                            animationDelay: '1s'
-                          }}
-                        />
-                      </>
-                    )}
-
-                    {/* Rich Mini-Card */}
-                    <motion.div
-                      animate={{ y: [-1.5, 1.5, -1.5] }}
-                      transition={{ duration: 4 + index * 0.3, repeat: Infinity, ease: 'easeInOut' }}
-                      whileHover={{ scale: 1.06, y: 0 }}
-                      className="relative rounded-xl transition-all"
-                      style={{
-                        width: '148px',
-                        backgroundColor: isDarkMode ? '#0e1117' : '#ffffff',
-                        border: `1.5px solid ${selectedNode === service.id ? cfg.border : (isDarkMode ? '#1a1f2e' : '#e5e7eb')}`,
-                        boxShadow: selectedNode === service.id
-                          ? `0 0 0 2px ${cfg.border}55, 0 8px 32px rgba(0,0,0,0.5), 0 0 24px ${cfg.shadow}`
-                          : isDarkMode
-                            ? `0 4px 20px rgba(0,0,0,0.5), 0 0 12px ${cfg.shadow}`
-                            : `0 4px 20px rgba(0,0,0,0.12), 0 0 8px ${cfg.shadow}`,
-                        padding: '10px 12px'
-                      }}
-                    >
-                      {/* Card Top Row: status dot + name */}
-                      <div className="flex items-center gap-2 mb-2">
-                        <div
-                          className="w-2 h-2 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: cfg.dot, boxShadow: `0 0 6px ${cfg.dot}` }}
-                        />
-                        <span
-                          className="text-[12px] font-semibold truncate leading-tight"
-                          style={{ color: isDarkMode ? '#f1f5f9' : '#111827' }}
-                        >
-                          {service.name}
-                        </span>
-                      </div>
-
-                      {/* Status badge */}
-                      <div
-                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold mb-2.5"
-                        style={{ backgroundColor: cfg.badgeBg, color: cfg.text }}
-                      >
-                        {service.status === 'critical' && <AlertCircle className="w-2.5 h-2.5" />}
-                        {service.status === 'warning' && <AlertTriangle className="w-2.5 h-2.5" />}
-                        {service.status === 'healthy' && <CheckCircle className="w-2.5 h-2.5" />}
-                        {cfg.label}
-                      </div>
-
-                      {/* Telemetry row */}
-                      <div
-                        className="flex items-center justify-between text-[10px] font-mono mb-2"
-                        style={{ color: isDarkMode ? '#6b7280' : '#9ca3af' }}
-                      >
-                        <span>p95 <span style={{ color: isDarkMode ? '#e2e8f0' : '#111827', fontWeight: 600 }}>{service.p95}</span></span>
-                        <span>err <span style={{ color: cfg.text, fontWeight: 600 }}>{service.errRate}</span></span>
-                      </div>
-
-                      {/* Sparkline */}
-                      <Sparkline data={service.sparkline} color={sparkColor} />
-                    </motion.div>
-
-                    {/* Fortress action badge for critical node */}
-                    {isCritical && filters.fortress && (
-                      <div
-                        className="absolute left-1/2 -translate-x-1/2 whitespace-nowrap flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold shadow-xl"
-                        style={{
-                          top: 'calc(100% + 8px)',
-                          backgroundColor: isDarkMode ? 'rgba(120,53,15,0.95)' : '#fffbeb',
-                          border: `1px solid ${isDarkMode ? 'rgba(245,158,11,0.5)' : '#fcd34d'}`,
-                          color: isDarkMode ? '#fbbf24' : '#92400e',
-                          zIndex: 20,
-                          backdropFilter: 'blur(8px)'
-                        }}
-                      >
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                        Fortress: Rerouting traffic…
-                      </div>
-                    )}
-                  </motion.div>
-                );
-              })}
-            </div>
-
-            {/* Toggle Left Panel Btn */}
-            <button
-              onClick={() => setLeftPanelOpen(!leftPanelOpen)}
-              className="absolute top-3 left-3 p-2 rounded-lg backdrop-blur-sm transition-all hover:scale-105 z-20"
-              style={{
-                backgroundColor: isDarkMode ? 'rgba(14,17,23,0.85)' : 'rgba(255,255,255,0.9)',
-                border: `1px solid ${isDarkMode ? '#1a1f2e' : '#e5e7eb'}`
-              }}
-            >
+            {/* Toggle Panel */}
+            <button onClick={() => setLeftPanelOpen(!leftPanelOpen)}
+              className="absolute top-3 left-3 p-2 rounded-lg backdrop-blur-sm z-50 transition-all hover:scale-105"
+              style={{ backgroundColor: isDark ? 'rgba(14,17,23,0.85)' : 'rgba(255,255,255,0.9)', border: `1px solid ${border}` }}>
               <motion.div animate={{ rotate: leftPanelOpen ? 0 : 180 }} transition={{ duration: 0.3 }}>
-                <ChevronLeft className="w-4 h-4" style={{ color: isDarkMode ? '#6b7280' : '#9ca3af' }} />
+                <ChevronLeft className="w-4 h-4" style={{ color: muted }} />
               </motion.div>
             </button>
 
-            {/* Canvas label */}
-            <div
-              className="absolute top-3 right-3 z-20 px-3 py-1.5 rounded-lg text-[11px] font-semibold flex items-center gap-2"
+            {/* Label */}
+            <div className="absolute top-3 right-3 z-50 flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-semibold"
               style={{
-                backgroundColor: isDarkMode ? 'rgba(14,17,23,0.85)' : 'rgba(255,255,255,0.9)',
-                border: `1px solid ${isDarkMode ? '#1a1f2e' : '#e5e7eb'}`,
-                color: isDarkMode ? '#4b5563' : '#9ca3af',
-                backdropFilter: 'blur(8px)'
-              }}
-            >
-              <div className="w-1.5 h-1.5 rounded-full animate-live-blip" style={{ backgroundColor: '#ef4444' }} />
-              Live Architecture View
+                backgroundColor: isDark ? 'rgba(14,17,23,0.87)' : 'rgba(255,255,255,0.9)',
+                border: `1px solid ${border}`, color: muted, backdropFilter: 'blur(8px)'
+              }}>
+              <div className="w-1.5 h-1.5 rounded-full bg-red-500 live-dot" />
+              WebGL 3D Architecture View
             </div>
 
-            {/* Floating Quick Actions */}
-            <div className="absolute bottom-4 right-4 flex flex-col gap-2 z-20">
+            {/* Floating FABs */}
+            <div className="absolute bottom-4 right-4 flex flex-col gap-2 z-50">
               {[
-                { icon: AlertCircle, label: 'Focus failing nodes', color: '#ef4444' },
-                { icon: RotateCcw, label: 'Reset view', color: isDarkMode ? '#6b7280' : '#9ca3af' },
-                { icon: Grid3x3, label: 'Auto-layout', color: isDarkMode ? '#6b7280' : '#9ca3af' },
-                { icon: Camera, label: 'Screenshot graph', color: isDarkMode ? '#6b7280' : '#9ca3af' },
-              ].map((action, index) => (
-                <motion.button
-                  key={index}
-                  initial={{ scale: 0, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  transition={{ duration: 0.3, delay: 0.8 + index * 0.08 }}
-                  whileHover={{ scale: 1.12 }}
-                  className="w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-md transition-all shadow-lg"
+                { icon: AlertCircle, color: '#ef4444', label: 'Focus failing' },
+                { icon: RotateCcw, color: muted, label: 'Reset view' },
+                { icon: Grid3x3, color: muted, label: 'Auto-layout' },
+                { icon: Camera, color: muted, label: 'Screenshot' },
+              ].map(({ icon: Icon, color, label }, i) => (
+                <motion.button key={i} whileHover={{ scale: 1.12 }} title={label}
+                  initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+                  transition={{ delay: 0.8 + i * 0.08 }}
+                  className="w-10 h-10 rounded-full flex items-center justify-center shadow-xl"
                   style={{
-                    backgroundColor: isDarkMode ? 'rgba(14,17,23,0.9)' : 'rgba(255,255,255,0.9)',
-                    border: `1px solid ${isDarkMode ? '#1a1f2e' : '#e5e7eb'}`
-                  }}
-                  title={action.label}
-                >
-                  <action.icon className="w-4 h-4" style={{ color: action.color }} />
+                    backgroundColor: isDark ? 'rgba(14,17,23,0.92)' : 'rgba(255,255,255,0.92)',
+                    border: `1px solid ${border}`, backdropFilter: 'blur(8px)'
+                  }}>
+                  <Icon style={{ width: 16, height: 16, color }} />
                 </motion.button>
               ))}
             </div>
+
+            {/* ── THE CANVAS ── */}
+            <Canvas
+              shadows
+              camera={{ position: [12, 14, 16], fov: 42, near: 0.1, far: 200 }}
+              gl={{ antialias: true, alpha: true }}
+              style={{ width: '100%', height: '100%' }}
+              onPointerMissed={() => setSelectedNode(null)}
+            >
+              <color attach="background" args={[isDark ? '#080a0f' : '#eef0f4']} />
+              <fog attach="fog" args={[isDark ? '#080a0f' : '#eef0f4', 25, 50]} />
+              <Suspense fallback={null}>
+                <Scene
+                  isDark={isDark}
+                  selectedNode={selectedNode}
+                  setSelectedNode={setSelectedNode}
+                  filters={filters}
+                />
+              </Suspense>
+            </Canvas>
           </div>
 
-          {/* ── Right Inspector Panel ── */}
+          {/* ══════════ RIGHT INSPECTOR ══════════ */}
           <AnimatePresence>
             {selectedNode && selectedService && (
-              <motion.div
-                initial={{ x: 360, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                exit={{ x: 360, opacity: 0 }}
-                transition={{ duration: 0.22 }}
-                className="w-[320px] flex-none border-l flex flex-col overflow-hidden z-30"
-                style={{
-                  backgroundColor: isDarkMode ? 'rgba(10,12,18,0.97)' : 'rgba(255,255,255,0.97)',
-                  borderColor: isDarkMode ? '#1a1f2e' : '#e5e7eb'
-                }}
-              >
-                <div className="flex-1 overflow-y-auto cc-scroll p-5 space-y-5">
+              <motion.div initial={{ x: 340 }} animate={{ x: 0 }} exit={{ x: 340 }} transition={{ duration: 0.22 }}
+                className="w-[310px] flex-none border-l flex flex-col overflow-hidden z-30"
+                style={{ backgroundColor: panelBg, borderColor: border }}>
+                <div className="flex-1 overflow-y-auto iso-scroll p-5 space-y-5">
 
-                  {/* Service Header */}
                   <div>
                     <div className="flex items-center justify-between mb-2">
-                      <h2
-                        className="text-lg font-bold tracking-tight"
-                        style={{ color: isDarkMode ? '#f1f5f9' : '#111827' }}
-                      >
-                        {selectedService.name}
-                      </h2>
-                      <button
-                        onClick={() => setSelectedNode(null)}
-                        className="p-1 rounded transition-colors"
-                        style={{ color: isDarkMode ? '#6b7280' : '#9ca3af' }}
-                        onMouseEnter={e => (e.currentTarget.style.backgroundColor = isDarkMode ? '#1e2535' : '#f3f4f6')}
-                        onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
-                      >
+                      <h2 className="text-lg font-bold tracking-tight" style={{ color: text }}>{selectedService.name}</h2>
+                      <button onClick={() => setSelectedNode(null)} className="p-1 rounded transition-colors" style={{ color: muted }}
+                        onMouseEnter={e => (e.currentTarget.style.backgroundColor = isDark ? '#1e2535' : '#f3f4f6')}
+                        onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}>
                         <ChevronRight className="w-5 h-5" />
                       </button>
                     </div>
-
-                    {/* Status badge */}
                     {(() => {
-                      const cfg = statusConfig[selectedService.status as keyof typeof statusConfig];
+                      const cfg = STATUS[selectedService.status];
                       return (
-                        <div
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12px] font-semibold"
-                          style={{ backgroundColor: cfg.badgeBg, color: cfg.text }}
-                        >
-                          <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: cfg.dot }} />
+                        <div style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 6,
+                          padding: '4px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600,
+                          backgroundColor: cfg.bg, color: cfg.text
+                        }}>
+                          <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: cfg.dot }} />
                           {cfg.label}
                         </div>
                       );
                     })()}
                   </div>
 
-                  {/* Telemetry */}
-                  <div
-                    className="rounded-xl p-4 grid grid-cols-2 gap-3"
-                    style={{
-                      backgroundColor: isDarkMode ? '#0e1117' : '#f9fafb',
-                      border: `1px solid ${isDarkMode ? '#1a1f2e' : '#e5e7eb'}`
-                    }}
-                  >
+                  <div className="rounded-xl p-4 grid grid-cols-2 gap-3"
+                    style={{ backgroundColor: isDark ? '#0e1117' : '#f9fafb', border: `1px solid ${border}` }}>
                     {[
                       { label: 'p95 Latency', value: selectedService.p95 },
                       { label: 'Error Rate', value: selectedService.errRate },
                       { label: 'Tests', value: `${selectedService.tests}%` },
                       { label: 'Last Deploy', value: selectedService.deployment },
-                    ].map(item => (
-                      <div key={item.label}>
-                        <div className="text-[10px] font-semibold uppercase tracking-wider mb-0.5" style={{ color: isDarkMode ? '#4b5563' : '#9ca3af' }}>
-                          {item.label}
-                        </div>
-                        <div className="text-[14px] font-semibold" style={{ color: isDarkMode ? '#f1f5f9' : '#111827' }}>
-                          {item.value}
-                        </div>
+                    ].map(({ label, value }) => (
+                      <div key={label}>
+                        <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: muted, marginBottom: 2 }}>{label}</div>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: text }}>{value}</div>
                       </div>
                     ))}
                   </div>
 
-                  {/* Sentinel Insights */}
                   <div>
                     <div className="flex items-center gap-2 mb-3">
                       <Shield className="w-3.5 h-3.5" style={{ color: '#8b5cf6' }} />
-                      <h3 className="text-[12px] font-bold uppercase tracking-wider" style={{ color: isDarkMode ? '#6b7280' : '#9ca3af' }}>
-                        Sentinel Insights
-                      </h3>
+                      <h3 style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: muted }}>Sentinel Insights</h3>
                     </div>
-                    <div className="space-y-2">
-                      {selectedService.status === 'critical' && (
-                        <div
-                          className="flex items-start gap-2.5 p-3 rounded-lg"
-                          style={{ backgroundColor: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}
-                        >
-                          <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-red-500" />
-                          <p className="text-[12px] leading-relaxed" style={{ color: isDarkMode ? '#fca5a5' : '#b91c1c' }}>
-                            Critical memory leak detected in request handler. p95 latency exceeds SLO.
-                          </p>
-                        </div>
-                      )}
-                      {selectedService.status === 'warning' && (
-                        <div
-                          className="flex items-start gap-2.5 p-3 rounded-lg"
-                          style={{ backgroundColor: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)' }}
-                        >
-                          <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-amber-500" />
-                          <p className="text-[12px] leading-relaxed" style={{ color: isDarkMode ? '#fcd34d' : '#92400e' }}>
-                            Potential race condition detected. Elevated error rate — blast radius from analytics-service.
-                          </p>
-                        </div>
-                      )}
-                      <div
-                        className="flex items-start gap-2.5 p-3 rounded-lg"
-                        style={{ backgroundColor: isDarkMode ? 'rgba(255,255,255,0.02)' : '#f9fafb', border: `1px solid ${isDarkMode ? '#1a1f2e' : '#e5e7eb'}` }}
-                      >
-                        <div className="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0" style={{ backgroundColor: '#6b7280' }} />
-                        <p className="text-[12px] leading-relaxed" style={{ color: isDarkMode ? '#6b7280' : '#9ca3af' }}>
-                          Memory usage spike observed during peak hours (08:00–10:00 UTC).
+                    {selectedService.status === 'critical' && (
+                      <div style={{
+                        display: 'flex', alignItems: 'flex-start', gap: 10, padding: 12, borderRadius: 8,
+                        backgroundColor: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', marginBottom: 8
+                      }}>
+                        <AlertCircle style={{ width: 14, height: 14, color: '#ef4444', flexShrink: 0, marginTop: 1 }} />
+                        <p style={{ fontSize: 12, lineHeight: 1.6, color: isDark ? '#fca5a5' : '#b91c1c' }}>
+                          Critical memory leak in request handler. p95 exceeds SLO. Blast radius propagating upstream.
                         </p>
                       </div>
+                    )}
+                    {selectedService.status === 'warning' && (
+                      <div style={{
+                        display: 'flex', alignItems: 'flex-start', gap: 10, padding: 12, borderRadius: 8,
+                        backgroundColor: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', marginBottom: 8
+                      }}>
+                        <AlertTriangle style={{ width: 14, height: 14, color: '#f59e0b', flexShrink: 0, marginTop: 1 }} />
+                        <p style={{ fontSize: 12, lineHeight: 1.6, color: isDark ? '#fcd34d' : '#92400e' }}>
+                          Degraded state induced by blast radius from analytics-service failure.
+                        </p>
+                      </div>
+                    )}
+                    <div style={{
+                      display: 'flex', alignItems: 'flex-start', gap: 10, padding: 12, borderRadius: 8,
+                      backgroundColor: isDark ? 'rgba(255,255,255,0.02)' : '#f9fafb', border: `1px solid ${border}`
+                    }}>
+                      <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: muted, flexShrink: 0, marginTop: 5 }} />
+                      <p style={{ fontSize: 12, lineHeight: 1.6, color: muted }}>Memory usage spike observed 08:00–10:00 UTC.</p>
                     </div>
                   </div>
 
-                  {/* Fortress Status */}
                   <div>
                     <div className="flex items-center gap-2 mb-3">
                       <TestTube2 className="w-3.5 h-3.5" style={{ color: '#3b82f6' }} />
-                      <h3 className="text-[12px] font-bold uppercase tracking-wider" style={{ color: isDarkMode ? '#6b7280' : '#9ca3af' }}>
-                        Fortress Status
-                      </h3>
+                      <h3 style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: muted }}>Fortress Status</h3>
                     </div>
-                    <div
-                      className="rounded-xl p-4 space-y-2.5"
-                      style={{
-                        backgroundColor: isDarkMode ? '#0e1117' : '#f9fafb',
-                        border: `1px solid ${isDarkMode ? '#1a1f2e' : '#e5e7eb'}`
-                      }}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-[12px]" style={{ color: isDarkMode ? '#6b7280' : '#9ca3af' }}>Tests passing</span>
-                        <span className="text-[13px] font-semibold" style={{ color: isDarkMode ? '#f1f5f9' : '#111827' }}>{selectedService.tests}%</span>
+                    <div style={{ borderRadius: 12, padding: 14, backgroundColor: isDark ? '#0e1117' : '#f9fafb', border: `1px solid ${border}`, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: muted }}>
+                        <span>Tests passing</span>
+                        <span style={{ fontWeight: 600, color: text }}>{selectedService.tests}%</span>
                       </div>
-                      {selectedService.status !== 'healthy' && (
-                        <div className="flex items-center justify-between">
-                          <span className="text-[12px]" style={{ color: isDarkMode ? '#6b7280' : '#9ca3af' }}>Last failure</span>
-                          <span className="text-[13px] font-semibold" style={{ color: isDarkMode ? '#f1f5f9' : '#111827' }}>12 min ago</span>
-                        </div>
-                      )}
-                      {/* Progress bar */}
-                      <div className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: isDarkMode ? '#1a1f2e' : '#e5e7eb' }}>
-                        <div
-                          className="h-full rounded-full transition-all"
-                          style={{
-                            width: `${selectedService.tests}%`,
-                            backgroundColor: selectedService.tests === 100 ? '#22c55e' : selectedService.tests >= 90 ? '#f59e0b' : '#ef4444'
-                          }}
-                        />
+                      <div style={{ height: 5, borderRadius: 999, overflow: 'hidden', backgroundColor: isDark ? '#1a1f2e' : '#e5e7eb' }}>
+                        <div style={{
+                          height: '100%', borderRadius: 999, width: `${selectedService.tests}%`,
+                          backgroundColor: selectedService.tests === 100 ? '#22c55e' : selectedService.tests >= 90 ? '#f59e0b' : '#ef4444'
+                        }} />
                       </div>
                     </div>
                   </div>
 
-                  {/* Dependencies */}
                   <div>
-                    <h3 className="text-[12px] font-bold uppercase tracking-wider mb-3" style={{ color: isDarkMode ? '#6b7280' : '#9ca3af' }}>
-                      Dependencies
-                    </h3>
-                    <div className="space-y-1.5">
-                      {selectedService.connections.map(connId => {
-                        const conn = services.find(s => s.id === connId);
-                        if (!conn) return null;
-                        const connCfg = statusConfig[conn.status as keyof typeof statusConfig];
+                    <h3 style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: muted, marginBottom: 10 }}>Dependencies</h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {selectedService.connections.map(cid => {
+                        const c = services.find(s => s.id === cid);
+                        if (!c) return null;
+                        const ccfg = STATUS[c.status];
                         return (
-                          <button
-                            key={connId}
-                            onClick={() => setSelectedNode(connId)}
-                            className="w-full flex items-center justify-between p-3 rounded-lg transition-all"
+                          <button key={cid} onClick={() => setSelectedNode(cid)}
                             style={{
-                              backgroundColor: isDarkMode ? '#0e1117' : '#f9fafb',
-                              border: `1px solid ${isDarkMode ? '#1a1f2e' : '#e5e7eb'}`
+                              display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderRadius: 10, cursor: 'pointer', transition: 'all 0.15s',
+                              backgroundColor: isDark ? '#0e1117' : '#f9fafb', border: `1px solid ${border}`
                             }}
-                            onMouseEnter={e => (e.currentTarget.style.borderColor = connCfg.border + '80')}
-                            onMouseLeave={e => (e.currentTarget.style.borderColor = isDarkMode ? '#1a1f2e' : '#e5e7eb')}
-                          >
-                            <div className="flex items-center gap-2">
-                              <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: connCfg.dot }} />
-                              <span className="text-[13px] font-medium" style={{ color: isDarkMode ? '#e2e8f0' : '#111827' }}>{conn.name}</span>
+                            onMouseEnter={e => (e.currentTarget.style.borderColor = ccfg.dot + '80')}
+                            onMouseLeave={e => (e.currentTarget.style.borderColor = border)}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: ccfg.dot }} />
+                              <span style={{ fontSize: 13, fontWeight: 500, color: text }}>{c.name}</span>
                             </div>
-                            <ChevronRight className="w-3.5 h-3.5" style={{ color: isDarkMode ? '#4b5563' : '#d1d5db' }} />
+                            <ChevronRight style={{ width: 14, height: 14, color: muted }} />
                           </button>
                         );
                       })}
                       {selectedService.connections.length === 0 && (
-                        <p className="text-[12px]" style={{ color: isDarkMode ? '#4b5563' : '#9ca3af' }}>No downstream dependencies</p>
+                        <p style={{ fontSize: 12, color: muted }}>No downstream dependencies</p>
                       )}
                     </div>
                   </div>
 
-                  {/* CTA */}
-                  <button
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-semibold text-[13px] transition-all hover:opacity-90"
-                    style={{
-                      backgroundColor: isDarkMode ? '#f1f5f9' : '#111827',
-                      color: isDarkMode ? '#111827' : '#f1f5f9'
-                    }}
-                  >
-                    Open in Workspace <ChevronRight className="w-4 h-4" />
+                  <button style={{
+                    width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                    padding: '10px 16px', borderRadius: 10, fontWeight: 600, fontSize: 13, cursor: 'pointer',
+                    backgroundColor: isDark ? '#f1f5f9' : '#111827', color: isDark ? '#111827' : '#f1f5f9', transition: 'opacity 0.2s'
+                  }}
+                    onMouseEnter={e => (e.currentTarget.style.opacity = '0.88')}
+                    onMouseLeave={e => (e.currentTarget.style.opacity = '1')}>
+                    Open in Workspace <ChevronRight style={{ width: 16, height: 16 }} />
                   </button>
                 </div>
               </motion.div>
@@ -1006,87 +832,58 @@ export function CortexPage() {
           </AnimatePresence>
         </div>
 
-        {/* ── Bottom System Activity Timeline ── */}
-        <div
-          className="flex-none border-t transition-colors"
-          style={{
-            backgroundColor: isDarkMode ? 'rgba(10,12,18,0.97)' : 'rgba(255,255,255,0.97)',
-            borderColor: isDarkMode ? '#1a1f2e' : '#e5e7eb',
-            backdropFilter: 'blur(16px)',
-            height: '76px'
-          }}
-        >
-          <div className="h-full px-6 flex flex-col justify-center gap-2">
-            {/* Header row */}
-            <div className="flex items-center justify-between">
-              <span
-                className="text-[10px] font-bold tracking-widest uppercase"
-                style={{ color: isDarkMode ? '#4b5563' : '#9ca3af' }}
-              >
+        {/* ══════════ BOTTOM TIMELINE ══════════ */}
+        <div className="flex-none border-t transition-colors"
+          style={{ backgroundColor: panelBg, borderColor: border, backdropFilter: 'blur(16px)', height: '72px' }}>
+          <div style={{ height: '100%', padding: '0 24px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: muted }}>
                 System Activity Timeline
               </span>
-              <div className="flex items-center gap-4">
-                <span className="text-[10px]" style={{ color: isDarkMode ? '#4b5563' : '#9ca3af' }}>Last 24 hours</span>
-                {/* LIVE indicator */}
-                <div className="flex items-center gap-1.5">
-                  <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-live-blip" />
-                  <span className="text-[10px] font-bold tracking-wider text-red-500">LIVE</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                <span style={{ fontSize: 10, color: muted }}>Last 24 hours</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div className="live-dot" style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#ef4444' }} />
+                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', color: '#ef4444' }}>LIVE</span>
                 </div>
               </div>
             </div>
 
-            {/* Timeline Track */}
-            <div className="relative h-6">
-              {/* Track bar */}
-              <div
-                className="absolute inset-y-0 left-0 right-0 top-1/2 -translate-y-1/2 h-[2px] rounded-full"
-                style={{ backgroundColor: isDarkMode ? '#1a1f2e' : '#e5e7eb' }}
-              />
-
-              {/* Event markers */}
-              {timelineEvents.map((event, i) => (
-                <div
-                  key={i}
-                  className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 cursor-pointer group"
-                  style={{ left: `${event.position}%` }}
-                  onMouseEnter={() => setHoveredEvent(i)}
-                  onMouseLeave={() => setHoveredEvent(null)}
-                >
-                  {/* Marker dot */}
-                  <div
-                    className="w-2.5 h-2.5 rounded-full border-2 transition-transform group-hover:scale-150"
-                    style={{
-                      backgroundColor: event.color,
-                      borderColor: isDarkMode ? '#080a0f' : '#f4f5f7',
-                      boxShadow: `0 0 8px ${event.color}88`
-                    }}
-                  />
-                  {/* Tooltip */}
+            <div style={{ position: 'relative', height: 20 }}>
+              <div style={{
+                position: 'absolute', inset: '50% 0', height: 2, transform: 'translateY(-50%)', borderRadius: 999,
+                backgroundColor: isDark ? '#1a1f2e' : '#e5e7eb'
+              }} />
+              {timelineEvents.map((ev, i) => (
+                <div key={i} style={{ position: 'absolute', top: '50%', left: `${ev.position}%`, transform: 'translate(-50%,-50%)', zIndex: 2, cursor: 'pointer' }}
+                  onMouseEnter={() => setHoveredEvent(i)} onMouseLeave={() => setHoveredEvent(null)}>
+                  <div style={{
+                    width: 10, height: 10, borderRadius: '50%', backgroundColor: ev.color, boxShadow: `0 0 10px ${ev.color}99`,
+                    border: `2px solid ${isDark ? '#080a0f' : '#eef0f4'}`, transition: 'transform 0.15s',
+                    transform: hoveredEvent === i ? 'scale(1.6)' : 'scale(1)'
+                  }} />
                   {hoveredEvent === i && (
-                    <div
-                      className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold whitespace-nowrap pointer-events-none shadow-xl"
-                      style={{
-                        backgroundColor: isDarkMode ? '#1a1f2e' : '#111827',
-                        color: event.color,
-                        border: `1px solid ${event.color}44`
-                      }}
-                    >
-                      {event.label}
-                      <div
-                        className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent"
-                        style={{ borderTopColor: isDarkMode ? '#1a1f2e' : '#111827' }}
-                      />
+                    <div style={{
+                      position: 'absolute', bottom: 'calc(100% + 8px)', left: '50%', transform: 'translateX(-50%)',
+                      padding: '5px 10px', borderRadius: 7, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: 20,
+                      backgroundColor: isDark ? '#1a1f2e' : '#111827', color: ev.color, border: `1px solid ${ev.color}44`,
+                      boxShadow: '0 4px 20px rgba(0,0,0,0.4)'
+                    }}>
+                      {ev.label}
+                      <div style={{
+                        position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
+                        borderLeft: '5px solid transparent', borderRight: '5px solid transparent',
+                        borderTop: `5px solid ${isDark ? '#1a1f2e' : '#111827'}`
+                      }} />
                     </div>
                   )}
                 </div>
               ))}
-
-              {/* LIVE dot at far right */}
-              <div
-                className="absolute top-1/2 right-0 -translate-y-1/2 flex items-center gap-1"
-              >
-                <div className="w-2 h-2 rounded-full bg-red-500 animate-live-blip" />
-              </div>
+              <div className="live-dot" style={{
+                position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)',
+                width: 8, height: 8, borderRadius: '50%', backgroundColor: '#ef4444',
+                boxShadow: '0 0 10px rgba(239,68,68,0.8)'
+              }} />
             </div>
           </div>
         </div>
