@@ -1,0 +1,71 @@
+.features-section {
+    padding: 0 0 0 0;
+    /* Remove top/bottom padding to let graphic sit flush and merge with next section */
+    background-color: #151515 !important;
+    overflow: hidden;
+}
+
+/* Timeline Bridge Graphic Styles */
+.timeline-bridge-wrapper {
+    width: 100%;
+    margin-bottom: -30px;
+    /* Pull the feature boxes up to intersect the graphic */
+    display: flex;
+    justify-content: center;
+    position: relative;
+    z-index: 10;
+}
+
+.timeline-bridge-wrapper svg {
+    width: 100%;
+    height: auto;
+}
+
+.split-feature-container {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 80px;
+    position: relative;
+    z-index: 20;
+    /* Sit cleanly atop the timeline graphic */
+}
+
+@media (min-width: 900px) {
+    .split-feature-container {
+        flex-direction: row;
+    }
+}
+
+.feature-half {
+    flex: 1;
+    padding: 64px 48px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+}
+
+.marketer-feature {
+    background-color: #F7F7F7;
+    color: var(--color-textMain);
+    border-radius: 32px;
+}
+
+.developer-feature {
+    background-color: transparent;
+    color: #fff;
+}
+
+/* Tail styles removed in favor of SVG implementation in TSX */
+
+/* Scroll Reveal animation Utility */
+.scroll-reveal {
+    opacity: 0;
+    transform: translateY(30px);
+    transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1), transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.scroll-reveal.visible {
+    opacity: 1;
+    transform: translateY(0);
+}

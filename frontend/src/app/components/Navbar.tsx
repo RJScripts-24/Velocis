@@ -55,6 +55,7 @@ export function Navbar() {
 
         {/* Mobile hamburger */}
         <button
+          type="button"
           className="md:hidden p-2 text-[--text-primary]"
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
           aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}

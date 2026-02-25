@@ -1,0 +1,29 @@
+.logo-carousel-container {
+    width: 100%;
+    overflow: hidden;
+    position: relative;
+    padding: 20px 0;
+}
+
+.logo-carousel-track {
+    display: flex;
+    align-items: center;
+    width: max-content;
+    animation: scrollLogos 25s linear infinite;
+    gap: 40px;
+}
+
+.logo-carousel-track:hover {
+    animation-play-state: paused;
+}
+
+@keyframes scrollLogos {
+    0% {
+        transform: translateX(0);
+    }
+
+    100% {
+        /* Move half the distance since we tripled the elements */
+        transform: translateX(calc(-33.333%));
+    }
+}

@@ -519,3 +519,73 @@
 .anim-button {
   transition: all 160ms ease;
 }
+
+/* ─── Landing Page Styles ─── */
+@theme inline {
+  --color-surface: #F7F7F7;
+  --color-dark: #151515;
+  --color-primary: #3BBB96;
+  --color-secondary: #8D5CF6;
+  --color-tertiary: #38BDF8;
+  --color-textMain: #151515;
+  --color-textMuted: #505050;
+  --color-textInverse: #FFFFFF;
+  --color-borderSubtle: rgba(21, 21, 21, 0.08);
+  --color-borderInv: rgba(255, 255, 255, 0.1);
+
+  --font-display: 'Space Grotesk', sans-serif;
+  --font-body: 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --radius-button: 8px;
+  --radius-card: 24px;
+  --radius-pill: 999px;
+}
+
+.text-balance {
+  text-wrap: balance;
+}
+
+/* --- Global Scroll Reveal --- */
+.reveal {
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1), transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.reveal.active {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.delay-1 {
+  transition-delay: 0.1s;
+}
+
+.delay-2 {
+  transition-delay: 0.2s;
+}
+
+.delay-3 {
+  transition-delay: 0.3s;
+}
+
+.delay-4 {
+  transition-delay: 0.4s;
+}
+
+.delay-5 {
+  transition-delay: 0.5s;
+}
+
+.delay-6 {
+  transition-delay: 0.6s;
+}
+
+.delay-7 {
+  transition-delay: 0.7s;
+}
+
+.delay-8 {
+  transition-delay: 0.8s;
+}
