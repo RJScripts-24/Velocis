@@ -190,7 +190,7 @@ export default function TimelineSvg() {
                             </ul>
 
                             <button className="bg-[#151515] text-white hover:bg-black transition-colors rounded-full px-7 py-3.5 font-semibold text-[15px] inline-flex items-center shadow-lg relative z-20">
-                                <TextGenerate delay={2.4}>Start moving faster today</TextGenerate>
+                                <TextGenerate delay={2.39}>Start moving faster today</TextGenerate>
                             </button>
 
                             {/* Seamless Extra Curvy Hourglass Sweep Tail */}

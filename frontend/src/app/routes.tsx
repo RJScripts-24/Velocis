@@ -7,11 +7,21 @@ import { CortexPage } from "./pages/CortexPage";
 import { WorkspacePage } from "./pages/WorkspacePage";
 import { PipelinePage } from "./pages/PipelinePage";
 import { InfrastructurePage } from "./pages/InfrastructurePage";
+import { AuthPage } from "./pages/AuthPage";
+import { RepoSelectionPage } from "./pages/RepoSelectionPage";
 
 export const router = createBrowserRouter([
   {
+    path: "/auth",
+    element: <AuthPage />,
+  },
+  {
     path: "/",
     element: <HomePage />,
+  },
+  {
+    path: "/select-repo",
+    element: <RepoSelectionPage />,
   },
   {
     path: "/onboarding",
