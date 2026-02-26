@@ -102,7 +102,7 @@ export default function Hero() {
 
                 {/* CTA Row */}
                 <div className="hero-anim flex flex-col sm:flex-row gap-4 mb-24">
-                    <button onClick={() => navigate('/onboarding')} className="flex items-center gap-2 bg-dark text-textInverse px-8 py-4 rounded-button font-medium hover:bg-dark/80 transition-opacity duration-300">
+                    <button onClick={() => navigate('/auth')} className="flex items-center gap-2 bg-dark text-textInverse px-8 py-4 rounded-button font-medium hover:bg-dark/80 transition-opacity duration-300">
                         <Github size={20} />
                         Connect Repository
                     </button>

@@ -15,7 +15,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSwitchSignUp }) => {
         // Mock authentication process
         setTimeout(() => {
             setIsLoading(false);
-            navigate('/select-repo'); // Navigate to the new repo selection page
+            navigate('/onboarding');
         }, 1000);
     };
 

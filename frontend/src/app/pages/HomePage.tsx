@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { useNavigate } from 'react-router';
 import Lenis from '@studio-freight/lenis';
 
 import Hero from '../components/LandingPage/Hero';
@@ -14,6 +15,8 @@ import AnimatedFlagCTA from '../components/LandingPage/AnimatedFlagCTA';
 import CTA from '../components/LandingPage/CTA';
 
 export function HomePage() {
+  const navigate = useNavigate();
+
   useEffect(() => {
     const lenis = new Lenis({
       duration: 1.2,
@@ -62,7 +65,7 @@ export function HomePage() {
       <header className="sticky top-0 z-50 bg-background/90 backdrop-blur-md border-b border-borderSubtle">
         <div className="w-full px-8 h-20 flex items-center justify-between">
           <div className="font-display font-bold text-xl tracking-tight">Velocis.</div>
-          <button className="bg-dark text-textInverse px-5 py-2.5 rounded-button font-medium hover:bg-dark/90 transition-colors">
+          <button onClick={() => navigate('/auth')} className="bg-dark text-textInverse px-5 py-2.5 rounded-button font-medium hover:bg-dark/90 transition-colors">
             Connect Repository
           </button>
         </div>
