@@ -41,6 +41,72 @@ const repositoryData: Record<string, any> = {
     cortex: { lastUpdate: '5 minutes ago', services: 28 },
     risks: { critical: 0, medium: 1, low: 3 }
   },
+  'nexlayer': {
+    name: 'Nexlayer',
+    status: 'healthy',
+    statusColor: '#22c55e',
+    statusLabel: 'System Healthy',
+    visibility: 'Private',
+    language: 'Go',
+    lastScanned: '4 min ago',
+    size: '1.2M LOC',
+    metrics: {
+      riskScore: 'Low',
+      testStability: '100%',
+      architectureDrift: 'None detected',
+      lastAction: '4 minutes ago'
+    },
+    sentinel: {
+      activePRs: 0,
+      lastUpdate: '8 minutes ago'
+    },
+    fortress: {
+      status: 'All pipelines passing',
+      lastRun: '12 minutes ago'
+    },
+    cortex: {
+      lastUpdate: '4 minutes ago',
+      services: 34
+    },
+    risks: {
+      critical: 0,
+      medium: 0,
+      low: 2
+    }
+  },
+  'databridge': {
+    name: 'DataBridge',
+    status: 'healthy',
+    statusColor: '#22c55e',
+    statusLabel: 'System Healthy',
+    visibility: 'Private',
+    language: 'TypeScript',
+    lastScanned: '6 min ago',
+    size: '890K LOC',
+    metrics: {
+      riskScore: 'Low',
+      testStability: '97%',
+      architectureDrift: 'Minor — 1 stale endpoint',
+      lastAction: '6 minutes ago'
+    },
+    sentinel: {
+      activePRs: 1,
+      lastUpdate: '10 minutes ago'
+    },
+    fortress: {
+      status: 'All pipelines passing',
+      lastRun: '18 minutes ago'
+    },
+    cortex: {
+      lastUpdate: '6 minutes ago',
+      services: 21
+    },
+    risks: {
+      critical: 0,
+      medium: 1,
+      low: 3
+    }
+  },
   'velocis-core': {
     name: 'velocis-core',
     status: 'warning',
