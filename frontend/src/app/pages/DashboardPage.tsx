@@ -383,79 +383,136 @@ export default function DashboardPage() {
         {/* ── TOP BAR ───────────────────────────────────────────────────── */}
         <header
           style={{
-            height: 44, borderBottom: `1px solid ${BORDER}`,
-            display: "flex", alignItems: "center", padding: "0 18px", gap: 12,
-            flexShrink: 0, background: TOPBAR,
+            height: 60, flexShrink: 0,
+            borderBottom: `1px solid ${isDark ? "rgba(51,65,85,0.8)" : "#e4e4e7"}`,
+            background: isDark ? "rgba(15,23,42,0.75)" : "rgba(255,255,255,0.82)",
+            backdropFilter: "blur(16px)",
+            WebkitBackdropFilter: "blur(16px)",
+            display: "flex", alignItems: "center", padding: "0 20px", gap: 0,
+            position: "relative", zIndex: 40,
           }}
         >
-          <span style={{ fontSize: 13, color: MUTED, fontFamily: SANS }}>infra-team</span>
-          <span style={{ color: DIM, fontSize: 11 }}>/</span>
-          <span style={{ fontSize: 13, color: TEXT, fontWeight: 500, fontFamily: SANS }}>Overview</span>
+          {/* Left — logo + breadcrumb */}
+          <div style={{ display: "flex", alignItems: "center", gap: 16, flexShrink: 0 }}>
+            {/* Logo block */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{
+                width: 32, height: 32, borderRadius: 8,
+                background: isDark ? "#1e293b" : "#18181b",
+                border: `1px solid ${isDark ? "#334155" : "#3f3f46"}`,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                flexShrink: 0, boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+              }}>
+                <span style={{ color: "#fff", fontWeight: 700, fontSize: 13, fontFamily: MONO }}>V</span>
+              </div>
+              <span style={{ fontWeight: 600, fontSize: 14, color: TEXT, fontFamily: SANS, letterSpacing: "-0.01em" }}>
+                Velocis
+              </span>
+            </div>
 
-          {/* Search */}
-          <div
-            style={{
-              marginLeft: 16, background: ELEVATED, border: `1px solid ${BORDER}`,
-              borderRadius: 5, display: "flex", alignItems: "center", gap: 6,
-              padding: "4px 10px", width: 200,
-            }}
-          >
-            <span style={{ color: DIM, fontSize: 12 }}>⌕</span>
-            <input
-              placeholder="Search..."
-              style={{ background: "none", border: "none", outline: "none", color: MUTED, fontSize: 12, width: "100%", fontFamily: SANS }}
-            />
-            <span style={{ fontSize: 9, color: DIM, border: `1px solid ${BORDER}`, borderRadius: 3, padding: "1px 4px", fontFamily: MONO }}>
-              ⌘K
-            </span>
+            {/* Breadcrumb */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: MUTED, fontFamily: SANS }}>
+              <span
+                onClick={() => navigate("/")}
+                style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer",
+                  color: MUTED, transition: "color 0.1s" }}
+                onMouseEnter={e => (e.currentTarget.style.color = isDark ? "#818cf8" : "#4f46e5")}
+                onMouseLeave={e => (e.currentTarget.style.color = MUTED)}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" />
+                </svg>
+                <span style={{ fontSize: 13 }}>Home</span>
+              </span>
+              <span style={{ color: DIM, fontSize: 12 }}>/</span>
+              <span style={{ color: TEXT, fontWeight: 600, fontSize: 13 }}>Dashboard</span>
+            </div>
           </div>
 
-          {/* Status pills */}
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 8 }}>
+          {/* Center — search */}
+          <div style={{ flex: 1, display: "flex", justifyContent: "center" }}>
+            <div style={{
+              display: "flex", alignItems: "center", gap: 6,
+              background: isDark ? "rgba(15,23,42,0.6)" : "#fff",
+              border: `1px solid ${isDark ? "#334155" : "#e4e4e7"}`,
+              borderRadius: 8, padding: "5px 12px", width: 220,
+              boxShadow: "0 1px 2px rgba(0,0,0,0.08)",
+            }}>
+              <span style={{ color: DIM, fontSize: 13 }}>⌕</span>
+              <input
+                placeholder="Search..."
+                style={{ background: "none", border: "none", outline: "none", color: MUTED, fontSize: 12, width: "100%", fontFamily: SANS }}
+              />
+              <span style={{ fontSize: 9, color: DIM, border: `1px solid ${BORDER}`, borderRadius: 3, padding: "1px 4px", fontFamily: MONO }}>
+                ⌘K
+              </span>
+            </div>
+          </div>
+
+          {/* Right — status + time filter + theme toggle + avatar */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+            {/* Status pills */}
             <span style={{ background: PILL_GR_BG, border: `1px solid ${PILL_GR_BD}`, color: GREEN, fontSize: 11, padding: "2px 8px", borderRadius: 10, fontFamily: MONO }}>
               ● sys ok
             </span>
             <span style={{ background: PILL_AM_BG, border: `1px solid ${PILL_AM_BD}`, color: AMBER, fontSize: 11, padding: "2px 8px", borderRadius: 10, fontFamily: MONO }}>
               ● 1 warn
             </span>
-          </div>
 
-          <div style={{ flex: 1 }} />
+            <div style={{ width: 1, height: 20, background: BORDER, margin: "0 4px" }} />
 
-          {/* Time filter */}
-          <div style={{ display: "flex", gap: 2 }}>
-            {["1h", "24h", "7d", "30d"].map((t) => (
-              <button
-                key={t}
-                style={{
+            {/* Time filter */}
+            <div style={{ display: "flex", gap: 1 }}>
+              {["1h", "24h", "7d", "30d"].map((t) => (
+                <button key={t} style={{
                   background: t === "24h" ? BADGE_BG : "none", border: "none",
                   color: t === "24h" ? TEXT : MUTED, fontSize: 11,
-                  padding: "3px 8px", borderRadius: 4, cursor: "pointer", fontFamily: MONO,
-                }}
-              >
-                {t}
-              </button>
-            ))}
+                  padding: "3px 7px", borderRadius: 4, cursor: "pointer", fontFamily: MONO,
+                }}>
+                  {t}
+                </button>
+              ))}
+            </div>
+
+            <span style={{ fontSize: 11, color: DIM, fontFamily: SANS, whiteSpace: "nowrap" }}>
+              2m ago ↻
+            </span>
+
+            <div style={{ width: 1, height: 20, background: BORDER, margin: "0 4px" }} />
+
+            {/* Theme toggle */}
+            <button
+              onClick={() => setIsDark(!isDark)}
+              title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+              style={{
+                background: "none", border: "none", padding: 6, borderRadius: 8,
+                cursor: "pointer", color: MUTED, display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 15, transition: "background 0.15s",
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = isDark ? "#1e293b" : "#f4f4f5")}
+              onMouseLeave={e => (e.currentTarget.style.background = "none")}
+            >
+              {isDark ? "☀" : "☾"}
+            </button>
+
+            {/* Avatar with glow */}
+            <div style={{ position: "relative", flexShrink: 0 }}>
+              <div style={{
+                position: "absolute", inset: 0,
+                background: "rgba(99,102,241,0.2)", borderRadius: "50%", filter: "blur(6px)",
+              }} />
+              <div style={{
+                width: 32, height: 32, borderRadius: "50%", position: "relative",
+                background: isDark ? "#1e293b" : "#fff",
+                border: `1px solid ${isDark ? "rgba(99,102,241,0.3)" : "rgba(99,102,241,0.2)"}`,
+                boxShadow: "0 1px 3px rgba(0,0,0,0.12)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                cursor: "pointer",
+              }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: isDark ? "#818cf8" : "#4f46e5", fontFamily: MONO }}>R</span>
+              </div>
+            </div>
           </div>
-
-          {/* Slightly awkwardly placed last-updated */}
-          <span style={{ fontSize: 11, color: DIM, marginLeft: 6, fontFamily: SANS, whiteSpace: "nowrap" }}>
-            Last updated 2m ago ↻
-          </span>
-
-          {/* ── Theme toggle */}
-          <button
-            onClick={() => setIsDark(!isDark)}
-            title={isDark ? "Switch to light mode" : "Switch to dark mode"}
-            style={{
-              marginLeft: 8, background: ELEVATED, border: `1px solid ${BORDER}`,
-              borderRadius: 5, width: 28, height: 28, display: "flex", alignItems: "center",
-              justifyContent: "center", cursor: "pointer", flexShrink: 0, fontSize: 14,
-              color: MUTED, transition: "background 0.15s",
-            }}
-          >
-            {isDark ? "☀" : "☾"}
-          </button>
         </header>
 
         {/* ── SCROLLABLE CONTENT ────────────────────────────────────────── */}

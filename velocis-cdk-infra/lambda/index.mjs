@@ -20,13 +20,12 @@ export const handler = async (event) => {
 
     try {
         const command = new InvokeModelCommand({
-            // REPLACE THE STRING BELOW WITH YOUR EXACT CLAUDE 4.6 MODEL ID
-            modelId: "anthropic.claude-4-6-sonnet-[insert-rest-of-id-here]",
+            // The official AWS ID for Claude 3.5 Sonnet v2
+            modelId: "anthropic.claude-3-5-sonnet-20241022-v2:0",
             contentType: "application/json",
             accept: "application/json",
             body: JSON.stringify(payload),
         });
-
         // Send the request to Bedrock
         const response = await client.send(command);
         const responseBody = JSON.parse(new TextDecoder().decode(response.body));
