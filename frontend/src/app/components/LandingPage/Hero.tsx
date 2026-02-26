@@ -1,10 +1,12 @@
 import { useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router';
 import gsap from 'gsap';
 import { Github, Play } from 'lucide-react';
 import heroLeft from '../../../assets/landing-page/hero-left.svg?raw';
 import heroRight from '../../../assets/landing-page/hero-right.svg?raw';
 
 export default function Hero() {
+    const navigate = useNavigate();
     const containerRef = useRef<HTMLElement>(null);
 
     useEffect(() => {
@@ -100,7 +102,7 @@ export default function Hero() {
 
                 {/* CTA Row */}
                 <div className="hero-anim flex flex-col sm:flex-row gap-4 mb-24">
-                    <button className="flex items-center gap-2 bg-dark text-textInverse px-8 py-4 rounded-button font-medium hover:bg-dark/80 transition-opacity duration-300">
+                    <button onClick={() => navigate('/onboarding')} className="flex items-center gap-2 bg-dark text-textInverse px-8 py-4 rounded-button font-medium hover:bg-dark/80 transition-opacity duration-300">
                         <Github size={20} />
                         Connect Repository
                     </button>
