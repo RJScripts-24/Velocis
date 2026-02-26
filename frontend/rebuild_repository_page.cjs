@@ -1,4 +1,100 @@
-import React, { useEffect, useState, useRef } from 'react';
+const fs = require('fs');
+const path = "c:\\Users\\ADMIN\\Desktop\\velocis\\frontend\\src\\app\\pages\\RepositoryPage.tsx";
+
+const repositoryData = {
+  'infrazero': {
+    name: 'InfraZero',
+    status: 'healthy',
+    statusColor: '#059669',
+    statusLabel: 'System Healthy',
+    visibility: 'Private',
+    language: 'TypeScript',
+    lastScanned: '3 min ago',
+    size: '2.4M LOC',
+    metrics: { riskScore: 'Low', testStability: '100%', architectureDrift: 'None detected', lastAction: '2 minutes ago' },
+    sentinel: { activePRs: 2, lastUpdate: '5 minutes ago' },
+    fortress: { status: 'All pipelines passing', lastRun: '10 minutes ago' },
+    cortex: { lastUpdate: '2 minutes ago', services: 42 },
+    risks: { critical: 0, medium: 2, low: 5 }
+  },
+  'immersa': {
+    name: 'Immersa',
+    status: 'healthy',
+    statusColor: '#059669',
+    statusLabel: 'System Healthy',
+    visibility: 'Private',
+    language: 'Python',
+    lastScanned: '5 min ago',
+    size: '1.8M LOC',
+    metrics: { riskScore: 'Low', testStability: '98%', architectureDrift: 'None detected', lastAction: '8 minutes ago' },
+    sentinel: { activePRs: 1, lastUpdate: '12 minutes ago' },
+    fortress: { status: 'All pipelines passing', lastRun: '15 minutes ago' },
+    cortex: { lastUpdate: '5 minutes ago', services: 28 },
+    risks: { critical: 0, medium: 1, low: 3 }
+  },
+  'nexlayer': {
+    name: 'Nexlayer',
+    status: 'healthy',
+    statusColor: '#22c55e',
+    statusLabel: 'System Healthy',
+    visibility: 'Private',
+    language: 'Go',
+    lastScanned: '4 min ago',
+    size: '1.2M LOC',
+    metrics: { riskScore: 'Low', testStability: '100%', architectureDrift: 'None detected', lastAction: '4 minutes ago' },
+    sentinel: { activePRs: 0, lastUpdate: '8 minutes ago' },
+    fortress: { status: 'All pipelines passing', lastRun: '12 minutes ago' },
+    cortex: { lastUpdate: '4 minutes ago', services: 34 },
+    risks: { critical: 0, medium: 0, low: 2 }
+  },
+  'databridge': {
+    name: 'DataBridge',
+    status: 'healthy',
+    statusColor: '#22c55e',
+    statusLabel: 'System Healthy',
+    visibility: 'Private',
+    language: 'TypeScript',
+    lastScanned: '6 min ago',
+    size: '890K LOC',
+    metrics: { riskScore: 'Low', testStability: '97%', architectureDrift: 'Minor — 1 stale endpoint', lastAction: '6 minutes ago' },
+    sentinel: { activePRs: 1, lastUpdate: '10 minutes ago' },
+    fortress: { status: 'All pipelines passing', lastRun: '18 minutes ago' },
+    cortex: { lastUpdate: '6 minutes ago', services: 21 },
+    risks: { critical: 0, medium: 1, low: 3 }
+  },
+  'velocis-core': {
+    name: 'velocis-core',
+    status: 'warning',
+    statusColor: '#D97706',
+    statusLabel: 'Minor Risks',
+    visibility: 'Private',
+    language: 'TypeScript',
+    lastScanned: '1 min ago',
+    size: '3.2M LOC',
+    metrics: { riskScore: 'Medium', testStability: '94%', architectureDrift: 'Minor changes detected', lastAction: '1 minute ago' },
+    sentinel: { activePRs: 3, lastUpdate: '2 minutes ago' },
+    fortress: { status: '2 flaky tests detected', lastRun: '3 minutes ago' },
+    cortex: { lastUpdate: '1 minute ago', services: 58 },
+    risks: { critical: 0, medium: 4, low: 8 }
+  },
+  'ai-observatory': {
+    name: 'ai-observatory',
+    status: 'healthy',
+    statusColor: '#059669',
+    statusLabel: 'System Healthy',
+    visibility: 'Public',
+    language: 'JavaScript',
+    lastScanned: '10 min ago',
+    size: '980K LOC',
+    metrics: { riskScore: 'Low', testStability: '100%', architectureDrift: 'None detected', lastAction: '15 minutes ago' },
+    sentinel: { activePRs: 0, lastUpdate: '20 minutes ago' },
+    fortress: { status: 'All pipelines passing', lastRun: '25 minutes ago' },
+    cortex: { lastUpdate: '10 minutes ago', services: 18 },
+    risks: { critical: 0, medium: 0, low: 2 }
+  }
+};
+
+const code = `import React, { useEffect, useState, useRef } from 'react';
 import { motion, useAnimation } from 'framer-motion';
 import { 
   Bell, Search, CheckCircle, Shield, TestTube2, Eye, GitBranch, 
@@ -7,206 +103,7 @@ import {
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router';
 
-const repositoryData: Record<string, any> = {
-  "infrazero": {
-    "name": "InfraZero",
-    "status": "healthy",
-    "statusColor": "#059669",
-    "statusLabel": "System Healthy",
-    "visibility": "Private",
-    "language": "TypeScript",
-    "lastScanned": "3 min ago",
-    "size": "2.4M LOC",
-    "metrics": {
-      "riskScore": "Low",
-      "testStability": "100%",
-      "architectureDrift": "None detected",
-      "lastAction": "2 minutes ago"
-    },
-    "sentinel": {
-      "activePRs": 2,
-      "lastUpdate": "5 minutes ago"
-    },
-    "fortress": {
-      "status": "All pipelines passing",
-      "lastRun": "10 minutes ago"
-    },
-    "cortex": {
-      "lastUpdate": "2 minutes ago",
-      "services": 42
-    },
-    "risks": {
-      "critical": 0,
-      "medium": 2,
-      "low": 5
-    }
-  },
-  "immersa": {
-    "name": "Immersa",
-    "status": "healthy",
-    "statusColor": "#059669",
-    "statusLabel": "System Healthy",
-    "visibility": "Private",
-    "language": "Python",
-    "lastScanned": "5 min ago",
-    "size": "1.8M LOC",
-    "metrics": {
-      "riskScore": "Low",
-      "testStability": "98%",
-      "architectureDrift": "None detected",
-      "lastAction": "8 minutes ago"
-    },
-    "sentinel": {
-      "activePRs": 1,
-      "lastUpdate": "12 minutes ago"
-    },
-    "fortress": {
-      "status": "All pipelines passing",
-      "lastRun": "15 minutes ago"
-    },
-    "cortex": {
-      "lastUpdate": "5 minutes ago",
-      "services": 28
-    },
-    "risks": {
-      "critical": 0,
-      "medium": 1,
-      "low": 3
-    }
-  },
-  "nexlayer": {
-    "name": "Nexlayer",
-    "status": "healthy",
-    "statusColor": "#22c55e",
-    "statusLabel": "System Healthy",
-    "visibility": "Private",
-    "language": "Go",
-    "lastScanned": "4 min ago",
-    "size": "1.2M LOC",
-    "metrics": {
-      "riskScore": "Low",
-      "testStability": "100%",
-      "architectureDrift": "None detected",
-      "lastAction": "4 minutes ago"
-    },
-    "sentinel": {
-      "activePRs": 0,
-      "lastUpdate": "8 minutes ago"
-    },
-    "fortress": {
-      "status": "All pipelines passing",
-      "lastRun": "12 minutes ago"
-    },
-    "cortex": {
-      "lastUpdate": "4 minutes ago",
-      "services": 34
-    },
-    "risks": {
-      "critical": 0,
-      "medium": 0,
-      "low": 2
-    }
-  },
-  "databridge": {
-    "name": "DataBridge",
-    "status": "healthy",
-    "statusColor": "#22c55e",
-    "statusLabel": "System Healthy",
-    "visibility": "Private",
-    "language": "TypeScript",
-    "lastScanned": "6 min ago",
-    "size": "890K LOC",
-    "metrics": {
-      "riskScore": "Low",
-      "testStability": "97%",
-      "architectureDrift": "Minor — 1 stale endpoint",
-      "lastAction": "6 minutes ago"
-    },
-    "sentinel": {
-      "activePRs": 1,
-      "lastUpdate": "10 minutes ago"
-    },
-    "fortress": {
-      "status": "All pipelines passing",
-      "lastRun": "18 minutes ago"
-    },
-    "cortex": {
-      "lastUpdate": "6 minutes ago",
-      "services": 21
-    },
-    "risks": {
-      "critical": 0,
-      "medium": 1,
-      "low": 3
-    }
-  },
-  "velocis-core": {
-    "name": "velocis-core",
-    "status": "warning",
-    "statusColor": "#D97706",
-    "statusLabel": "Minor Risks",
-    "visibility": "Private",
-    "language": "TypeScript",
-    "lastScanned": "1 min ago",
-    "size": "3.2M LOC",
-    "metrics": {
-      "riskScore": "Medium",
-      "testStability": "94%",
-      "architectureDrift": "Minor changes detected",
-      "lastAction": "1 minute ago"
-    },
-    "sentinel": {
-      "activePRs": 3,
-      "lastUpdate": "2 minutes ago"
-    },
-    "fortress": {
-      "status": "2 flaky tests detected",
-      "lastRun": "3 minutes ago"
-    },
-    "cortex": {
-      "lastUpdate": "1 minute ago",
-      "services": 58
-    },
-    "risks": {
-      "critical": 0,
-      "medium": 4,
-      "low": 8
-    }
-  },
-  "ai-observatory": {
-    "name": "ai-observatory",
-    "status": "healthy",
-    "statusColor": "#059669",
-    "statusLabel": "System Healthy",
-    "visibility": "Public",
-    "language": "JavaScript",
-    "lastScanned": "10 min ago",
-    "size": "980K LOC",
-    "metrics": {
-      "riskScore": "Low",
-      "testStability": "100%",
-      "architectureDrift": "None detected",
-      "lastAction": "15 minutes ago"
-    },
-    "sentinel": {
-      "activePRs": 0,
-      "lastUpdate": "20 minutes ago"
-    },
-    "fortress": {
-      "status": "All pipelines passing",
-      "lastRun": "25 minutes ago"
-    },
-    "cortex": {
-      "lastUpdate": "10 minutes ago",
-      "services": 18
-    },
-    "risks": {
-      "critical": 0,
-      "medium": 0,
-      "low": 2
-    }
-  }
-};
+const repositoryData: Record<string, any> = ${JSON.stringify(repositoryData, null, 2)};
 
 function useCounter(target: number, duration: number = 2000) {
   const [count, setCount] = useState(0);
@@ -230,7 +127,7 @@ function AnimatedCounter({ value }: { value: number }) {
 }
 
 const PreviewBadge = ({ text, color, label }: { text: string; color: string; label: string }) => (
-  <div style={{ position: 'absolute', top: 12, right: 12, fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', padding: '3px 8px', borderRadius: '6px', background: `${color}15`, border: `1px solid ${color}25`, color: color, display: 'flex', alignItems: 'center', gap: '4px' }}>
+  <div style={{ position: 'absolute', top: 12, right: 12, fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', padding: '3px 8px', borderRadius: '6px', background: \`\${color}15\`, border: \`1px solid \${color}25\`, color: color, display: 'flex', alignItems: 'center', gap: '4px' }}>
     {text === 'LIVE' && <div style={{ width: 5, height: 5, borderRadius: '50%', background: color, animation: 'pulse 2s infinite' }} />}
     {text}
   </div>
@@ -260,17 +157,17 @@ const Card1Preview = () => {
         <PreviewBadge text="LIVE" label="LIVE" color="#34D399" />
         <svg viewBox="0 0 280 120" style={{ width: '100%', height: '100%' }}>
           <g stroke="rgba(52,211,153,0.25)" strokeWidth="1">
-            {nodes.map((n, i) => <line key={`c-${i}`} x1={140} y1={60} x2={n.x} y2={n.y} />)}
+            {nodes.map((n, i) => <line key={\`c-\${i}\`} x1={140} y1={60} x2={n.x} y2={n.y} />)}
             <line x1={nodes[0].x} y1={nodes[0].y} x2={nodes[1].x} y2={nodes[1].y} />
             <line x1={nodes[2].x} y1={nodes[2].y} x2={nodes[3].x} y2={nodes[3].y} />
             <line x1={nodes[4].x} y1={nodes[4].y} x2={nodes[5].x} y2={nodes[5].y} />
-            {outerNodes.map((n, i) => <line key={`o-${i}`} x1={n.x} y1={n.y} x2={n.parent.x} y2={n.parent.y} />)}
+            {outerNodes.map((n, i) => <line key={\`o-\${i}\`} x1={n.x} y1={n.y} x2={n.parent.x} y2={n.parent.y} />)}
           </g>
           {nodes.map((n, i) => (
-            <motion.circle key={`n-${i}`} cx={n.x} cy={n.y} r="6" fill="#34D399" animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 2, repeat: Infinity, delay: n.index * 0.3 }} />
+            <motion.circle key={\`n-\${i}\`} cx={n.x} cy={n.y} r="6" fill="#34D399" animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 2, repeat: Infinity, delay: n.index * 0.3 }} />
           ))}
           {outerNodes.map((n, i) => (
-            <motion.circle key={`on-${i}`} cx={n.x} cy={n.y} r="4" fill="#34D399" animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 2, repeat: Infinity, delay: n.index * 0.3 }} />
+            <motion.circle key={\`on-\${i}\`} cx={n.x} cy={n.y} r="4" fill="#34D399" animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 2, repeat: Infinity, delay: n.index * 0.3 }} />
           ))}
           <motion.circle cx={140} cy={60} fill="#34D399" opacity="1" animate={{ r: [10, 13, 10] }} transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }} />
         </svg>
@@ -323,18 +220,18 @@ const Card3Preview = () => {
     }, []);
   
     const getSmoothLine = () => {
-      let d = `M ${getX(0)} ${getY(qaData[0])}`;
+      let d = \`M \${getX(0)} \${getY(qaData[0])}\`;
       for (let i = 0; i < qaData.length - 1; i++) {
         const x0 = getX(i); const y0 = getY(qaData[i]);
         const x1 = getX(i + 1); const y1 = getY(qaData[i + 1]);
         const xMid = (x0 + x1) / 2;
-        d += ` C ${xMid} ${y0}, ${xMid} ${y1}, ${x1} ${y1}`;
+        d += \` C \${xMid} \${y0}, \${xMid} \${y1}, \${x1} \${y1}\`;
       }
       return d;
     };
   
     const lineStr = getSmoothLine();
-    const areaD = lineStr + ` L ${getX(13)} 90 L ${getX(0)} 90 Z`;
+    const areaD = lineStr + \` L \${getX(13)} 90 L \${getX(0)} 90 Z\`;
     const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   
     return (
@@ -394,7 +291,7 @@ const Card4Preview = () => {
       const x2 = cx + outerR * Math.cos(end); const y2 = cy + outerR * Math.sin(end);
       const x3 = cx + innerR * Math.cos(end); const y3 = cy + innerR * Math.sin(end);
       const x4 = cx + innerR * Math.cos(startAngle); const y4 = cy + innerR * Math.sin(startAngle);
-      const pathD = `M ${x1} ${y1} A ${outerR} ${outerR} 0 ${largeArcFlag} 1 ${x2} ${y2} L ${x3} ${y3} A ${innerR} ${innerR} 0 ${largeArcFlag} 0 ${x4} ${y4} Z`;
+      const pathD = \`M \${x1} \${y1} A \${outerR} \${outerR} 0 \${largeArcFlag} 1 \${x2} \${y2} L \${x3} \${y3} A \${innerR} \${innerR} 0 \${largeArcFlag} 0 \${x4} \${y4} Z\`;
       const arcData = { pathD, color: d.color, label: d.label, value: d.value };
       startAngle = endAngle;
       return arcData;
@@ -497,13 +394,13 @@ export function RepositoryPage() {
 
     return (
       <div style={{ background: 'linear-gradient(135deg, #060914 0%, #0a0e1a 50%, #06080f 100%)', minHeight: '100vh', fontFamily: "'Inter', -apple-system, sans-serif", color: '#FFFFFF', position: 'relative', overflowX: 'hidden' }}>
-        <style>{`
+        <style>{\`
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
             *, *::before, *::after { box-sizing: border-box; font-family: 'Inter', -apple-system, sans-serif; }
             @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
             @keyframes ping { 0% { transform: scale(1); opacity: 0.8; } 100% { transform: scale(2.4); opacity: 0; } }
             @keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
-        `}</style>
+        \`}</style>
 
         {/* FIXED AMBIENT GLOW LAYERS */}
         <div style={{ position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none', background: 'radial-gradient(ellipse 70% 60% at 10% 15%, rgba(29,78,216,0.13) 0%, transparent 65%)' }} />
@@ -584,7 +481,7 @@ export function RepositoryPage() {
                     <div key={i} style={{ background: 'rgba(10,14,26,0.70)', border: '1px solid rgba(99,155,255,0.10)', borderRadius: 14, padding: '20px 22px', backdropFilter: 'blur(20px) saturate(150%)', WebkitBackdropFilter: 'blur(20px) saturate(150%)', boxShadow: '0 4px 24px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.03)', transition: 'all 0.25s ease', position: 'relative', overflow: 'hidden' }}
                         onMouseEnter={e => { e.currentTarget.style.background = 'rgba(14,20,40,0.85)'; e.currentTarget.style.border = '1px solid rgba(99,155,255,0.22)'; e.currentTarget.style.transform = 'translateY(-2px)' }}
                         onMouseLeave={e => { e.currentTarget.style.background = 'rgba(10,14,26,0.70)'; e.currentTarget.style.border = '1px solid rgba(99,155,255,0.10)'; e.currentTarget.style.transform = 'translateY(0)' }}>
-                        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, borderRadius: '14px 14px 0 0', background: `linear-gradient(90deg, ${kpi.acc}, ${kpi.acc}60, transparent)` }} />
+                        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, borderRadius: '14px 14px 0 0', background: \`linear-gradient(90deg, \${kpi.acc}, \${kpi.acc}60, transparent)\` }} />
                         <kpi.icn size={16} color={kpi.acc} />
                         <div style={{ fontSize: 26, fontWeight: 800, color: '#FFFFFF', letterSpacing: '-0.5px', marginTop: 8, marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{kpi.val}</div>
                         <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'rgba(255,255,255,0.30)' }}>{kpi.lbl}</div>
@@ -606,7 +503,7 @@ export function RepositoryPage() {
                             onMouseLeave={e => { e.currentTarget.style.background = 'rgba(10,14,26,0.70)'; e.currentTarget.style.border = '1px solid rgba(99,155,255,0.10)'; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 24px rgba(0,0,0,0.3)'; }}>
                             
                             <div style={{ padding: '22px 20px', display: 'flex', flexDirection: 'column' }}>
-                                <div style={{ width: 36, height: 36, borderRadius: 10, background: `${card.accentColor}15`, border: `1px solid ${card.accentColor}30`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <div style={{ width: 36, height: 36, borderRadius: 10, background: \`\${card.accentColor}15\`, border: \`1px solid \${card.accentColor}30\`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                     <card.icon size={18} color={card.accentColor} />
                                 </div>
                                 <div style={{ fontSize: 17, fontWeight: 700, color: '#FFFFFF', letterSpacing: '-0.3px', marginTop: 14, marginBottom: 8 }}>{card.title}</div>
@@ -616,7 +513,7 @@ export function RepositoryPage() {
                                 </button>
                             </div>
 
-                            <div style={{ background: `${card.accentColor}08`, borderLeft: '1px solid rgba(99,155,255,0.07)', padding: 16, display: 'flex', flexDirection: 'column', position: 'relative' }}>
+                            <div style={{ background: \`\${card.accentColor}08\`, borderLeft: '1px solid rgba(99,155,255,0.07)', padding: 16, display: 'flex', flexDirection: 'column', position: 'relative' }}>
                                 {idx === 0 && <Card1Preview />}
                                 {idx === 1 && <Card2Preview />}
                                 {idx === 2 && <Card3Preview />}
@@ -665,7 +562,7 @@ export function RepositoryPage() {
                 <div style={{ background: 'rgba(10,14,26,0.70)', border: '1px solid rgba(99,155,255,0.10)', borderRadius: 16, padding: '22px 24px', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', boxShadow: '0 4px 24px rgba(0,0,0,0.3)' }}>
                     <div style={{ fontSize: 15, fontWeight: 700, color: '#FFFFFF', letterSpacing: '-0.3px', marginBottom: 20 }}>Risk Overview</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 24, padding: '8px 0' }}>
-                        <div style={{ position: 'relative', width: 96, height: 96, borderRadius: '50%', background: `conic-gradient(#EF4444 0% ${criticalPct}%, #EAB308 ${criticalPct}% ${criticalPct + mediumPct}%, rgba(255,255,255,0.15) ${criticalPct + mediumPct}% 100%)`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <div style={{ position: 'relative', width: 96, height: 96, borderRadius: '50%', background: \`conic-gradient(#EF4444 0% \${criticalPct}%, #EAB308 \${criticalPct}% \${criticalPct + mediumPct}%, rgba(255,255,255,0.15) \${criticalPct + mediumPct}% 100%)\`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             <div style={{ position: 'absolute', inset: 8, background: 'rgba(10,14,26,0.95)', borderRadius: '50%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                                 <div style={{ fontSize: 24, fontWeight: 800, color: '#FFFFFF', lineHeight: 1 }}><AnimatedCounter value={totalRisks} /></div>
                                 <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.30)', marginTop: 2 }}>TOTAL</div>
@@ -705,7 +602,7 @@ export function RepositoryPage() {
                 <div style={{ padding: '20px 22px 16px', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: 15, fontWeight: 700, color: '#FFFFFF' }}>Recent Autonomous Activity</div>
                 {activityItems.map((item, i) => (
                     <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 14, padding: '14px 22px', borderBottom: i === activityItems.length - 1 ? 'none' : '1px solid rgba(255,255,255,0.04)', transition: 'background 0.15s ease' }} onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                        <div style={{ width: 32, height: 32, borderRadius: '50%', background: `${item.color}15`, border: `1px solid ${item.color}25`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <div style={{ width: 32, height: 32, borderRadius: '50%', background: \`\${item.color}15\`, border: \`1px solid \${item.color}25\`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                             <item.icon size={14} color={item.color} />
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', flex: 1, gap: 3 }}>
@@ -753,3 +650,6 @@ export function RepositoryPage() {
       </div>
     );
 }
+`;
+
+fs.writeFileSync(path, code);
