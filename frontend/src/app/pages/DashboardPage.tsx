@@ -136,7 +136,6 @@ function ScoreBadge({ score, color, trackColor: _t, textColor = "#e8eaf0" }: { s
 // MAIN DASHBOARD
 // ─────────────────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
-  const [activeNav, setActiveNav] = useState("overview");
   const [activityTab, setActivityTab] = useState("all");
   const [isDark, setIsDark] = useState(true);
   const navigate = useNavigate();
@@ -199,22 +198,6 @@ export default function DashboardPage() {
       ? allActivity
       : allActivity.filter((a) => a.agent === activityTab);
 
-  // ── sidebar nav items ──────────────────────────────────────────────────────
-  const navItems = [
-    { id: "overview",      label: "Overview",      icon: "▦" },
-    { id: "repositories",  label: "Repositories",  icon: "⎇" },
-    { id: "activity",      label: "Activity",      icon: "⚡" },
-  ];
-  const agentNavItems = [
-    { id: "sentinel", label: "Sentinel",      dot: "#a78bfa" },
-    { id: "fortress", label: "Fortress",      dot: "#60a5fa" },
-    { id: "cortex",   label: "Visual Cortex", dot: TEAL      },
-  ];
-  const bottomNavItems = [
-    { id: "settings", label: "Settings", icon: "⚙" },
-    { id: "docs",     label: "Docs",     icon: "⬜" },
-  ];
-
   // ── inline-style helpers ───────────────────────────────────────────────────
   const card = (extra?: React.CSSProperties): React.CSSProperties => ({
     background: CARD,
@@ -226,22 +209,6 @@ export default function DashboardPage() {
   const mono = (extra?: React.CSSProperties): React.CSSProperties => ({
     fontFamily: MONO,
     ...extra,
-  });
-
-  const navItemStyle = (id: string): React.CSSProperties => ({
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    padding: "6px 12px 6px 14px",
-    borderLeft: activeNav === id ? `3px solid ${TEAL}` : "3px solid transparent",
-    color: activeNav === id ? TEXT : MUTED,
-    fontWeight: activeNav === id ? 500 : 400,
-    fontSize: 13,
-    cursor: "pointer",
-    borderRadius: "0 4px 4px 0",
-    userSelect: "none" as const,
-    transition: "color 0.1s",
-    fontFamily: SANS,
   });
 
   return (
@@ -266,116 +233,6 @@ export default function DashboardPage() {
         *::-webkit-scrollbar-thumb:hover { background: ${isDark ? "#52586a" : "#a0a8b4"}; }
         *::-webkit-scrollbar-corner { background: transparent; }
       `}</style>
-      {/* ──────────────────────────── SIDEBAR ─────────────────────────────── */}
-      <aside
-        style={{
-          width: 200,
-          minWidth: 200,
-          background: TOPBAR,
-          borderRight: `1px solid ${BORDER}`,
-          display: "flex",
-          flexDirection: "column",
-          padding: "0 0 12px 0",
-          flexShrink: 0,
-        }}
-      >
-        {/* Logo */}
-        <div
-          style={{
-            padding: "14px 16px 12px",
-            borderBottom: `1px solid ${BORDER}`,
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-          }}
-        >
-          <div
-            style={{
-              width: 22, height: 22, background: TEAL, borderRadius: 5,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 11, fontWeight: 700, color: "#fff", fontFamily: MONO,
-            }}
-          >
-            V
-          </div>
-          <span style={{ fontWeight: 600, fontSize: 14, color: TEXT, fontFamily: SANS }}>Velocis</span>
-          <span
-            style={{
-              marginLeft: "auto", fontSize: 9, color: MUTED,
-              background: BADGE_BG, padding: "1px 5px", borderRadius: 3, fontFamily: MONO,
-            }}
-          >
-            v0.7
-          </span>
-        </div>
-
-        {/* Workspace selector */}
-        <div
-          style={{
-            padding: "8px 12px", margin: "8px 8px 4px",
-            border: `1px solid ${BORDER}`, borderRadius: 5, cursor: "pointer",
-            display: "flex", alignItems: "center", gap: 6,
-          }}
-        >
-          <div style={{ width: 16, height: 16, background: WS_DOT, borderRadius: 3, flexShrink: 0 }} />
-          <span style={{ fontSize: 12, color: TEXT, fontWeight: 500, flex: 1, fontFamily: SANS }}>infra-team</span>
-          <span style={{ color: DIM, fontSize: 10 }}>▾</span>
-        </div>
-
-        {/* Main nav */}
-        <nav style={{ padding: "6px 0", flex: 1 }}>
-          <div style={{ padding: "4px 16px 4px", fontSize: 10, color: DIM, letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: SANS }}>
-            General
-          </div>
-          {navItems.map((item) => (
-            <div key={item.id} style={navItemStyle(item.id)} onClick={() => setActiveNav(item.id)}>
-              <span style={{ fontSize: 12, opacity: 0.7, fontFamily: MONO }}>{item.icon}</span>
-              {item.label}
-            </div>
-          ))}
-
-          <div style={{ padding: "12px 16px 4px", fontSize: 10, color: DIM, letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: SANS }}>
-            Agents
-          </div>
-          {agentNavItems.map((item) => (
-            <div key={item.id} style={navItemStyle(item.id)} onClick={() => setActiveNav(item.id)}>
-              <span style={{ width: 7, height: 7, borderRadius: "50%", background: item.dot, display: "inline-block", flexShrink: 0 }} />
-              {item.label}
-            </div>
-          ))}
-
-          <div style={{ margin: "12px 8px 0", borderTop: `1px solid ${BORDER}` }} />
-          {bottomNavItems.map((item) => (
-            <div key={item.id} style={{ ...navItemStyle(item.id), marginTop: 2 }} onClick={() => setActiveNav(item.id)}>
-              <span style={{ fontSize: 12, opacity: 0.7, fontFamily: MONO }}>{item.icon}</span>
-              {item.label}
-            </div>
-          ))}
-        </nav>
-
-        {/* User row */}
-        <div
-          style={{
-            padding: "8px 12px", margin: "0 8px",
-            border: `1px solid ${BORDER}`, borderRadius: 5,
-            display: "flex", alignItems: "center", gap: 8,
-          }}
-        >
-          <div
-            style={{
-              width: 24, height: 24, borderRadius: "50%", background: AVATAR_BG,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 10, color: AVATAR_TC, fontWeight: 600, fontFamily: MONO,
-            }}
-          >
-            RK
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 12, color: TEXT, fontWeight: 500, fontFamily: SANS }}>rishi</div>
-            <div style={{ fontSize: 10, color: DIM, fontFamily: SANS }}>admin</div>
-          </div>
-        </div>
-      </aside>
 
       {/* ────────────────────────── MAIN AREA ─────────────────────────────── */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
