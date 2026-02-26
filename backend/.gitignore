@@ -1,0 +1,76 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+build/
+.build/
+out/
+*.js.map
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Environment variables
+.env
+.env.development
+.env.production
+.env.local
+.env.*.local
+
+# AWS SAM / CDK
+.aws-sam/
+cdk.out/
+cdk.context.json
+samconfig.toml
+
+# AWS credentials
+.aws/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pino.log
+
+# Test coverage
+coverage/
+.nyc_output/
+junit.xml
+
+# Generated test files
+tests/generated/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# Package manager locks (keep one, ignore others)
+yarn.lock
+pnpm-lock.yaml
+
+# Temporary files
+tmp/
+temp/
+/tmp/
+
+# Docker
+.dockerignore
+
+# Serverless Framework (if used)
+.serverless/

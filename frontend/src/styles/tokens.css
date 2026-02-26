@@ -1,0 +1,272 @@
+/* 
+ * Auth Page Tokens and Component Styles
+ * Derived from visual analysis of prismic.io
+ */
+
+:root {
+    /* Backgrounds */
+    --bg-base: #FFFFFF;
+    --bg-surface: #FFFFFF;
+    --bg-elevated: #F7F7F7;
+    --bg-input: #FFFFFF;
+
+    /* Borders */
+    --border-default: #EEEEEE;
+    --border-active: #151515;
+    --border-focus: #3BBB96;
+    --border-error: #EC4899;
+    /* Retaining pink for errors, though Prismic might use a red */
+
+    /* Brand */
+    --brand-primary: #151515;
+    --brand-primary-light: #505050;
+    --brand-primary-glow: rgba(21, 21, 21, 0.08);
+    /* Subtle shadow */
+    --brand-accent: #3BBB96;
+    --brand-accent-secondary: #8E44EC;
+    --brand-accent-glow: rgba(59, 187, 150, 0.15);
+
+    /* Fallback Gradients for icons and legacy text */
+    --gradient-brand: linear-gradient(135deg, #151515 0%, #151515 100%);
+    --gradient-brand-soft: linear-gradient(135deg, #F7F7F7 0%, #EEEEEE 100%);
+    --gradient-glow-bg: transparent;
+    /* Removed glow */
+
+    /* Text */
+    --text-auth-primary: #151515;
+    --text-auth-secondary: #505050;
+    --text-auth-muted: #ACACAC;
+    --text-auth-placeholder: #ACACAC;
+    --text-auth-error: #EC4899;
+    --text-auth-success: #3BBB96;
+    --text-auth-link: #151515;
+
+    /* Status */
+    --status-success: #3BBB96;
+    --status-error: #EC4899;
+
+    /* Type Scale */
+    --text-display: 800 36px/42px 'Inter', sans-serif;
+    --text-h2: 700 22px/28px 'Inter', sans-serif;
+    --text-body: 400 14px/22px 'Inter', sans-serif;
+    --text-label: 500 13px/18px 'Inter', sans-serif;
+    --text-input: 400 15px/22px 'Inter', sans-serif;
+    --text-link: 500 13px/18px 'Inter', sans-serif;
+    --text-btn: 700 14px/1 'Inter', sans-serif;
+    --text-badge: 500 11px/14px 'Inter', sans-serif;
+    --text-mono: 400 12px/20px 'JetBrains Mono', monospace;
+}
+
+/* ─── Shared Components CSS ─── */
+
+.auth-input-field {
+    width: 100%;
+    padding: 14px 16px;
+    background: var(--bg-input);
+    border: 1px solid var(--border-default);
+    border-radius: 8px;
+    /* Updated Prismic border-radius */
+    font: 400 15px/22px 'Inter', sans-serif;
+    color: var(--text-auth-primary);
+    outline: none;
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.auth-input-field::placeholder {
+    color: var(--text-auth-placeholder);
+}
+
+.auth-input-field:focus {
+    border-color: var(--border-focus);
+    box-shadow: 0 0 0 3px var(--brand-accent-glow);
+}
+
+.auth-input-field.error {
+    border-color: var(--border-error);
+    box-shadow: 0 0 0 3px rgba(236, 72, 153, 0.12);
+}
+
+.auth-github-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+    padding: 13px;
+    background: transparent;
+    border: 2px solid var(--border-active);
+    /* Prismic Outlined variant */
+    border-radius: 8px;
+    /* Prismic border-radius */
+    color: var(--text-auth-primary);
+    font: 700 14px/1 'Inter', sans-serif;
+    /* Prismic button font weight and size */
+    cursor: pointer;
+    transition: background 150ms, border-color 150ms, color 150ms;
+}
+
+.auth-github-btn:hover {
+    background: var(--bg-elevated);
+}
+
+.auth-tab-container {
+    background: var(--bg-elevated);
+    border-radius: 8px;
+    /* Prismic style */
+    padding: 4px;
+    display: flex;
+    margin-bottom: 32px;
+}
+
+.auth-tab {
+    flex: 1;
+    text-align: center;
+    padding: 9px;
+    border-radius: 6px;
+    font: 700 14px/1 'Inter', sans-serif;
+    /* Prismic matching */
+    cursor: pointer;
+    transition: all 200ms ease;
+    color: var(--text-auth-secondary);
+    background: transparent;
+    border: none;
+}
+
+.auth-tab.active {
+    color: #FFFFFF;
+    background: var(--brand-primary);
+}
+
+.auth-spinner {
+    width: 18px;
+    height: 18px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: #FFFFFF;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    display: inline-block;
+}
+
+/* Spinner adjustment for light mode usage if spinner icon becomes dark */
+.auth-spinner.dark-spinner {
+    border: 2px solid rgba(21, 21, 21, 0.3);
+    border-top-color: #151515;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes blink {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0;
+    }
+}
+
+.auth-cursor {
+    animation: blink 1s step-end infinite;
+    color: var(--brand-accent);
+}
+
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes float {
+    0% {
+        transform: translateY(0px) rotate(0deg);
+    }
+
+    50% {
+        transform: translateY(-15px) rotate(5deg);
+    }
+
+    100% {
+        transform: translateY(0px) rotate(0deg);
+    }
+}
+
+@keyframes float-reverse {
+    0% {
+        transform: translateY(0px) rotate(0deg);
+    }
+
+    50% {
+        transform: translateY(15px) rotate(-5deg);
+    }
+
+    100% {
+        transform: translateY(0px) rotate(0deg);
+    }
+}
+
+@keyframes dash-flow {
+    to {
+        stroke-dashoffset: -20;
+    }
+}
+
+.animate-float {
+    animation: float 8s ease-in-out infinite;
+}
+
+.animate-float-delayed {
+    animation: float-reverse 10s ease-in-out infinite 2s;
+}
+
+.animate-dash-flow {
+    stroke-dasharray: 10;
+    animation: dash-flow 1s linear infinite;
+}
+
+/* Playful Bento Card Hover */
+.bento-card {
+    transition: transform 200ms cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 200ms ease;
+}
+
+.bento-card:hover {
+    transform: translateY(-4px) scale(1.02);
+    box-shadow: 4px 4px 0px 0px var(--brand-primary);
+}
+
+.agent-row-1 {
+    animation: fadeInUp 400ms ease forwards;
+    animation-delay: 100ms;
+}
+
+.agent-row-2 {
+    animation: fadeInUp 400ms ease forwards;
+    animation-delay: 250ms;
+}
+
+.agent-row-3 {
+    animation: fadeInUp 400ms ease forwards;
+    animation-delay: 400ms;
+}
+
+.form-enter {
+    opacity: 0;
+    transform: translateY(10px);
+}
+
+.form-enter-active {
+    opacity: 1;
+    transform: translateY(0);
+    transition: opacity 200ms ease, transform 200ms ease;
+}

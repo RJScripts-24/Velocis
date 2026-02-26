@@ -1,0 +1,1730 @@
+/**
+ * mentorChat.ts
+ * Velocis — Sentinel: The Guardian & Multilingual Mentor Agent
+ *
+ * Responsibility:
+ *   Powers the real-time, split-screen "Vibe Coding Workspace" at
+ *   /repo/[id]/workspace. Manages persistent WebSocket chat sessions
+ *   between developers and Sentinel (Claude 3.5 Sonnet), enabling
+ *   live architectural conversations, inline code refactoring,
+ *   on-demand logic analysis, and multilingual mentorship.
+ *
+ *   Unlike analyzeLogic.ts (which runs on push webhooks), mentorChat
+ *   is conversational — it maintains a full message history per session,
+ *   understands the developer's codebase context, and responds in real
+ *   time via API Gateway WebSocket connections.
+ *
+ * Core Capabilities:
+ *   1. CONVERSATIONAL REVIEW   — Multi-turn chat about specific code files
+ *   2. INLINE REFACTORING      — Developer pastes code, Sentinel rewrites it
+ *   3. ARCHITECTURE Q&A        — "Why is this approach wrong at scale?"
+ *   4. ON-DEMAND ANALYSIS      — Trigger analyzeLogic.ts mid-conversation
+ *   5. MULTILINGUAL MENTORSHIP — Real-time translate toggle (Hindi/Tamil/Telugu)
+ *   6. FOLLOW-UP QUESTIONS     — Sentinel asks clarifying questions like a mentor
+ *   7. VIBE CODING MODE        — Developer describes intent, Sentinel generates code
+ *
+ * WebSocket Message Flow:
+ *   Client → API Gateway → Lambda (this file) → Bedrock (streaming) → Client
+ *
+ *   Message types FROM client:
+ *     { type: "chat",      content: string, language?: SupportedLanguage }
+ *     { type: "code",      content: string, filePath?: string }           // Code to review
+ *     { type: "refactor",  content: string, instruction: string }         // Refactor request
+ *     { type: "generate",  intent: string,  context?: string }            // Vibe coding
+ *     { type: "analyze",   filePath: string }                             // Trigger full review
+ *     { type: "ping" }                                                    // Keepalive
+ *
+ *   Message types TO client:
+ *     { type: "token",     content: string }           // Streaming token
+ *     { type: "complete",  message: ChatMessage }      // Full assembled message
+ *     { type: "code",      content: string, language: string } // Code block
+ *     { type: "finding",   finding: ReviewFinding }    // Inline finding card
+ *     { type: "error",     message: string }
+ *     { type: "pong" }
+ *
+ * Called by:
+ *   src/handlers/api/postChatMessage.ts  (REST fallback for non-WebSocket clients)
+ *   API Gateway WebSocket $default route  (primary path)
+ *
+ * Session Storage:
+ *   DynamoDB — sessions keyed by connectionId with 2-hour TTL
+ *   Session includes: message history, active file context, language preference,
+ *   detected code patterns, and accumulated review findings
+ */
+
+import {
+  BedrockRuntimeClient,
+  InvokeModelWithResponseStreamCommand,
+  InvokeModelCommand,
+} from "@aws-sdk/client-bedrock-runtime";
+import {
+  ApiGatewayManagementApiClient,
+  PostToConnectionCommand,
+} from "@aws-sdk/client-apigatewaymanagementapi";
+import {
+  DynamoDBDocumentClient,
+  PutCommand,
+  GetCommand,
+  UpdateCommand,
+  DeleteCommand,
+} from "@aws-sdk/lib-dynamodb";
+import { dynamoClient } from "../../services/database/dynamoClient";
+import { fetchFileContent } from "../../services/github/repoOps";
+import { translateText } from "../../services/aws/translate";
+import { invokeClaude } from "../../services/aws/bedrockClient";
+import { analyzeLogic } from "./analyzeLogic";
+import { logger } from "../../utils/logger";
+import { config } from "../../utils/config";
+import { stripCodeFences as stripMarkdownCodeBlocks } from "../../utils/codeExtractor";
+import type {
+  SupportedLanguage,
+  ReviewFinding,
+  CodeReviewResult,
+} from "./analyzeLogic";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TYPES & INTERFACES
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type MessageRole = "user" | "assistant" | "system";
+
+export type ClientMessageType =
+  | "chat"
+  | "code"
+  | "refactor"
+  | "generate"
+  | "analyze"
+  | "ping"
+  | "language_change"
+  | "context_file";
+
+export type ServerMessageType =
+  | "token"
+  | "complete"
+  | "code"
+  | "finding"
+  | "analysis_start"
+  | "analysis_complete"
+  | "error"
+  | "pong"
+  | "session_ready"
+  | "typing_start"
+  | "typing_end";
+
+export interface ChatMessage {
+  id: string;
+  role: MessageRole;
+  content: string;
+  /** Code blocks extracted from this message */
+  codeBlocks?: CodeBlock[];
+  /** Findings surfaced in this message (from inline analysis) */
+  findings?: ReviewFinding[];
+  /** Language this message was delivered in */
+  language: SupportedLanguage;
+  /** Original English content (populated when language !== "en") */
+  originalContent?: string;
+  timestamp: string;
+  /** Token count for session budget tracking */
+  tokenCount?: number;
+}
+
+export interface CodeBlock {
+  language: string;
+  code: string;
+  filePath?: string;
+  /** Whether this block was generated by Sentinel (vs pasted by developer) */
+  isGenerated: boolean;
+}
+
+export interface ChatSession {
+  sessionId: string;
+  connectionId: string;        // API Gateway WebSocket connection ID
+  repoId: string;
+  repoOwner: string;
+  repoName: string;
+  accessToken: string;
+  /** Developer's preferred output language */
+  language: SupportedLanguage;
+  /** File currently open in the left panel of the split-screen */
+  activeFilePath?: string;
+  /** Source code of the active file (cached to avoid re-fetching) */
+  activeFileContent?: string;
+  /** Message history — sent to Bedrock on every turn for context */
+  messages: ChatMessage[];
+  /** Findings accumulated across this session */
+  sessionFindings: ReviewFinding[];
+  /** Code patterns Sentinel has learned about this repo during the session */
+  learnedContext: string[];
+  /** Total input tokens used this session (for budget enforcement) */
+  totalInputTokens: number;
+  /** Whether Sentinel is currently generating a response */
+  isGenerating: boolean;
+  createdAt: string;
+  lastActivityAt: string;
+}
+
+export interface IncomingClientMessage {
+  type: ClientMessageType;
+  /** Text content for "chat" messages */
+  content?: string;
+  /** Code content for "code" and "refactor" messages */
+  code?: string;
+  /** Refactoring instruction for "refactor" messages */
+  instruction?: string;
+  /** High-level intent for "generate" (vibe coding) messages */
+  intent?: string;
+  /** Additional context for "generate" messages */
+  context?: string;
+  /** File path for "analyze" and "context_file" messages */
+  filePath?: string;
+  /** Target language for "language_change" messages */
+  language?: SupportedLanguage;
+}
+
+export interface WebSocketEvent {
+  requestContext: {
+    connectionId: string;
+    routeKey: string;
+    eventType: "CONNECT" | "DISCONNECT" | "MESSAGE";
+    domainName: string;
+    stage: string;
+  };
+  body?: string;
+  /** Session metadata injected by the API Gateway authorizer */
+  repoId?: string;
+  repoOwner?: string;
+  repoName?: string;
+  accessToken?: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONSTANTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+const BEDROCK_MODEL_ID = "anthropic.claude-3-5-sonnet-20241022-v2:0";
+
+/** Maximum tokens per streaming response */
+const MAX_RESPONSE_TOKENS = 2048;
+
+/** Maximum messages kept in session history before summarization */
+const MAX_SESSION_MESSAGES = 40;
+
+/** Maximum total input tokens before we summarize history */
+const MAX_SESSION_INPUT_TOKENS = 80_000;
+
+/** Session TTL — 2 hours of inactivity */
+const SESSION_TTL_SECONDS = 2 * 60 * 60;
+
+/** Maximum source file size to inject into context */
+const MAX_FILE_CONTEXT_CHARS = 8_000;
+
+/** Languages that Amazon Translate supports in real time */
+const TRANSLATE_CODES: Record<SupportedLanguage, string> = {
+  en: "en", hi: "hi", ta: "ta",
+  te: "te", kn: "kn", mr: "mr", bn: "bn",
+};
+
+const LANGUAGE_NAMES: Record<SupportedLanguage, string> = {
+  en: "English", hi: "Hindi", ta: "Tamil",
+  te: "Telugu", kn: "Kannada", mr: "Marathi", bn: "Bengali",
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AWS CLIENTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+const bedrockClient = new BedrockRuntimeClient({ region: config.AWS_REGION });
+
+/**
+ * Builds the API Gateway Management API client for sending WebSocket messages.
+ * The endpoint is constructed from the connectionId's domain + stage.
+ */
+function buildApiGatewayClient(domainName: string, stage: string): ApiGatewayManagementApiClient {
+  return new ApiGatewayManagementApiClient({
+    endpoint: `https://${domainName}/${stage}`,
+    region: config.AWS_REGION,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MESSAGE ID GENERATION
+// ─────────────────────────────────────────────────────────────────────────────
+
+function generateMessageId(): string {
+  return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function generateSessionId(): string {
+  return `session_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WEBSOCKET SENDER
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Sends a typed JSON message to a specific WebSocket connection.
+ * Handles stale connection errors gracefully (connection may have closed).
+ */
+async function sendToConnection(
+  apiGateway: ApiGatewayManagementApiClient,
+  connectionId: string,
+  payload: { type: ServerMessageType; [key: string]: unknown }
+): Promise<boolean> {
+  try {
+    await apiGateway.send(
+      new PostToConnectionCommand({
+        ConnectionId: connectionId,
+        Data: Buffer.from(JSON.stringify(payload)),
+      })
+    );
+    return true;
+  } catch (err: any) {
+    if (err.statusCode === 410) {
+      // Connection is stale — client disconnected
+      logger.info({ connectionId }, "MentorChat: Stale WebSocket connection detected");
+      return false;
+    }
+    logger.warn({ connectionId, err }, "MentorChat: WebSocket send failed");
+    return false;
+  }
+}
+
+/**
+ * Sends a streaming token to the client.
+ * Called on every chunk from Bedrock's response stream.
+ */
+async function streamToken(
+  apiGateway: ApiGatewayManagementApiClient,
+  connectionId: string,
+  token: string
+): Promise<boolean> {
+  return sendToConnection(apiGateway, connectionId, { type: "token", content: token });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SESSION MANAGEMENT (DYNAMODB)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Loads a chat session from DynamoDB by connectionId.
+ * Returns null if no session exists (new connection).
+ */
+async function loadSession(connectionId: string): Promise<ChatSession | null> {
+  try {
+    const docClient = DynamoDBDocumentClient.from(dynamoClient);
+    const result = await docClient.send(
+      new GetCommand({
+        TableName: config.DYNAMO_TABLE_AI_ACTIVITY,
+        Key: {
+          PK: `CONNECTION#${connectionId}`,
+          SK: "SESSION",
+        },
+      })
+    );
+
+    if (!result.Item) return null;
+    return result.Item.session as ChatSession;
+  } catch (err) {
+    logger.warn({ connectionId, err }, "MentorChat: Session load failed");
+    return null;
+  }
+}
+
+/**
+ * Persists a chat session to DynamoDB with a 2-hour TTL.
+ * Called after every message to keep session state consistent.
+ */
+async function saveSession(session: ChatSession): Promise<void> {
+  try {
+    const docClient = DynamoDBDocumentClient.from(dynamoClient);
+    await docClient.send(
+      new PutCommand({
+        TableName: config.DYNAMO_TABLE_AI_ACTIVITY,
+        Item: {
+          PK: `CONNECTION#${session.connectionId}`,
+          SK: "SESSION",
+          session,
+          TTL: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
+        },
+      })
+    );
+  } catch (err) {
+    logger.warn({ connectionId: session.connectionId, err }, "MentorChat: Session save failed — non-fatal");
+  }
+}
+
+/**
+ * Deletes a session from DynamoDB on WebSocket disconnect.
+ */
+async function deleteSession(connectionId: string): Promise<void> {
+  try {
+    const docClient = DynamoDBDocumentClient.from(dynamoClient);
+    await docClient.send(
+      new DeleteCommand({
+        TableName: config.DYNAMO_TABLE_AI_ACTIVITY,
+        Key: {
+          PK: `CONNECTION#${connectionId}`,
+          SK: "SESSION",
+        },
+      })
+    );
+    logger.info({ connectionId }, "MentorChat: Session deleted on disconnect");
+  } catch (err) {
+    logger.warn({ connectionId, err }, "MentorChat: Session delete failed — non-fatal");
+  }
+}
+
+/**
+ * Creates a fresh session for a new WebSocket connection.
+ */
+function createSession(
+  connectionId: string,
+  repoId: string,
+  repoOwner: string,
+  repoName: string,
+  accessToken: string
+): ChatSession {
+  return {
+    sessionId: generateSessionId(),
+    connectionId,
+    repoId,
+    repoOwner,
+    repoName,
+    accessToken,
+    language: "en",
+    messages: [],
+    sessionFindings: [],
+    learnedContext: [],
+    totalInputTokens: 0,
+    isGenerating: false,
+    createdAt: new Date().toISOString(),
+    lastActivityAt: new Date().toISOString(),
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SESSION HISTORY SUMMARIZATION
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * When the session history gets too long, summarizes the older messages
+ * into a compact context block using Claude, then replaces them with the
+ * summary. This keeps the context window manageable while preserving
+ * the conversational thread.
+ *
+ * Keeps the last 10 messages intact for immediate context.
+ */
+async function summarizeSessionHistory(session: ChatSession): Promise<ChatSession> {
+  if (
+    session.messages.length < MAX_SESSION_MESSAGES &&
+    session.totalInputTokens < MAX_SESSION_INPUT_TOKENS
+  ) {
+    return session;
+  }
+
+  logger.info(
+    { sessionId: session.sessionId, messageCount: session.messages.length },
+    "MentorChat: Summarizing session history"
+  );
+
+  const messagesToSummarize = session.messages.slice(0, -10);
+  const recentMessages = session.messages.slice(-10);
+
+  const summaryPrompt = {
+    anthropic_version: "bedrock-2023-05-31",
+    max_tokens: 500,
+    messages: [
+      {
+        role: "user",
+        content: `Summarize the following conversation between a developer and Sentinel (an AI code reviewer) in 3-5 bullet points. Preserve: key decisions made, code issues identified, fixes applied, and any important context about the codebase.
+
+Conversation:
+${messagesToSummarize.map((m) => `${m.role.toUpperCase()}: ${m.content.slice(0, 500)}`).join("\n\n")}
+
+Respond with ONLY the bullet-point summary, no preamble.`,
+      },
+    ],
+  };
+
+  try {
+    const command = new InvokeModelCommand({
+      modelId: BEDROCK_MODEL_ID,
+      contentType: "application/json",
+      accept: "application/json",
+      body: JSON.stringify(summaryPrompt),
+    });
+    const response = await bedrockClient.send(command);
+    const parsed = JSON.parse(new TextDecoder().decode(response.body));
+    const summary = parsed.content?.[0]?.text ?? "Previous conversation context unavailable.";
+
+    // Inject summary as a system message at the start of history
+    const summaryMessage: ChatMessage = {
+      id: generateMessageId(),
+      role: "assistant",
+      content: `[Session History Summary]\n${summary}`,
+      language: "en",
+      timestamp: new Date().toISOString(),
+    };
+
+    return {
+      ...session,
+      messages: [summaryMessage, ...recentMessages],
+      totalInputTokens: 0, // Reset after summarization
+    };
+  } catch (err) {
+    logger.warn({ sessionId: session.sessionId, err }, "MentorChat: History summarization failed — truncating");
+    // Fallback: just keep recent messages
+    return {
+      ...session,
+      messages: recentMessages,
+      totalInputTokens: 0,
+    };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SYSTEM PROMPT CONSTRUCTION
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Builds the Sentinel system prompt for the chat session.
+ * Includes: persona, code context, session findings, learned patterns,
+ * and language preference.
+ */
+function buildChatSystemPrompt(session: ChatSession): string {
+  const languageInstruction =
+    session.language !== "en"
+      ? `IMPORTANT: You MUST respond entirely in ${LANGUAGE_NAMES[session.language]} (${session.language}). Every word of your response — explanations, code comments, variable names in examples — should be in ${LANGUAGE_NAMES[session.language]}. This is the Regional Mentorship Hub feature and it is non-negotiable.`
+      : "";
+
+  const fileContext = session.activeFileContent
+    ? `## Active File Context
+The developer currently has this file open in their editor:
+\`\`\`
+Path: ${session.activeFilePath}
+\`\`\`
+\`\`\`typescript
+${session.activeFileContent.slice(0, MAX_FILE_CONTEXT_CHARS)}${session.activeFileContent.length > MAX_FILE_CONTEXT_CHARS ? "\n// ... [truncated]" : ""}
+\`\`\`
+`
+    : "";
+
+  const findingsContext =
+    session.sessionFindings.length > 0
+      ? `## Issues Identified This Session
+${session.sessionFindings
+  .slice(0, 10)
+  .map(
+    (f) =>
+      `- [${f.severity.toUpperCase()}] ${f.title} in \`${f.location.filePath}:${f.location.startLine}\``
+  )
+  .join("\n")}`
+      : "";
+
+  const learnedContext =
+    session.learnedContext.length > 0
+      ? `## Learned Codebase Context\n${session.learnedContext.join("\n")}`
+      : "";
+
+  return `You are Sentinel, an elite AI Senior Engineer embedded in the Velocis platform. You are conducting a real-time Vibe Coding session with a developer working on the \`${session.repoName}\` repository.
+
+## Your Role in This Session
+You are simultaneously a:
+- **Code Reviewer**: Spot logic errors, security holes, and anti-patterns in code the developer shares
+- **Architect**: Answer deep questions about system design, AWS patterns, and scalability
+- **Mentor**: Explain the WHY behind every issue — teach principles, not just fixes
+- **Pair Programmer**: When asked, generate clean, production-grade code from high-level intent
+- **Refactoring Partner**: Take rough code and return polished, production-ready versions
+
+## Your Communication Style
+- Be direct and precise — no fluff, no generic AI preamble
+- Use concrete examples and specific line references
+- Ask ONE clarifying question when intent is ambiguous (don't ask multiple questions)
+- When giving code, give COMPLETE, working code — never snippets with "..." placeholders
+- Structure long answers with clear headers
+- Reference the active file context naturally when relevant
+
+## What You Focus On
+1. Business logic correctness and edge cases
+2. Security vulnerabilities (injection, auth bypass, data exposure)
+3. Scalability bottlenecks (N+1 queries, missing pagination, blocking async)
+4. TypeScript type safety violations
+5. AWS best practice violations
+
+## What You Ignore
+- Code style and formatting (that's ESLint's job)
+- Naming conventions unless they cause genuine confusion
+- Import ordering
+
+${languageInstruction}
+
+${fileContext}
+
+${findingsContext}
+
+${learnedContext}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CODE BLOCK EXTRACTION
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Extracts code blocks from a markdown-formatted message.
+ * Returns them as structured CodeBlock objects for the frontend
+ * to render with syntax highlighting.
+ */
+function extractCodeBlocks(content: string, isGenerated: boolean): CodeBlock[] {
+  const codeBlockRegex = /```(\w+)?\n([\s\S]*?)```/g;
+  const blocks: CodeBlock[] = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = codeBlockRegex.exec(content)) !== null) {
+    blocks.push({
+      language: match[1] ?? "plaintext",
+      code: match[2].trim(),
+      isGenerated,
+    });
+  }
+
+  return blocks;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BEDROCK STREAMING INVOCATION
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Invokes Claude 3.5 Sonnet with streaming enabled.
+ * Streams tokens to the WebSocket connection in real time as they arrive,
+ * then returns the full assembled response when streaming completes.
+ *
+ * This gives the Vibe Coding UI the "typing" feel of a real developer chat.
+ */
+async function invokeClaudeStreaming(
+  session: ChatSession,
+  apiGateway: ApiGatewayManagementApiClient,
+  additionalUserContent?: string
+): Promise<{ fullResponse: string; inputTokens: number; outputTokens: number }> {
+  const systemPrompt = buildChatSystemPrompt(session);
+
+  // Build message history for Bedrock — convert from ChatMessage[] to Bedrock format
+  const bedrockMessages = session.messages
+    .filter((m) => m.role !== "system")
+    .map((m) => ({
+      role: m.role as "user" | "assistant",
+      content: m.content,
+    }));
+
+  // If there's additional content to append to the last user message
+  if (additionalUserContent && bedrockMessages.length > 0) {
+    const last = bedrockMessages[bedrockMessages.length - 1];
+    if (last.role === "user") {
+      bedrockMessages[bedrockMessages.length - 1] = {
+        ...last,
+        content: last.content + "\n\n" + additionalUserContent,
+      };
+    }
+  }
+
+  const requestBody = {
+    anthropic_version: "bedrock-2023-05-31",
+    max_tokens: MAX_RESPONSE_TOKENS,
+    system: systemPrompt,
+    messages: bedrockMessages,
+    temperature: 0.3, // Slightly warmer than reviews — chat benefits from natural variation
+  };
+
+  const command = new InvokeModelWithResponseStreamCommand({
+    modelId: BEDROCK_MODEL_ID,
+    contentType: "application/json",
+    accept: "application/json",
+    body: JSON.stringify(requestBody),
+  });
+
+  let fullResponse = "";
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let connectionAlive = true;
+
+  // Notify client that Sentinel is starting to type
+  await sendToConnection(apiGateway, session.connectionId, { type: "typing_start" });
+
+  try {
+    const response = await bedrockClient.send(command);
+
+    if (!response.body) throw new Error("Bedrock returned empty stream body");
+
+    for await (const chunk of response.body) {
+      if (!connectionAlive) break;
+
+      if (chunk.chunk?.bytes) {
+        const decoded = JSON.parse(new TextDecoder().decode(chunk.chunk.bytes));
+
+        // Handle streaming delta events
+        if (decoded.type === "content_block_delta") {
+          const token = decoded.delta?.text ?? "";
+          fullResponse += token;
+
+          // Stream token to client
+          const sent = await streamToken(apiGateway, session.connectionId, token);
+          if (!sent) {
+            connectionAlive = false;
+            break;
+          }
+        }
+
+        // Extract usage from message_delta events
+        if (decoded.type === "message_delta" && decoded.usage) {
+          outputTokens = decoded.usage.output_tokens ?? 0;
+        }
+
+        // Extract input tokens from message_start event
+        if (decoded.type === "message_start" && decoded.message?.usage) {
+          inputTokens = decoded.message.usage.input_tokens ?? 0;
+        }
+      }
+    }
+  } catch (err: any) {
+    logger.error(
+      { sessionId: session.sessionId, err },
+      "MentorChat: Bedrock streaming failed"
+    );
+    throw err;
+  }
+
+  return { fullResponse, inputTokens, outputTokens };
+}
+
+/**
+ * Non-streaming Bedrock invocation for internal operations
+ * (e.g. session summarization, translation, quick utility calls).
+ */
+async function invokeClaudeDirect(
+  messages: { role: "user" | "assistant"; content: string }[],
+  systemPrompt: string,
+  maxTokens: number = 1024
+): Promise<string> {
+  const requestBody = {
+    anthropic_version: "bedrock-2023-05-31",
+    max_tokens: maxTokens,
+    system: systemPrompt,
+    messages,
+    temperature: 0.1,
+  };
+
+  const command = new InvokeModelCommand({
+    modelId: BEDROCK_MODEL_ID,
+    contentType: "application/json",
+    accept: "application/json",
+    body: JSON.stringify(requestBody),
+  });
+
+  const response = await bedrockClient.send(command);
+  const parsed = JSON.parse(new TextDecoder().decode(response.body));
+  return parsed.content?.[0]?.text ?? "";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TRANSLATION
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Translates a completed assistant response into the session's target language.
+ * Called after streaming completes so we have the full response to translate.
+ *
+ * Note: For non-English sessions, Claude is instructed to respond directly
+ * in the target language, so translation is a fallback for cases where
+ * Claude inadvertently responds in English.
+ */
+async function translateResponse(
+  content: string,
+  targetLanguage: SupportedLanguage
+): Promise<string> {
+  if (targetLanguage === "en") return content;
+
+  try {
+    // Don't translate code blocks — only translate prose
+    const parts = content.split(/(```[\s\S]*?```)/g);
+    const translatedParts = await Promise.all(
+      parts.map(async (part, i) => {
+        // Even indices are prose, odd indices are code blocks
+        if (i % 2 === 1) return part; // Keep code blocks as-is
+        if (!part.trim()) return part;
+        return (await translateText({
+          text: part,
+          targetLanguage: TRANSLATE_CODES[targetLanguage] as any,
+          sourceLanguage: "en" as any,
+        })).translatedText;
+      })
+    );
+    return translatedParts.join("");
+  } catch (err) {
+    logger.warn({ targetLanguage, err }, "MentorChat: Response translation failed — returning English");
+    return content;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LEARNED CONTEXT UPDATER
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * After each exchange, extracts key patterns and facts Sentinel has learned
+ * about the codebase and appends them to session.learnedContext.
+ * These are injected into future system prompts so Sentinel "remembers"
+ * what it has already discussed.
+ *
+ * Examples:
+ *   "This repo uses DynamoDB single-table design with PK/SK pattern"
+ *   "The bedrockClient is a singleton initialized in services/aws/bedrockClient.ts"
+ *   "The developer confirmed they are NOT using VPCs — all Lambda functions are public"
+ */
+async function updateLearnedContext(
+  session: ChatSession,
+  lastUserMessage: string,
+  lastAssistantResponse: string
+): Promise<string[]> {
+  if (session.messages.length < 4) return session.learnedContext; // Need some history first
+
+  try {
+    const extractionPrompt = `You are analyzing a code review conversation to extract architectural facts.
+
+Last exchange:
+USER: ${lastUserMessage.slice(0, 500)}
+SENTINEL: ${lastAssistantResponse.slice(0, 500)}
+
+Existing known facts:
+${session.learnedContext.join("\n") || "None yet"}
+
+Extract 0-2 NEW architectural facts revealed in this exchange that would be useful context for future messages. These should be concrete facts about the codebase, not opinions.
+
+Examples of good facts:
+- "This codebase uses ts-jest for testing with Jest 29"
+- "The DynamoDB table uses single-table design: PK=REPO#id, SK=TYPE#id"
+- "Lambda functions are in Node.js 20 runtime"
+
+Respond with ONLY a JSON array of strings (new facts only). Respond with [] if nothing new was learned.`;
+
+    const result = await invokeClaudeDirect(
+      [{ role: "user", content: extractionPrompt }],
+      "You extract architectural facts from code conversations. Be precise and concise.",
+      256
+    );
+
+    const jsonMatch = result.match(/\[[\s\S]*?\]/);
+    if (!jsonMatch) return session.learnedContext;
+
+    const newFacts: string[] = JSON.parse(jsonMatch[0]);
+    const combined = [...session.learnedContext, ...newFacts];
+    // Keep max 20 learned facts to avoid bloating the system prompt
+    return combined.slice(-20);
+  } catch {
+    return session.learnedContext;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MESSAGE HANDLERS — one per ClientMessageType
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Handles a plain conversational "chat" message.
+ * The most common message type — developer asks a question or makes a comment.
+ */
+async function handleChatMessage(
+  session: ChatSession,
+  message: IncomingClientMessage,
+  apiGateway: ApiGatewayManagementApiClient
+): Promise<ChatSession> {
+  const content = message.content ?? "";
+  if (!content.trim()) return session;
+
+  // Add user message to history
+  const userMsg: ChatMessage = {
+    id: generateMessageId(),
+    role: "user",
+    content,
+    language: session.language,
+    timestamp: new Date().toISOString(),
+  };
+  session.messages.push(userMsg);
+
+  // Stream response from Claude
+  const { fullResponse, inputTokens, outputTokens } = await invokeClaudeStreaming(
+    session,
+    apiGateway
+  );
+
+  // Translate if needed (Claude should already respond in target language,
+  // but this is a safety net)
+  const finalResponse =
+    session.language !== "en"
+      ? await translateResponse(fullResponse, session.language)
+      : fullResponse;
+
+  const codeBlocks = extractCodeBlocks(finalResponse, true);
+
+  const assistantMsg: ChatMessage = {
+    id: generateMessageId(),
+    role: "assistant",
+    content: finalResponse,
+    codeBlocks: codeBlocks.length > 0 ? codeBlocks : undefined,
+    language: session.language,
+    originalContent: session.language !== "en" ? fullResponse : undefined,
+    timestamp: new Date().toISOString(),
+    tokenCount: outputTokens,
+  };
+  session.messages.push(assistantMsg);
+  session.totalInputTokens += inputTokens;
+
+  // Send complete message event to client
+  await sendToConnection(apiGateway, session.connectionId, {
+    type: "complete",
+    message: assistantMsg,
+  });
+
+  // Send any extracted code blocks as separate events for the code panel
+  for (const block of codeBlocks) {
+    await sendToConnection(apiGateway, session.connectionId, {
+      type: "code",
+      content: block.code,
+      language: block.language,
+    });
+  }
+
+  // Update learned context asynchronously (non-blocking)
+  updateLearnedContext(session, content, fullResponse)
+    .then((updated) => { session.learnedContext = updated; })
+    .catch(() => {});
+
+  return session;
+}
+
+/**
+ * Handles a "code" message — developer pastes code for Sentinel to review.
+ * Performs an inline, targeted review of the pasted code without a full
+ * analyzeLogic.ts invocation.
+ */
+async function handleCodeMessage(
+  session: ChatSession,
+  message: IncomingClientMessage,
+  apiGateway: ApiGatewayManagementApiClient
+): Promise<ChatSession> {
+  const code = message.code ?? message.content ?? "";
+  const filePath = message.filePath ?? "pasted-code";
+
+  if (!code.trim()) return session;
+
+  // Update active file context with the pasted code
+  session.activeFilePath = filePath;
+  session.activeFileContent = code;
+
+  const userContent = `Please review this code:\n\`\`\`\nPath: ${filePath}\n${code}\n\`\`\``;
+
+  const userMsg: ChatMessage = {
+    id: generateMessageId(),
+    role: "user",
+    content: userContent,
+    codeBlocks: [{ language: "typescript", code, filePath, isGenerated: false }],
+    language: session.language,
+    timestamp: new Date().toISOString(),
+  };
+  session.messages.push(userMsg);
+
+  const { fullResponse, inputTokens } = await invokeClaudeStreaming(session, apiGateway);
+
+  const finalResponse =
+    session.language !== "en"
+      ? await translateResponse(fullResponse, session.language)
+      : fullResponse;
+
+  const assistantMsg: ChatMessage = {
+    id: generateMessageId(),
+    role: "assistant",
+    content: finalResponse,
+    language: session.language,
+    timestamp: new Date().toISOString(),
+  };
+  session.messages.push(assistantMsg);
+  session.totalInputTokens += inputTokens;
+
+  await sendToConnection(apiGateway, session.connectionId, {
+    type: "complete",
+    message: assistantMsg,
+  });
+
+  return session;
+}
+
+/**
+ * Handles a "refactor" message — developer provides code + a specific
+ * refactoring instruction. Sentinel returns a clean, production-grade
+ * rewrite of the provided code.
+ */
+async function handleRefactorMessage(
+  session: ChatSession,
+  message: IncomingClientMessage,
+  apiGateway: ApiGatewayManagementApiClient
+): Promise<ChatSession> {
+  const code = message.code ?? "";
+  const instruction = message.instruction ?? "Refactor this code to be cleaner and more production-ready.";
+
+  if (!code.trim()) return session;
+
+  const userContent = `Refactor the following code. Instruction: "${instruction}"
+
+\`\`\`typescript
+${code}
+\`\`\`
+
+Return ONLY the complete refactored code in a single code block, followed by a brief explanation of every change you made and why.`;
+
+  const userMsg: ChatMessage = {
+    id: generateMessageId(),
+    role: "user",
+    content: userContent,
+    codeBlocks: [{ language: "typescript", code, isGenerated: false }],
+    language: session.language,
+    timestamp: new Date().toISOString(),
+  };
+  session.messages.push(userMsg);
+
+  const { fullResponse, inputTokens } = await invokeClaudeStreaming(session, apiGateway);
+
+  const finalResponse =
+    session.language !== "en"
+      ? await translateResponse(fullResponse, session.language)
+      : fullResponse;
+
+  const refactoredBlocks = extractCodeBlocks(finalResponse, true);
+
+  const assistantMsg: ChatMessage = {
+    id: generateMessageId(),
+    role: "assistant",
+    content: finalResponse,
+    codeBlocks: refactoredBlocks.length > 0 ? refactoredBlocks : undefined,
+    language: session.language,
+    timestamp: new Date().toISOString(),
+  };
+  session.messages.push(assistantMsg);
+  session.totalInputTokens += inputTokens;
+
+  await sendToConnection(apiGateway, session.connectionId, {
+    type: "complete",
+    message: assistantMsg,
+  });
+
+  // Send the refactored code block as a separate event for the code panel
+  for (const block of refactoredBlocks) {
+    await sendToConnection(apiGateway, session.connectionId, {
+      type: "code",
+      content: block.code,
+      language: block.language,
+      isRefactored: true,
+    });
+  }
+
+  return session;
+}
+
+/**
+ * Handles a "generate" (Vibe Coding) message — developer describes what
+ * they want in natural language and Sentinel generates the full implementation.
+ * This is the core "vibe coding" feature.
+ */
+async function handleGenerateMessage(
+  session: ChatSession,
+  message: IncomingClientMessage,
+  apiGateway: ApiGatewayManagementApiClient
+): Promise<ChatSession> {
+  const intent = message.intent ?? message.content ?? "";
+  const context = message.context ?? "";
+
+  if (!intent.trim()) return session;
+
+  const userContent = `Generate a complete, production-grade implementation for the following:
+
+**Intent:** ${intent}
+${context ? `**Additional Context:** ${context}` : ""}
+${session.activeFilePath ? `**Current File Context:** ${session.activeFilePath}` : ""}
+
+Requirements:
+1. Return complete, working TypeScript code — no placeholders, no "// TODO" comments
+2. Follow the patterns and conventions already established in this codebase
+3. Include proper error handling, TypeScript types, and logging
+4. After the code, explain the key architectural decisions you made`;
+
+  const userMsg: ChatMessage = {
+    id: generateMessageId(),
+    role: "user",
+    content: userContent,
+    language: session.language,
+    timestamp: new Date().toISOString(),
+  };
+  session.messages.push(userMsg);
+
+  const { fullResponse, inputTokens } = await invokeClaudeStreaming(session, apiGateway);
+
+  const finalResponse =
+    session.language !== "en"
+      ? await translateResponse(fullResponse, session.language)
+      : fullResponse;
+
+  const generatedBlocks = extractCodeBlocks(finalResponse, true);
+
+  const assistantMsg: ChatMessage = {
+    id: generateMessageId(),
+    role: "assistant",
+    content: finalResponse,
+    codeBlocks: generatedBlocks.length > 0 ? generatedBlocks : undefined,
+    language: session.language,
+    timestamp: new Date().toISOString(),
+  };
+  session.messages.push(assistantMsg);
+  session.totalInputTokens += inputTokens;
+
+  await sendToConnection(apiGateway, session.connectionId, {
+    type: "complete",
+    message: assistantMsg,
+  });
+
+  // Send all generated code blocks to the code panel
+  for (const block of generatedBlocks) {
+    await sendToConnection(apiGateway, session.connectionId, {
+      type: "code",
+      content: block.code,
+      language: block.language,
+      isGenerated: true,
+    });
+  }
+
+  return session;
+}
+
+/**
+ * Handles an "analyze" message — triggers a full analyzeLogic.ts review
+ * for a specific file and streams the findings back into the chat as
+ * structured finding cards.
+ */
+async function handleAnalyzeMessage(
+  session: ChatSession,
+  message: IncomingClientMessage,
+  apiGateway: ApiGatewayManagementApiClient
+): Promise<ChatSession> {
+  const filePath = message.filePath ?? session.activeFilePath;
+
+  if (!filePath) {
+    await sendToConnection(apiGateway, session.connectionId, {
+      type: "error",
+      message: "No file path provided for analysis. Please specify a file or open one in the editor.",
+    });
+    return session;
+  }
+
+  await sendToConnection(apiGateway, session.connectionId, {
+    type: "analysis_start",
+    filePath,
+    message: `Starting deep analysis of \`${filePath}\`...`,
+  });
+
+  let reviewResult: CodeReviewResult;
+  try {
+    reviewResult = await analyzeLogic({
+      repoId: session.repoId,
+      repoOwner: session.repoOwner,
+      repoName: session.repoName,
+      filePaths: [filePath],
+      commitSha: "HEAD",
+      accessToken: session.accessToken,
+      language: session.language,
+      reviewDepth: "standard",
+      context: `This analysis was triggered from a live Vibe Coding chat session. Session context: ${session.learnedContext.join("; ")}`,
+    });
+  } catch (err: any) {
+    await sendToConnection(apiGateway, session.connectionId, {
+      type: "error",
+      message: `Analysis failed: ${err.message}`,
+    });
+    return session;
+  }
+
+  // Add findings to session state for future context
+  session.sessionFindings.push(...reviewResult.findings);
+
+  // Send the executive summary as a chat message
+  const summaryContent = `**Analysis complete for \`${filePath}\`**
+
+**Risk Level:** ${reviewResult.overallRisk.toUpperCase()}
+**Findings:** ${reviewResult.totalFindings} (${reviewResult.criticalFindings} critical, ${reviewResult.highFindings} high)
+
+${reviewResult.executiveSummaryTranslated ?? reviewResult.executiveSummary}
+
+${reviewResult.prioritizedActionItems.length > 0 ? `**Top Priorities:**\n${reviewResult.prioritizedActionItems.map((a, i) => `${i + 1}. ${a}`).join("\n")}` : ""}`;
+
+  const analysisMsg: ChatMessage = {
+    id: generateMessageId(),
+    role: "assistant",
+    content: summaryContent,
+    findings: reviewResult.findings.slice(0, 5), // Top 5 findings in message
+    language: session.language,
+    timestamp: new Date().toISOString(),
+  };
+  session.messages.push(analysisMsg);
+
+  await sendToConnection(apiGateway, session.connectionId, {
+    type: "analysis_complete",
+    message: analysisMsg,
+    reviewResult: {
+      overallRisk: reviewResult.overallRisk,
+      totalFindings: reviewResult.totalFindings,
+      fileSummaries: reviewResult.fileSummaries,
+    },
+  });
+
+  // Stream individual findings as cards
+  for (const finding of reviewResult.findings.slice(0, 10)) {
+    await sendToConnection(apiGateway, session.connectionId, {
+      type: "finding",
+      finding,
+    });
+  }
+
+  return session;
+}
+
+/**
+ * Handles a "context_file" message — fetches a file from GitHub and loads
+ * it into the session's active file context for subsequent conversations.
+ */
+async function handleContextFileMessage(
+  session: ChatSession,
+  message: IncomingClientMessage,
+  apiGateway: ApiGatewayManagementApiClient
+): Promise<ChatSession> {
+  const filePath = message.filePath;
+  if (!filePath) return session;
+
+  try {
+    const content = await fetchFileContent(
+      session.repoOwner,
+      session.repoName,
+      filePath,
+      session.accessToken
+    );
+
+    session.activeFilePath = filePath;
+    session.activeFileContent = content;
+
+    // Acknowledge to the client that context has been loaded
+    await sendToConnection(apiGateway, session.connectionId, {
+      type: "complete",
+      message: {
+        id: generateMessageId(),
+        role: "assistant" as MessageRole,
+        content: `I've loaded \`${filePath}\` (${content.split("\n").length} lines) into my context. I can now answer questions about this file, review it, or help you refactor it. What would you like to do?`,
+        language: session.language,
+        timestamp: new Date().toISOString(),
+      },
+    });
+  } catch (err: any) {
+    await sendToConnection(apiGateway, session.connectionId, {
+      type: "error",
+      message: `Could not load \`${filePath}\`: ${err.message}`,
+    });
+  }
+
+  return session;
+}
+
+/**
+ * Handles a "language_change" message — switches the session's output language.
+ * All subsequent responses will be in the new language.
+ */
+async function handleLanguageChange(
+  session: ChatSession,
+  message: IncomingClientMessage,
+  apiGateway: ApiGatewayManagementApiClient
+): Promise<ChatSession> {
+  const newLanguage = message.language ?? "en";
+  const oldLanguage = session.language;
+  session.language = newLanguage;
+
+  const confirmationInNewLanguage = newLanguage !== "en"
+    ? await translateText(
+        `Language switched from ${LANGUAGE_NAMES[oldLanguage]} to ${LANGUAGE_NAMES[newLanguage]}. I will now respond in ${LANGUAGE_NAMES[newLanguage]}.`,
+        "en",
+        TRANSLATE_CODES[newLanguage]
+      ).catch(() => `Language switched to ${LANGUAGE_NAMES[newLanguage]}.`)
+    : `Language switched to English. I'll respond in English from now on.`;
+
+  await sendToConnection(apiGateway, session.connectionId, {
+    type: "complete",
+    message: {
+      id: generateMessageId(),
+      role: "assistant" as MessageRole,
+      content: confirmationInNewLanguage,
+      language: newLanguage,
+      timestamp: new Date().toISOString(),
+    },
+  });
+
+  return session;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONNECTION LIFECYCLE HANDLERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Handles a new WebSocket connection ($connect route).
+ * Creates a fresh session in DynamoDB and sends a "session_ready" event.
+ */
+async function handleConnect(
+  event: WebSocketEvent
+): Promise<void> {
+  const { connectionId, domainName, stage } = event.requestContext;
+  const { repoId, repoOwner, repoName, accessToken } = event;
+
+  if (!repoId || !repoOwner || !repoName || !accessToken) {
+    logger.warn({ connectionId }, "MentorChat: Connection missing required parameters");
+    return;
+  }
+
+  const session = createSession(connectionId, repoId, repoOwner, repoName, accessToken);
+  await saveSession(session);
+
+  const apiGateway = buildApiGatewayClient(domainName, stage);
+  await sendToConnection(apiGateway, connectionId, {
+    type: "session_ready",
+    sessionId: session.sessionId,
+    repoName,
+    message: `Sentinel is ready. I'm your AI Senior Engineer for \`${repoName}\`. What would you like to work on?`,
+  });
+
+  logger.info({ connectionId, repoId, repoName }, "MentorChat: New WebSocket session created");
+}
+
+/**
+ * Handles a WebSocket disconnect ($disconnect route).
+ * Cleans up the session from DynamoDB.
+ */
+async function handleDisconnect(event: WebSocketEvent): Promise<void> {
+  const { connectionId } = event.requestContext;
+  await deleteSession(connectionId);
+  logger.info({ connectionId }, "MentorChat: WebSocket session closed");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN MESSAGE DISPATCHER
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Dispatches incoming WebSocket messages to the appropriate handler
+ * based on message type. Manages session loading, history summarization,
+ * error handling, and session persistence.
+ */
+async function handleMessage(event: WebSocketEvent): Promise<void> {
+  const { connectionId, domainName, stage } = event.requestContext;
+
+  const apiGateway = buildApiGatewayClient(domainName, stage);
+
+  // Parse incoming message
+  let incomingMessage: IncomingClientMessage;
+  try {
+    incomingMessage = JSON.parse(event.body ?? "{}");
+  } catch {
+    await sendToConnection(apiGateway, connectionId, {
+      type: "error",
+      message: "Invalid message format — expected JSON.",
+    });
+    return;
+  }
+
+  // Handle keepalive ping
+  if (incomingMessage.type === "ping") {
+    await sendToConnection(apiGateway, connectionId, { type: "pong" });
+    return;
+  }
+
+  // Load session
+  let session = await loadSession(connectionId);
+  if (!session) {
+    await sendToConnection(apiGateway, connectionId, {
+      type: "error",
+      message: "Session not found. Please reconnect.",
+    });
+    return;
+  }
+
+  // Guard against concurrent generation (user sent another message while streaming)
+  if (session.isGenerating) {
+    await sendToConnection(apiGateway, connectionId, {
+      type: "error",
+      message: "Sentinel is still generating a response. Please wait.",
+    });
+    return;
+  }
+
+  // Mark as generating and save immediately to prevent race conditions
+  session.isGenerating = true;
+  session.lastActivityAt = new Date().toISOString();
+  await saveSession(session);
+
+  try {
+    // Summarize session history if it's getting too long
+    session = await summarizeSessionHistory(session);
+
+    // Dispatch to appropriate handler
+    switch (incomingMessage.type) {
+      case "chat":
+        session = await handleChatMessage(session, incomingMessage, apiGateway);
+        break;
+      case "code":
+        session = await handleCodeMessage(session, incomingMessage, apiGateway);
+        break;
+      case "refactor":
+        session = await handleRefactorMessage(session, incomingMessage, apiGateway);
+        break;
+      case "generate":
+        session = await handleGenerateMessage(session, incomingMessage, apiGateway);
+        break;
+      case "analyze":
+        session = await handleAnalyzeMessage(session, incomingMessage, apiGateway);
+        break;
+      case "context_file":
+        session = await handleContextFileMessage(session, incomingMessage, apiGateway);
+        break;
+      case "language_change":
+        session = await handleLanguageChange(session, incomingMessage, apiGateway);
+        break;
+      default:
+        await sendToConnection(apiGateway, connectionId, {
+          type: "error",
+          message: `Unknown message type: "${incomingMessage.type}"`,
+        });
+    }
+  } catch (err: any) {
+    logger.error(
+      { connectionId, sessionId: session?.sessionId, messageType: incomingMessage.type, err },
+      "MentorChat: Message handler crashed"
+    );
+    await sendToConnection(apiGateway, connectionId, {
+      type: "error",
+      message: `Sentinel encountered an error: ${err.message ?? "Unknown error"}. Please try again.`,
+    });
+  } finally {
+    // Always clear isGenerating flag and save session
+    if (session) {
+      session.isGenerating = false;
+      session.lastActivityAt = new Date().toISOString();
+      await saveSession(session);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REST FALLBACK — for non-WebSocket clients (e.g. Vibe Coding chat via HTTP)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * REST-based chat interface for postChatMessage.ts API handler.
+ * Used when WebSocket isn't available (e.g. CI environments, API testing).
+ *
+ * Does NOT stream — returns the full response synchronously.
+ */
+export interface RestChatInput {
+  sessionId?: string;
+  repoId: string;
+  repoOwner: string;
+  repoName: string;
+  accessToken: string;
+  message: IncomingClientMessage;
+  language?: SupportedLanguage;
+  activeFilePath?: string;
+}
+
+export interface RestChatOutput {
+  sessionId: string;
+  message: ChatMessage;
+  sessionFindings: ReviewFinding[];
+}
+
+export async function handleRestChat(input: RestChatInput): Promise<RestChatOutput> {
+  const {
+    repoId,
+    repoOwner,
+    repoName,
+    accessToken,
+    message: incomingMessage,
+    language = "en",
+    activeFilePath,
+  } = input;
+
+  // Create or restore an ephemeral in-memory session for REST calls
+  const session: ChatSession = {
+    sessionId: input.sessionId ?? generateSessionId(),
+    connectionId: "rest-client",
+    repoId,
+    repoOwner,
+    repoName,
+    accessToken,
+    language,
+    activeFilePath,
+    activeFileContent: undefined,
+    messages: [],
+    sessionFindings: [],
+    learnedContext: [],
+    totalInputTokens: 0,
+    isGenerating: false,
+    createdAt: new Date().toISOString(),
+    lastActivityAt: new Date().toISOString(),
+  };
+
+  // Build message for direct Bedrock call (no streaming for REST)
+  const systemPrompt = buildChatSystemPrompt(session);
+
+  let userContent = "";
+  switch (incomingMessage.type) {
+    case "chat":
+      userContent = incomingMessage.content ?? "";
+      break;
+    case "code":
+      userContent = `Review this code:\n\`\`\`\n${incomingMessage.code}\n\`\`\``;
+      break;
+    case "refactor":
+      userContent = `Refactor this code with the instruction: "${incomingMessage.instruction}"\n\`\`\`\n${incomingMessage.code}\n\`\`\``;
+      break;
+    case "generate":
+      userContent = `Generate a production-ready implementation for: ${incomingMessage.intent}${incomingMessage.context ? `\nContext: ${incomingMessage.context}` : ""}`;
+      break;
+    default:
+      userContent = incomingMessage.content ?? "";
+  }
+
+  if (!userContent.trim()) {
+    throw new Error("Empty message content");
+  }
+
+  const responseText = await invokeClaudeDirect(
+    [{ role: "user", content: userContent }],
+    systemPrompt,
+    MAX_RESPONSE_TOKENS
+  );
+
+  const finalResponse =
+    language !== "en"
+      ? await translateResponse(responseText, language)
+      : responseText;
+
+  const codeBlocks = extractCodeBlocks(finalResponse, true);
+
+  const responseMessage: ChatMessage = {
+    id: generateMessageId(),
+    role: "assistant",
+    content: finalResponse,
+    codeBlocks: codeBlocks.length > 0 ? codeBlocks : undefined,
+    language,
+    originalContent: language !== "en" ? responseText : undefined,
+    timestamp: new Date().toISOString(),
+  };
+
+  return {
+    sessionId: session.sessionId,
+    message: responseMessage,
+    sessionFindings: session.sessionFindings,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LAMBDA / API GATEWAY WEBSOCKET HANDLER EXPORT
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SIMPLIFIED REST / TEST API
+// handleMentorChat + buildMentorContext provide a non-WebSocket, non-streaming
+// entry point for REST callers and for unit tests. They use the shared
+// invokeClaude from bedrockClient.ts so tests can mock it cleanly.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface MentorChatInput {
+  connectionId: string;
+  repoId: string;
+  repoOwner?: string;
+  repoName?: string;
+  userId?: string;
+  accessToken?: string;
+  message: string;
+  language?: SupportedLanguage;
+  latestReview?: string;
+}
+
+export interface MentorChatOutput {
+  connectionId: string;
+  reply: string;
+  translatedReply?: string;
+  translationFailed?: boolean;
+  language: SupportedLanguage;
+}
+
+export interface BuildMentorContextInput {
+  repoId: string;
+  repoName?: string;
+  repoOwner?: string;
+  latestReview?: string;
+  language?: SupportedLanguage;
+}
+
+/**
+ * Builds the Sentinel system-prompt string for mentor chat sessions.
+ * Exported for direct use in tests and for REST-mode chat.
+ *
+ * @example
+ * const systemPrompt = buildMentorContext({ repoId, latestReview, language: "hi" });
+ */
+export function buildMentorContext(input: BuildMentorContextInput): string {
+  const {
+    repoId,
+    repoName = repoId,
+    repoOwner = "unknown",
+    latestReview,
+    language = "en",
+  } = input;
+
+  const minimalSession: ChatSession = {
+    sessionId: repoId,
+    connectionId: "rest",
+    repoId,
+    repoOwner,
+    repoName,
+    accessToken: "",
+    language,
+    messages: [],
+    sessionFindings: [],
+    learnedContext: latestReview
+      ? [`Latest review:\n${latestReview.slice(0, 1000)}`]
+      : [],
+    totalInputTokens: 0,
+    isGenerating: false,
+    createdAt: new Date().toISOString(),
+    lastActivityAt: new Date().toISOString(),
+  };
+
+  return buildChatSystemPrompt(minimalSession);
+}
+
+/**
+ * Simplified, non-streaming Sentinel chat handler.
+ * Designed for REST endpoints and unit tests — bypasses the WebSocket /
+ * session infrastructure of the full WebSocket handler.
+ * Uses invokeClaude from bedrockClient.ts for clean mock support.
+ *
+ * @example
+ * const { reply } = await handleMentorChat({
+ *   connectionId: "ws-conn-abc",
+ *   repoId: "repo_123",
+ *   message: "Why is string interpolation in SQL dangerous?",
+ *   language: "en",
+ * });
+ */
+export async function handleMentorChat(
+  input: MentorChatInput
+): Promise<MentorChatOutput> {
+  const {
+    connectionId,
+    repoId,
+    repoOwner = "unknown",
+    repoName = repoId,
+    message,
+    language = "en",
+    latestReview,
+  } = input;
+
+  if (!connectionId) {
+    throw new Error("MentorChatError: connectionId is required");
+  }
+  if (!message?.trim()) {
+    throw new Error("MentorChatError: Message cannot be empty");
+  }
+
+  const systemPrompt = buildMentorContext({
+    repoId,
+    repoOwner,
+    repoName,
+    latestReview,
+    language,
+  });
+
+  let rawReply: string;
+  try {
+    const bedrockResponse = await invokeClaude({
+      systemPrompt,
+      messages: [{ role: "user", content: message }],
+      temperature: 0.3,
+    });
+    rawReply = bedrockResponse.text;
+  } catch (err: any) {
+    throw new Error(
+      `MentorChatError: Bedrock invocation failed — ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+  }
+
+  let translatedReply: string | undefined;
+  let translationFailed = false;
+
+  if (language !== "en") {
+    try {
+      const result = await translateText({
+        text: rawReply,
+        targetLanguage: language as any,
+        sourceLanguage: "en" as any,
+      });
+      translatedReply = result.translatedText;
+    } catch {
+      translationFailed = true;
+    }
+  }
+
+  return {
+    connectionId,
+    reply: translatedReply ?? rawReply,
+    ...(translatedReply && { translatedReply }),
+    ...(translationFailed && { translationFailed }),
+    language,
+  };
+}
+
+/**
+ * AWS Lambda handler export for API Gateway WebSocket routes.
+ *
+ * Route mapping (configured in ApiGateway.ts infrastructure):
+ *   $connect    → handleConnect()
+ *   $disconnect → handleDisconnect()
+ *   $default    → handleMessage()
+ */
+export const handler = async (event: WebSocketEvent): Promise<{ statusCode: number }> => {
+  const { eventType } = event.requestContext;
+
+  try {
+    switch (eventType) {
+      case "CONNECT":
+        await handleConnect(event);
+        break;
+      case "DISCONNECT":
+        await handleDisconnect(event);
+        break;
+      case "MESSAGE":
+        await handleMessage(event);
+        break;
+      default:
+        logger.warn({ eventType }, "MentorChat: Unknown WebSocket event type");
+    }
+    return { statusCode: 200 };
+  } catch (err) {
+    logger.error({ eventType, err }, "MentorChat: Unhandled Lambda error");
+    return { statusCode: 500 };
+  }
+};
