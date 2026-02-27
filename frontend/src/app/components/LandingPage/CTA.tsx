@@ -1,6 +1,8 @@
+import { useNavigate } from 'react-router';
 import TextGenerate from './animations/TextGenerate';
 
 export default function CTA() {
+    const navigate = useNavigate();
     return (
         <footer className="bg-dark text-textInverse pt-[160px] pb-[80px] relative overflow-hidden">
 
@@ -23,7 +25,7 @@ export default function CTA() {
 
                 <TextGenerate delay={0.8}>
                     <div className="flex flex-col sm:flex-row gap-4">
-                        <button className="bg-primary text-dark px-10 py-5 rounded-button font-bold text-lg hover:bg-primary/90 transition-colors">
+                        <button onClick={() => navigate('/auth')} className="bg-primary text-dark px-10 py-5 rounded-button font-bold text-lg hover:bg-primary/90 transition-colors">
                             Connect Repository Free
                         </button>
                         <button className="bg-transparent text-textInverse border border-borderInv px-10 py-5 rounded-button font-bold text-lg hover:bg-white/5 transition-colors">

@@ -19,7 +19,7 @@ export const SignUpForm: React.FC<SignUpFormProps> = ({ onSwitchLogin }) => {
         // Mock signup process
         setTimeout(() => {
             setIsLoading(false);
-            navigate('/select-repo'); // Navigate to the new repo selection page
+            navigate('/onboarding');
         }, 1000);
     };
 
