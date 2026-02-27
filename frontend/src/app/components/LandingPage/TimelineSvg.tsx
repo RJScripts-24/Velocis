@@ -184,7 +184,7 @@ export default function TimelineSvg() {
                                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
                                     </div>
                                     <span className="font-medium text-lg leading-snug">
-                                        <TextGenerate delay={2.4}>Focus on solving hard problems, not formatting</TextGenerate>
+                                        <TextGenerate delay={2}>Focus on solving hard problems, not formatting</TextGenerate>
                                     </span>
                                 </li>
                             </ul>

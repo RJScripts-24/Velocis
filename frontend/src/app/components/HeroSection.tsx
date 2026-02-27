@@ -15,7 +15,7 @@ interface EdgeSlabProps {
   duration?: number;
 }
 
-function EdgeSlab({ color, className = "", yOffset = 10, duration = 9 }: EdgeSlabProps) {
+function EdgeSlab({ color, className = "", yOffset = 0, duration = 9 }: EdgeSlabProps) {
   return (
     <motion.div
       className={`absolute ${className} pointer-events-none`}
