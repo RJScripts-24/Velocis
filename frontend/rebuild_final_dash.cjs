@@ -1,4 +1,7 @@
-import React, { useState } from "react";
+const fs = require('fs');
+const path = "c:\\Users\\ADMIN\\Desktop\\velocis\\frontend\\src\\app\\pages\\DashboardPage.tsx";
+
+const code = `import React, { useState } from "react";
 import { useNavigate } from "react-router";
 import { Search, Home, Star } from 'lucide-react';
 
@@ -20,16 +23,16 @@ const RepoSparkline = ({
     x: P.l + (i / (data.length - 1)) * cW,
     y: P.t + cH - ((v - min) / range) * cH,
   }));
-  let d = `M ${pts[0].x} ${pts[0].y}`;
+  let d = \\\`M \\\${pts[0].x} \\\${pts[0].y}\\\`;
   for (let i = 1; i < pts.length; i++) {
     const cx1 = pts[i-1].x + (pts[i].x - pts[i-1].x) / 3;
     const cx2 = pts[i].x - (pts[i].x - pts[i-1].x) / 3;
-    d += ` C ${cx1} ${pts[i-1].y} ${cx2} ${pts[i].y} ${pts[i].x} ${pts[i].y}`;
+    d += \\\` C \\\${cx1} \\\${pts[i-1].y} \\\${cx2} \\\${pts[i].y} \\\${pts[i].x} \\\${pts[i].y}\\\`;
   }
-  const area = d + ` L ${pts[pts.length-1].x} ${H} L ${pts[0].x} ${H} Z`;
-  const gId = `sg${Math.round(Math.random()*99999)}`;
+  const area = d + \\\` L \\\${pts[pts.length-1].x} \\\${H} L \\\${pts[0].x} \\\${H} Z\\\`;
+  const gId = \\\`sg\\\${Math.round(Math.random()*99999)}\\\`;
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="none" style={{ display: 'block' }}>
+    <svg viewBox={\\\`0 0 \\\${W} \\\${H}\\\`} width="100%" height={H} preserveAspectRatio="none" style={{ display: 'block' }}>
       <defs>
         <linearGradient id={gId} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={color} stopOpacity="0.22"/>
@@ -37,7 +40,7 @@ const RepoSparkline = ({
           <stop offset="100%" stopColor={color} stopOpacity="0"/>
         </linearGradient>
       </defs>
-      <path d={area} fill={`url(#${gId})`}/>
+      <path d={area} fill={\\\`url(#\\\${gId})\\\`}/>
       <path d={d} fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
       <circle cx={pts[pts.length-1].x} cy={pts[pts.length-1].y} r="3.5" fill={color} stroke="rgba(0,0,0,0.3)" strokeWidth="1.5">
         <animate attributeName="opacity" values="1;0.5;1" dur="2s" repeatCount="indefinite"/>
@@ -61,7 +64,7 @@ export function DashboardPage() {
 
   return (
     <div style={{ background: 'linear-gradient(135deg, #060914 0%, #0a0e1a 50%, #06080f 100%)', minHeight: '100vh', fontFamily: "'Inter', sans-serif", color: '#FFFFFF' }}>
-      <style>{`
+      <style>{\\\`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
         *, *::before, *::after {
           font-family: 'Inter', -apple-system, sans-serif;
@@ -81,7 +84,7 @@ export function DashboardPage() {
         }
         .activity-scroll::-webkit-scrollbar { display: none; }
         .right-panel::-webkit-scrollbar { display: none; }
-      `}</style>
+      \\\`}</style>
 
       {/* FIXED GLOW LAYERS */}
       <div style={{ position: 'fixed', zIndex: 0, pointerEvents: 'none', width: '70vw', height: '70vh', top: '-20vh', left: '-10vw', background: 'radial-gradient(ellipse, rgba(29,78,216,0.12) 0%, transparent 65%)', filter: 'blur(40px)' }} />
@@ -417,7 +420,7 @@ export function DashboardPage() {
               { label: 'Storage', val: '61%', color: '#EAB308', bc: '#EAB308' }
             ].map(r => (
               <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', paddingLeft: '10px', borderLeft: `2px solid ${r.bc}`, transition: 'border-color 0.2s ease', fontSize: '13px', color: 'rgba(255,255,255,0.40)' }}>{r.label}</div>
+                <div style={{ display: 'flex', alignItems: 'center', paddingLeft: '10px', borderLeft: \`2px solid \${r.bc}\`, transition: 'border-color 0.2s ease', fontSize: '13px', color: 'rgba(255,255,255,0.40)' }}>{r.label}</div>
                 <div style={{ fontSize: '13px', fontWeight: 700, color: r.color }}>{r.val}</div>
               </div>
             ))}
@@ -446,3 +449,6 @@ export function DashboardPage() {
     </div>
   );
 }
+`;
+
+fs.writeFileSync(path, code);
