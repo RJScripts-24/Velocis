@@ -259,7 +259,7 @@ export async function handleOAuthCallback(
 
   await dynamoClient.upsert({
     tableName: DYNAMO_TABLES.USERS,
-    item: storedToken,
+    item: storedToken as unknown as Record<string, unknown>,
     key: "userId",
   });
 

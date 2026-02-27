@@ -7,7 +7,6 @@ import {
   TranslateClient,
   TranslateTextCommand,
   TranslateTextCommandInput,
-  DetectDominantLanguageCommand,
 } from "@aws-sdk/client-translate";
 import { logger } from "../../utils/logger";
 import { config } from "../../utils/config";
@@ -109,7 +108,7 @@ function getClient(): TranslateClient {
   if (!_client) {
     _client = new TranslateClient({
       region: config.AWS_REGION,
-      ...(config.IS_LOCAL && {
+      ...(config.IS_LOCAL && config.AWS_ACCESS_KEY_ID && config.AWS_SECRET_ACCESS_KEY && {
         credentials: {
           accessKeyId: config.AWS_ACCESS_KEY_ID,
           secretAccessKey: config.AWS_SECRET_ACCESS_KEY,
@@ -419,22 +418,27 @@ export async function detectLanguage(
   const startTime = Date.now();
 
   try {
-    const command = new DetectDominantLanguageCommand({ Text: text });
+    // Use Amazon Translate with "auto" source language detection
+    // This leverages Translate's built-in language identification
+    const command = new TranslateTextCommand({
+      Text: text.slice(0, 1000), // Only need a sample for detection
+      SourceLanguageCode: "auto",
+      TargetLanguageCode: "en",
+    });
     const response = await getClient().send(command);
 
-    const topLanguage = response.Languages?.[0];
+    const detectedLanguage = response.SourceLanguageCode ?? "en";
     const latencyMs = Date.now() - startTime;
 
     logger.info({
       msg: "detectLanguage: detection complete",
-      detectedLanguage: topLanguage?.LanguageCode,
-      score: topLanguage?.Score,
+      detectedLanguage,
       latencyMs,
     });
 
     return {
-      detectedLanguage: topLanguage?.LanguageCode ?? "en",
-      score: topLanguage?.Score ?? 0,
+      detectedLanguage,
+      score: 1.0, // Translate doesn't return confidence, assume high
       latencyMs,
     };
   } catch (err) {

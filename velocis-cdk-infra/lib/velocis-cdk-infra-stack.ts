@@ -29,10 +29,15 @@ export class VelocisCdkInfraStack extends cdk.Stack {
     repoTable.grantReadWriteData(webhookLambda);
 
     // GRANT BEDROCK ACCESS (The Sentinel Permission Slip)
+    // GRANT BEDROCK & MARKETPLACE ACCESS (The Sentinel Permission Slip)
     webhookLambda.addToRolePolicy(new iam.PolicyStatement({
-      actions: ['bedrock:InvokeModel'],
+      actions: [
+        'bedrock:InvokeModel',
+        'aws-marketplace:ViewSubscriptions',
+        'aws-marketplace:Subscribe'
+      ],
       resources: ['*'],
-    }));
+    }));5 
 
     // 3. Create the API Gateway
     const api = new apigateway.RestApi(this, 'VelocisGithubAPI', {

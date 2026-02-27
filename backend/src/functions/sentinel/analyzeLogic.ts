@@ -52,20 +52,26 @@
 import {
   BedrockRuntimeClient,
   InvokeModelCommand,
+  ConverseCommand,
 } from "@aws-sdk/client-bedrock-runtime";
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
   DynamoDBDocumentClient,
   PutCommand,
   UpdateCommand,
   GetCommand,
 } from "@aws-sdk/lib-dynamodb";
-import { dynamoClient } from "../../services/database/dynamoClient";
 import { fetchFileContent, postPullRequestComment } from "../../services/github/repoOps";
-import { translateText } from "../../services/aws/translate";
+import { translateText, type SupportedLanguageCode } from "../../services/aws/translate";
 import { logger } from "../../utils/logger";
 import { config } from "../../utils/config";
 import { stripCodeFences as stripMarkdownCodeBlocks } from "../../utils/codeExtractor";
 import * as path from "path";
+
+/** Raw DynamoDB client used only for DynamoDBDocumentClient.from().
+ *  The custom `dynamoClient` wrapper from dynamoClient.ts is not a
+ *  DynamoDBClient instance and cannot be passed to .from(). */
+const _rawDynamo = new DynamoDBClient({});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES & INTERFACES
@@ -647,7 +653,7 @@ function buildFileSummaries(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Amazon Translate language codes for supported languages */
-const TRANSLATE_CODES: Record<SupportedLanguage, string> = {
+const TRANSLATE_CODES: Record<SupportedLanguage, SupportedLanguageCode> = {
   en: "en",
   hi: "hi",
   ta: "ta",
@@ -684,10 +690,12 @@ async function translateFindings(
     const batchResults = await Promise.allSettled(
       batch.map(async (finding) => {
         try {
-          const [translatedDescription, translatedMentorExplanation] = await Promise.all([
-            translateText(finding.description, "en", targetCode),
-            translateText(finding.mentorExplanation, "en", targetCode),
+          const [descResult, explanationResult] = await Promise.all([
+            translateText({ text: finding.description, sourceLanguage: "en", targetLanguage: targetCode }),
+            translateText({ text: finding.mentorExplanation, sourceLanguage: "en", targetLanguage: targetCode }),
           ]);
+          const translatedDescription = descResult.translatedText;
+          const translatedMentorExplanation = explanationResult.translatedText;
 
           return {
             findingId: finding.id,
@@ -733,7 +741,8 @@ async function translateExecutiveSummary(
 ): Promise<string> {
   if (targetLanguage === "en") return summary;
   try {
-    return await translateText(summary, "en", TRANSLATE_CODES[targetLanguage]);
+    const result = await translateText({ text: summary, sourceLanguage: "en", targetLanguage: TRANSLATE_CODES[targetLanguage] });
+    return result.translatedText;
   } catch (err) {
     logger.warn({ targetLanguage, err }, "Sentinel: Executive summary translation failed");
     return summary;
@@ -786,10 +795,10 @@ function formatPrComment(result: CodeReviewResult): string {
   const findingsSection =
     result.findings.length > 0
       ? `\n\n### 🔍 Findings\n\n` +
-        result.findings
-          .slice(0, 10) // Cap PR comments at 10 findings to avoid overwhelming
-          .map(
-            (f) => `<details>
+      result.findings
+        .slice(0, 10) // Cap PR comments at 10 findings to avoid overwhelming
+        .map(
+          (f) => `<details>
 <summary>${severityEmoji[f.severity]} <strong>[${f.severity.toUpperCase()}] ${f.category}</strong> — ${f.title} (<code>${f.location.filePath}:${f.location.startLine}</code>)</summary>
 
 **Problem:**
@@ -806,8 +815,8 @@ ${f.suggestedFix}
 **Estimated Fix Effort:** ${f.estimatedFixEffort}
 ${f.references.length > 0 ? `\n**References:** ${f.references.join(" | ")}` : ""}
 </details>`
-          )
-          .join("\n\n")
+        )
+        .join("\n\n")
       : "\n\n✅ **No significant issues found in this commit.**";
 
   const footer = `\n\n---\n*Reviewed by [Velocis Sentinel](https://velocis.ai) — Autonomous AI Senior Engineer | Commit \`${result.commitSha.slice(0, 7)}\`*`;
@@ -830,13 +839,13 @@ async function persistReviewResult(
   commitSha: string,
   result: CodeReviewResult
 ): Promise<void> {
-  const docClient = DynamoDBDocumentClient.from(dynamoClient);
+  const docClient = DynamoDBDocumentClient.from(_rawDynamo);
 
   try {
     // ── Write per-commit review record ─────────────────────────────────────
     await docClient.send(
       new PutCommand({
-        TableName: config.DYNAMO_TABLE_AI_ACTIVITY,
+        TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
         Item: {
           PK: `REPO#${repoId}`,
           SK: `SENTINEL#${commitSha}`,
@@ -871,7 +880,7 @@ async function persistReviewResult(
     // ── Update aggregate Sentinel stats on Repositories table ──────────────
     await docClient.send(
       new UpdateCommand({
-        TableName: config.DYNAMO_TABLE_REPOSITORIES,
+        TableName: config.DYNAMO_REPOSITORIES_TABLE,
         Key: { PK: `REPO#${repoId}`, SK: "SENTINEL_STATS" },
         UpdateExpression:
           "SET #totalReviews = if_not_exists(#totalReviews, :zero) + :one, " +
@@ -920,10 +929,10 @@ async function getCachedReview(
   commitSha: string
 ): Promise<CodeReviewResult | null> {
   try {
-    const docClient = DynamoDBDocumentClient.from(dynamoClient);
+    const docClient = DynamoDBDocumentClient.from(_rawDynamo);
     const result = await docClient.send(
       new GetCommand({
-        TableName: config.DYNAMO_TABLE_AI_ACTIVITY,
+        TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
         Key: { PK: `REPO#${repoId}`, SK: `SENTINEL_CACHE#${commitSha}` },
       })
     );
@@ -950,10 +959,10 @@ async function setCachedReview(
   reviewResult: CodeReviewResult
 ): Promise<void> {
   try {
-    const docClient = DynamoDBDocumentClient.from(dynamoClient);
+    const docClient = DynamoDBDocumentClient.from(_rawDynamo);
     await docClient.send(
       new PutCommand({
-        TableName: config.DYNAMO_TABLE_AI_ACTIVITY,
+        TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
         Item: {
           PK: `REPO#${repoId}`,
           SK: `SENTINEL_CACHE#${commitSha}`,
@@ -1249,3 +1258,82 @@ export const handler = async (
 ): Promise<CodeReviewResult> => {
   return analyzeLogic(event);
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SENTINEL REVIEW — ConverseCommand (Modern Bedrock API)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Dedicated Bedrock client for the ConverseCommand integration (us-east-1). */
+const converseClient = new BedrockRuntimeClient({ region: "us-east-1" });
+
+const SENTINEL_SYSTEM_PROMPT =
+  "You are Sentinel, an elite AI Senior Engineer. Analyze the provided code diff " +
+  "for logic flaws, security vulnerabilities, and scalability issues. Do not just fix " +
+  "the code—explain the 'why' behind the issue to mentor the junior developer.";
+
+/**
+ * Runs a deep code-diff review through Amazon Bedrock using the modern
+ * ConverseCommand API.
+ *
+ * @param codeDiff  A unified diff string (e.g. from `git diff`) to review.
+ * @returns         The raw review text produced by Sentinel.
+ */
+export async function runSentinelReview(codeDiff: string): Promise<string> {
+  try {
+    const command = new ConverseCommand({
+      modelId: "amazon.nova-pro-v1:0",
+      system: [
+        {
+          text: SENTINEL_SYSTEM_PROMPT,
+        },
+      ],
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              text: codeDiff,
+            },
+          ],
+        },
+      ],
+      inferenceConfig: {
+        maxTokens: 1500,
+        temperature: 0.2,
+      },
+    });
+
+    const response = await converseClient.send(command);
+
+    const reviewText =
+      response.output?.message?.content?.[0]?.text ?? "(no response text returned)";
+
+    console.log("\n--- SENTINEL REVIEW ---");
+    console.log(reviewText);
+    console.log("--- END OF REVIEW ---\n");
+
+    return reviewText;
+  } catch (err) {
+    console.error("[runSentinelReview] Bedrock ConverseCommand failed:", err);
+    throw err;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// QUICK TEST — Execute with: npx ts-node src/functions/sentinel/analyzeLogic.ts
+// ─────────────────────────────────────────────────────────────────────────────
+
+const mockSqlInjectionDiff = `
+--- a/src/routes/users.ts
++++ b/src/routes/users.ts
+@@ -12,7 +12,10 @@ router.get('/user', async (req, res) => {
+-  const userId = req.query.id;
+-  const result = await db.query('SELECT * FROM users WHERE id = ' + userId);
++  // Fetching user by ID from query param
++  const userId = req.query.id as string;
++  const result = await db.query("SELECT * FROM users WHERE id = '" + userId + "'");
+   res.json(result.rows[0]);
+ });
+`;
+
+runSentinelReview(mockSqlInjectionDiff).catch(console.error);

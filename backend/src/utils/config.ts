@@ -3,6 +3,13 @@
 // All env vars are accessed ONLY through this module — never process.env directly
 // Fails fast at startup if required variables are missing or malformed
 
+import * as path from "path";
+import * as dotenv from "dotenv";
+
+// Load .env.development (or .env) before anything reads process.env
+dotenv.config({ path: path.resolve(__dirname, "../../.env.development") });
+dotenv.config(); // fallback to .env if .env.development doesn't exist
+
 import { z } from "zod";
 
 // ─────────────────────────────────────────────
@@ -445,8 +452,8 @@ export function assertAwsCredentials(): void {
   if (!config.AWS_ACCESS_KEY_ID || !config.AWS_SECRET_ACCESS_KEY) {
     throw new Error(
       "AWS credentials missing for local dev. " +
-        "Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in .env.development " +
-        "or configure an AWS profile via the AWS CLI."
+      "Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in .env.development " +
+      "or configure an AWS profile via the AWS CLI."
     );
   }
 }
