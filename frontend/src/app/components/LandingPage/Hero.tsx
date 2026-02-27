@@ -4,6 +4,7 @@ import gsap from 'gsap';
 import { Github, Play } from 'lucide-react';
 import heroLeft from '../../../assets/landing-page/hero-left.svg?raw';
 import heroRight from '../../../assets/landing-page/hero-right.svg?raw';
+import Aurora from './Aurora';
 
 export default function Hero() {
     const navigate = useNavigate();
@@ -62,7 +63,7 @@ export default function Hero() {
     }, []);
 
     return (
-        <section ref={containerRef} className="relative pt-[160px] pb-[100px] flex flex-col items-center bg-background overflow-hidden">
+        <section ref={containerRef} className="relative pt-[160px] pb-[100px] flex flex-col items-center overflow-hidden">
             <style>{`
                 .hero-svg-wrapper svg {
                     width: 100%;
