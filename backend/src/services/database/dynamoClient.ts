@@ -131,7 +131,7 @@ function getDocClient(): DynamoDBDocumentClient {
           secretAccessKey: "local",
         },
       }),
-      ...(!config.IS_LOCAL && {
+      ...(!config.IS_LOCAL && config.AWS_ACCESS_KEY_ID && config.AWS_SECRET_ACCESS_KEY && {
         credentials: {
           accessKeyId: config.AWS_ACCESS_KEY_ID,
           secretAccessKey: config.AWS_SECRET_ACCESS_KEY,
@@ -719,7 +719,7 @@ export async function getItem<T>(params: DynamoGetParams): Promise<T | null> {
 export async function updateItem(
   params: DynamoUpdateParams
 ): Promise<Record<string, unknown> | undefined> {
-  return update(params);
+  return (await update(params)) ?? undefined;
 }
 
 // ─────────────────────────────────────────────

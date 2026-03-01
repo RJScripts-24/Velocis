@@ -168,12 +168,6 @@ function buildTransport(): TransportTargetOptions[] | undefined {
           ignore: "pid,hostname,service",
           messageKey: "message",
           errorLikeObjectKeys: ["err", "error"],
-          // Show these fields prominently
-          customPrettifiers: {
-            agent: (val: string) => `[${val?.toUpperCase()}]`,
-            operation: (val: string) => `→ ${val}`,
-            durationMs: (val: number) => `${val}ms`,
-          },
         },
       },
     ];
@@ -449,8 +443,8 @@ class VelocisLogger {
       context.overallStatus === "healthy"
         ? "info"
         : context.overallStatus === "degraded"
-        ? "warn"
-        : "error";
+          ? "warn"
+          : "error";
 
     this.write(level, {
       msg: `Tri-Agent pipeline ${context.overallStatus}`,
@@ -527,7 +521,7 @@ class VelocisLogger {
     }
 
     const { msg: contextMsg, ...rest } = context;
-    const message = msg ?? contextMsg ?? "";
+    const message = String(msg ?? contextMsg ?? "");
     const safeContext = redactSensitiveFields(rest) as Record<string, unknown>;
 
     this.pinoLogger[level](safeContext, message);

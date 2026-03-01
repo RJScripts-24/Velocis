@@ -22,7 +22,7 @@ export const AuthPage: React.FC = () => {
         setIsLoading(true);
         setTimeout(() => {
             setIsLoading(false);
-            navigate('/select-repo');
+            navigate('/onboarding');
         }, 1200);
     };
 
