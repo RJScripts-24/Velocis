@@ -564,8 +564,6 @@ export function RepositoryPage() {
             </div>
           </div>
         </div>
-      </div>
-
         {/* MAIN CONTENT AREA */}
         <div className="w-full flex-1 flex flex-col min-h-0">
           <div className="p-6 md:p-8 lg:p-10 relative z-10 max-w-[1200px] mx-auto w-full flex-1">
@@ -591,7 +589,6 @@ export function RepositoryPage() {
                 <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.30)' }}>Scanned {repo.lastScanned}</span>
               </div>
             </div>
-          </div>
 
             {/* KPI STRIP */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
@@ -647,8 +644,6 @@ export function RepositoryPage() {
                 ))}
               </div>
             </div>
-          ))}
-        </div>
 
             {/* REPOSITORY ACTIVITY / RISK OVERVIEW */}
             <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-4 mb-8">
@@ -722,7 +717,6 @@ export function RepositoryPage() {
               </div>
 
             </div>
-          </div>
 
             {/* RECENT AUTONOMOUS ACTIVITY */}
             <div className="bg-white/70 dark:bg-slate-900/60 border border-zinc-200/60 dark:border-slate-800/80 rounded-2xl overflow-hidden mb-8 backdrop-blur-2xl shadow-sm">
@@ -768,8 +762,6 @@ export function RepositoryPage() {
                 </div>
               ))}
             </div>
-          ))}
-        </div>
 
             {/* FOOTER */}
             <div className="py-5 border-t border-zinc-200 dark:border-slate-800/60 flex flex-col sm:flex-row justify-between items-center gap-4">
@@ -785,8 +777,6 @@ export function RepositoryPage() {
                 ))}
               </div>
             </div>
-          ))}
-        </div>
 
           </div>
         </div>
