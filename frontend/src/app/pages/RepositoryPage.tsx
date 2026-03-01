@@ -3,7 +3,8 @@ import { motion, useAnimation } from 'framer-motion';
 import {
   Bell, Search, CheckCircle, Shield, TestTube2, Eye, GitBranch,
   ChevronRight, Home, Activity, Settings, Webhook, Sliders,
-  TrendingUp, AlertCircle, Cloud, Folder, FileText, Bot, Mail, Menu
+  TrendingUp, AlertCircle, Cloud, Folder, FileText, Bot, Mail, Menu,
+  Sun, Moon
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router';
 
@@ -435,6 +436,8 @@ export function RepositoryPage() {
   const repo = repositoryData[id] || repositoryData['infrazero'];
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(false);
+  const themeClass = isDarkMode ? 'dark' : '';
 
   const criticalPct = Math.round((repo.risks.critical / (repo.risks.critical + repo.risks.medium + repo.risks.low)) * 100) || 0;
   const mediumPct = Math.round((repo.risks.medium / (repo.risks.critical + repo.risks.medium + repo.risks.low)) * 100) || 0;
@@ -448,7 +451,7 @@ export function RepositoryPage() {
       icon: Eye,
       accentBg: "rgba(52, 211, 153, 0.1)",
       accentColor: "#34D399",
-      action: () => navigate(`/repo/${id}/cortex`),
+      action: () => navigate('/cortex'),
       cta: "Visual Cortex"
     },
     {
@@ -457,7 +460,7 @@ export function RepositoryPage() {
       icon: FileText,
       accentBg: "rgba(124, 58, 237, 0.1)",
       accentColor: "#7C3AED",
-      action: () => navigate(`/repo/${id}/workspace`),
+      action: () => navigate('/workspace'),
       cta: "Workspace"
     },
     {
@@ -466,7 +469,7 @@ export function RepositoryPage() {
       icon: TestTube2,
       accentBg: "rgba(37, 99, 235, 0.1)",
       accentColor: "#2563EB",
-      action: () => navigate(`/repo/${id}/pipeline`),
+      action: () => navigate('/pipeline'),
       cta: "QA Pipeline"
     },
     {
@@ -475,7 +478,7 @@ export function RepositoryPage() {
       icon: Cloud,
       accentBg: "rgba(217, 119, 6, 0.1)",
       accentColor: "#D97706",
-      action: () => navigate(`/repo/${id}/infrastructure`),
+      action: () => navigate('/infrastructure'),
       cta: "Infrastructure"
     }
   ];
@@ -489,263 +492,302 @@ export function RepositoryPage() {
   ];
 
   const getAgentBtnColor = (cta: string) => {
-    if (cta === 'Visual Cortex') return { bg: '#34D399', text: '#000000' };
-    if (cta === 'Workspace') return { bg: 'linear-gradient(135deg, #7C3AED, #4F46E5)', text: '#FFFFFF' };
-    if (cta === 'QA Pipeline') return { bg: '#2563EB', text: '#FFFFFF' };
-    return { bg: 'linear-gradient(135deg, #D97706, #B45309)', text: '#FFFFFF' };
+    if (cta === 'Visual Cortex') return { background: '#34D399', color: '#000000' };
+    if (cta === 'Workspace') return { background: 'linear-gradient(135deg, #7C3AED, #4F46E5)', color: '#FFFFFF' };
+    if (cta === 'QA Pipeline') return { background: '#2563EB', color: '#FFFFFF' };
+    return { background: 'linear-gradient(135deg, #D97706, #B45309)', color: '#FFFFFF' };
   };
 
   return (
-    <div style={{ background: 'linear-gradient(135deg, #060914 0%, #0a0e1a 50%, #06080f 100%)', minHeight: '100vh', fontFamily: "'Inter', -apple-system, sans-serif", color: '#FFFFFF', position: 'relative', overflowX: 'hidden' }}>
+    <div className={`${themeClass} w-full min-h-screen`}>
       <style>{`
-            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-            *, *::before, *::after { box-sizing: border-box; font-family: 'Inter', -apple-system, sans-serif; }
-            @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-            @keyframes ping { 0% { transform: scale(1); opacity: 0.8; } 100% { transform: scale(2.4); opacity: 0; } }
-            @keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+            @keyframes custom-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+            @keyframes ping-slow { 0% { transform: scale(1); opacity: 0.8; } 100% { transform: scale(2.4); opacity: 0; } }
         `}</style>
 
-      {/* FIXED AMBIENT GLOW LAYERS */}
-      <div style={{ position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none', background: 'radial-gradient(ellipse 70% 60% at 10% 15%, rgba(29,78,216,0.13) 0%, transparent 65%)' }} />
-      <div style={{ position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none', background: 'radial-gradient(ellipse 50% 50% at 90% 85%, rgba(5,150,105,0.09) 0%, transparent 65%)' }} />
-      <div style={{ position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none', background: 'radial-gradient(ellipse 40% 40% at 50% 40%, rgba(109,40,217,0.06) 0%, transparent 65%)' }} />
+      <div className="min-h-screen flex flex-col font-['Geist_Sans',_'Inter',_sans-serif] bg-zinc-50 dark:bg-[#010308] text-zinc-900 dark:text-slate-100 transition-colors duration-300 relative overflow-x-hidden">
 
-      {/* NAVBAR */}
-      <div style={{ height: '56px', background: 'rgba(6,9,20,0.82)', backdropFilter: 'blur(24px) saturate(180%)', WebkitBackdropFilter: 'blur(24px) saturate(180%)', borderBottom: '1px solid rgba(99,155,255,0.08)', boxShadow: '0 1px 0 rgba(255,255,255,0.03)', position: 'sticky', top: 0, zIndex: 100, padding: '0 24px', display: 'flex', alignItems: 'center', gap: '16px' }}>
-        {/* L */}
-        <div style={{ width: 32, height: 32, borderRadius: 8, background: 'linear-gradient(135deg, #3B82F6, #6D28D9)', color: '#FFFFFF', fontWeight: 700, fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>V</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 8 }}>
-          <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.35)', cursor: 'pointer' }} onClick={() => navigate('/dashboard')}>Dashboard</span>
-          <span style={{ color: 'rgba(255,255,255,0.20)' }}>/</span>
-          <span style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.85)' }}>{repo.name}</span>
-        </div>
+        {/* Dark Mode Overlays matching Workspace/Dashboard */}
+        {isDarkMode && (
+          <>
+            <div className="fixed inset-0 pointer-events-none z-0 bg-[radial-gradient(circle_at_50%_0%,_rgba(30,41,59,1)_0%,_rgba(15,23,42,1)_100%)] opacity-80 mix-blend-multiply" />
+            <div className="fixed z-0 pointer-events-none w-[70vw] h-[70vh] -top-[20vh] -left-[10vw] bg-[radial-gradient(ellipse,_rgba(29,78,216,0.12)_0%,_transparent_65%)] blur-[40px]" />
+            <div className="fixed z-0 pointer-events-none w-[50vw] h-[50vh] -bottom-[10vh] -right-[10vw] bg-[radial-gradient(ellipse,_rgba(5,150,105,0.09)_0%,_transparent_65%)] blur-[40px]" />
+            <div className="fixed z-0 pointer-events-none w-[40vw] h-[40vh] top-[30vh] left-[35vw] bg-[radial-gradient(ellipse,_rgba(109,40,217,0.06)_0%,_transparent_65%)] blur-[60px]" />
+            <div className="fixed inset-0 pointer-events-none z-0 shadow-[inset_0_0_150px_rgba(0,0,0,0.8)]" />
+            <div
+              className="fixed inset-0 pointer-events-none z-0 opacity-[0.03]"
+              style={{
+                backgroundImage: `url("data:image/svg+xml;utf8,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")`,
+                mixBlendMode: 'overlay'
+              }}
+            />
+          </>
+        )}
 
-        {/* R */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginLeft: 'auto' }}>
-          <button style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', cursor: 'pointer' }}>
-            <Bell size={16} color="rgba(255,255,255,0.50)" />
-            <div style={{ position: 'absolute', top: -2, right: -2, width: 7, height: 7, background: '#EF4444', borderRadius: '50%', border: '2px solid rgba(6,9,20,0.82)' }} />
-          </button>
-          <div style={{ padding: '5px 12px', borderRadius: 8, background: 'rgba(52,211,153,0.10)', border: '1px solid rgba(52,211,153,0.22)', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#34D399', animation: 'pulse 2s infinite' }} />
-            <div style={{ fontSize: 12, fontWeight: 600, color: '#34D399' }}>GitHub Sync</div>
+        {/* NAVBAR */}
+        <div className="flex-none z-50 border-b border-zinc-200 dark:border-slate-800/80 bg-white/80 dark:bg-slate-900/60 backdrop-blur-xl transition-colors duration-300 sticky top-0 px-6 h-[60px] flex items-center justify-between">
+          {/* L */}
+          <div className="flex items-center gap-4">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-zinc-900 dark:bg-slate-800 shadow-sm border border-zinc-700 dark:border-slate-700 text-white font-bold text-sm">V</div>
+            <div className="flex items-center gap-2 text-sm ml-2">
+              <span className="text-zinc-500 dark:text-slate-400 cursor-pointer hover:text-zinc-800 dark:hover:text-slate-200 transition-colors" onClick={() => navigate('/dashboard')}>Dashboard</span>
+              <span className="text-zinc-300 dark:text-slate-700">/</span>
+              <span className="font-semibold text-zinc-900 dark:text-slate-100">{repo.name}</span>
+            </div>
           </div>
-          <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg, #6D28D9, #4F46E5)', border: '1.5px solid rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#FFFFFF', cursor: 'pointer', marginLeft: 4 }}>
-            R
+
+          {/* R */}
+          <div className="flex items-center gap-3 ml-auto">
+            <button className="w-8 h-8 rounded-lg bg-white dark:bg-slate-800/50 border border-zinc-200 dark:border-slate-700/50 shadow-sm flex items-center justify-center relative cursor-pointer hover:bg-zinc-50 dark:hover:bg-slate-700 transition-colors">
+              <Bell size={16} className="text-zinc-400 dark:text-slate-500" />
+              <div className="absolute -top-1 -right-1 w-[8px] h-[8px] bg-red-500 rounded-full border-2 border-white dark:border-[#010308]" />
+            </button>
+            <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-100/50 dark:border-emerald-800/30">
+              <div className="w-[7px] h-[7px] rounded-full bg-emerald-500 animate-[custom-pulse_2s_infinite]" />
+              <div className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">GitHub Sync</div>
+            </div>
+
+            {/* Theme Toggle */}
+            <button
+              onClick={() => setIsDarkMode(!isDarkMode)}
+              className="p-2 ml-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 transition-colors text-zinc-500 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-slate-100"
+            >
+              {isDarkMode ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
+            </button>
+
+            <div className="relative ml-1">
+              <div className="absolute inset-0 bg-indigo-500/20 blur-md rounded-full" />
+              <div className="w-8 h-8 rounded-full flex items-center justify-center bg-white dark:bg-slate-800 border border-indigo-100 dark:border-indigo-500/30 relative shadow-sm cursor-pointer hover:scale-105 transition-transform text-indigo-600 dark:text-indigo-400 font-bold text-sm">
+                R
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* LEFT SIDEBAR */}
-      <div style={{ width: '48px', position: 'fixed', left: 0, top: '56px', bottom: 0, zIndex: 90, background: 'rgba(6,9,20,0.82)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', borderRight: '1px solid rgba(99,155,255,0.07)', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 16, gap: 4 }}>
-        {[Search, FileText, CheckCircle, Shield, Bot, Mail].map((Icon, i) => (
-          <button key={i} style={{ width: 36, height: 36, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', background: i === 1 ? 'rgba(99,155,255,0.15)' : 'transparent', border: i === 1 ? '1px solid rgba(99,155,255,0.20)' : 'none', transition: 'all 0.2s ease' }} onMouseEnter={e => { if (i !== 1) e.currentTarget.style.background = 'rgba(255,255,255,0.06)' }} onMouseLeave={e => { if (i !== 1) e.currentTarget.style.background = 'transparent' }}>
-            <Icon size={18} color={i === 1 ? '#60A5FA' : 'rgba(255,255,255,0.30)'} />
-          </button>
-        ))}
-        <button style={{ marginTop: 'auto', marginBottom: 16, width: 36, height: 36, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', background: 'transparent', transition: 'all 0.2s ease' }} onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-          <Settings size={18} color="rgba(255,255,255,0.30)" />
-        </button>
-      </div>
+        {/* MAIN CONTENT AREA */}
+        <div className="w-full flex-1 flex flex-col min-h-0">
+          <div className="p-6 md:p-8 lg:p-10 relative z-10 max-w-[1200px] mx-auto w-full flex-1">
 
-      {/* MAIN CONTENT AREA */}
-      <div style={{ marginLeft: '48px', padding: '32px 32px 48px 32px', position: 'relative', zIndex: 1, maxWidth: 1200, margin: '0 auto 0 48px' }}>
-
-        {/* REPO HEADER */}
-        <div>
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-            <h1 style={{ fontSize: 'clamp(36px, 4vw, 52px)', fontWeight: 800, color: '#FFFFFF', letterSpacing: '-2px', lineHeight: 1.05, margin: '0 0 12px 0' }}>{repo.name}</h1>
-            <div style={{ padding: '6px 14px', borderRadius: 10, background: 'rgba(52,211,153,0.10)', border: '1px solid rgba(52,211,153,0.22)', display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
-              <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#34D399', animation: 'pulse 2s infinite' }} />
-              <span style={{ fontSize: 12, fontWeight: 700, color: '#34D399', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{repo.statusLabel}</span>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 32 }}>
-            {[repo.visibility, repo.language, repo.size].map((txt, i) => (
-              <React.Fragment key={i}>
-                {i > 0 && <span style={{ color: 'rgba(255,255,255,0.20)', fontSize: 10 }}>•</span>}
-                <div style={{ padding: '3px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', fontSize: 12, fontWeight: 500, color: 'rgba(255,255,255,0.50)' }}>{txt}</div>
-              </React.Fragment>
-            ))}
-            <span style={{ color: 'rgba(255,255,255,0.20)', fontSize: 10 }}>•</span>
-            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.30)' }}>Scanned {repo.lastScanned}</span>
-          </div>
-        </div>
-
-        {/* KPI STRIP */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 40 }}>
-          {[
-            { val: repo.metrics.riskScore, lbl: 'PR RISK SCORE', acc: '#EAB308', icn: TrendingUp },
-            { val: repo.metrics.testStability, lbl: 'TEST STABILITY', acc: '#34D399', icn: TestTube2 },
-            { val: repo.metrics.architectureDrift, lbl: 'ARCH DRIFT', acc: '#60A5FA', icn: Activity },
-            { val: repo.metrics.lastAction, lbl: 'LAST AUTO ACTION', acc: '#7C3AED', icn: CheckCircle }
-          ].map((kpi, i) => (
-            <div key={i} style={{ background: 'rgba(10,14,26,0.70)', border: '1px solid rgba(99,155,255,0.10)', borderRadius: 14, padding: '20px 22px', backdropFilter: 'blur(20px) saturate(150%)', WebkitBackdropFilter: 'blur(20px) saturate(150%)', boxShadow: '0 4px 24px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.03)', transition: 'all 0.25s ease', position: 'relative', overflow: 'hidden' }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(14,20,40,0.85)'; e.currentTarget.style.border = '1px solid rgba(99,155,255,0.22)'; e.currentTarget.style.transform = 'translateY(-2px)' }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(10,14,26,0.70)'; e.currentTarget.style.border = '1px solid rgba(99,155,255,0.10)'; e.currentTarget.style.transform = 'translateY(0)' }}>
-              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, borderRadius: '14px 14px 0 0', background: `linear-gradient(90deg, ${kpi.acc}, ${kpi.acc}60, transparent)` }} />
-              <kpi.icn size={16} color={kpi.acc} />
-              <div style={{ fontSize: 26, fontWeight: 800, color: '#FFFFFF', letterSpacing: '-0.5px', marginTop: 8, marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{kpi.val}</div>
-              <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'rgba(255,255,255,0.30)' }}>{kpi.lbl}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* AGENT COMMAND CENTER */}
-        <div style={{ marginBottom: 32 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-            <div style={{ width: 3, height: 14, borderRadius: 2, background: 'linear-gradient(180deg, #60A5FA, #7C3AED)' }} />
-            <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.14em', color: 'rgba(255,255,255,0.25)' }}>AGENT COMMAND CENTER</div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            {triAgentCards.map((card, idx) => (
-              <div key={idx} onClick={card.action} style={{ background: 'rgba(10,14,26,0.70)', border: '1px solid rgba(99,155,255,0.10)', borderRadius: 16, overflow: 'hidden', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', boxShadow: '0 4px 24px rgba(0,0,0,0.3)', transition: 'all 0.25s ease', display: 'grid', gridTemplateColumns: '1fr 1fr', cursor: 'pointer' }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(14,20,40,0.85)'; e.currentTarget.style.border = '1px solid rgba(99,155,255,0.22)'; e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 40px rgba(0,0,0,0.4)'; }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(10,14,26,0.70)'; e.currentTarget.style.border = '1px solid rgba(99,155,255,0.10)'; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 24px rgba(0,0,0,0.3)'; }}>
-
-                <div style={{ padding: '22px 20px', display: 'flex', flexDirection: 'column' }}>
-                  <div style={{ width: 36, height: 36, borderRadius: 10, background: `${card.accentColor}15`, border: `1px solid ${card.accentColor}30`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <card.icon size={18} color={card.accentColor} />
-                  </div>
-                  <div style={{ fontSize: 17, fontWeight: 700, color: '#FFFFFF', letterSpacing: '-0.3px', marginTop: 14, marginBottom: 8 }}>{card.title}</div>
-                  <div style={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(255,255,255,0.50)', marginBottom: 20, flex: 1 }}>{card.description}</div>
-                  <button style={{ padding: '9px 18px', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer', border: 'none', transition: 'all 0.2s ease', display: 'flex', alignItems: 'center', gap: 6, ...getAgentBtnColor(card.cta) }}>
-                    {card.cta} <ChevronRight size={14} />
-                  </button>
-                </div>
-
-                <div style={{ background: `${card.accentColor}08`, borderLeft: '1px solid rgba(99,155,255,0.07)', padding: 16, display: 'flex', flexDirection: 'column', position: 'relative' }}>
-                  {idx === 0 && <Card1Preview />}
-                  {idx === 1 && <Card2Preview />}
-                  {idx === 2 && <Card3Preview />}
-                  {idx === 3 && <Card4Preview />}
+            {/* REPO HEADER */}
+            <div>
+              <div className="flex items-start justify-between mb-3">
+                <h1 className="text-4xl md:text-5xl font-['JetBrains_Mono',_monospace] font-bold text-zinc-900 dark:text-white tracking-tight">{repo.name}</h1>
+                <div className="px-3.5 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-100/50 dark:border-emerald-800/30 flex items-center gap-1.5 mt-2">
+                  <div className="w-2 h-2 rounded-full bg-emerald-500 animate-[custom-pulse_2s_infinite]" />
+                  <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-widest">{repo.statusLabel}</span>
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
 
-        {/* REPOSITORY ACTIVITY / RISK OVERVIEW */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 16, marginBottom: 32 }}>
-
-          <div style={{ background: 'rgba(10,14,26,0.70)', border: '1px solid rgba(99,155,255,0.10)', borderRadius: 16, padding: '22px 24px', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', boxShadow: '0 4px 24px rgba(0,0,0,0.3)', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <div style={{ fontSize: 15, fontWeight: 700, color: '#FFFFFF', letterSpacing: '-0.3px' }}>Repository Activity</div>
-              <div style={{ fontSize: 11, fontWeight: 500, color: 'rgba(255,255,255,0.30)' }}>30 Days</div>
-            </div>
-            <div style={{ flex: 1, position: 'relative' }}>
-              <svg viewBox="0 0 100 40" preserveAspectRatio="none" style={{ width: '100%', height: '140px', overflow: 'visible' }}>
-                <defs>
-                  <linearGradient id="blueGlow" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="rgba(96,165,250,0.15)" />
-                    <stop offset="100%" stopColor="transparent" />
-                  </linearGradient>
-                </defs>
-                <path d="M 0,40 L 0,35 Q 10,25 20,30 T 40,10 T 60,20 T 80,5 T 100,15 L 100,40 Z" fill="url(#blueGlow)" />
-                <motion.path
-                  d="M 0,35 Q 10,25 20,30 T 40,10 T 60,20 T 80,5 T 100,15" fill="none" stroke="#60A5FA" strokeWidth="1.5"
-                  strokeLinecap="round" strokeLinejoin="round" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }}
-                  transition={{ duration: 2.5, ease: "easeOut" }}
-                />
-                {[{ x: 0, y: 35 }, { x: 20, y: 30 }, { x: 40, y: 10 }, { x: 60, y: 20 }, { x: 80, y: 5 }, { x: 100, y: 15 }].map((pt, i) => (
-                  <motion.circle
-                    key={i} cx={pt.x} cy={pt.y} r="2" fill="#60A5FA" stroke="rgba(6,9,20,0.82)" strokeWidth="0.8"
-                    initial={{ opacity: 0, scale: 0 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 1 + i * 0.2 }}
-                  />
+              <div className="flex items-center gap-3 mb-8 text-xs font-medium text-zinc-500 dark:text-slate-400 flex-wrap">
+                {[repo.visibility, repo.language, repo.size].map((txt, i) => (
+                  <React.Fragment key={i}>
+                    {i > 0 && <span className="text-zinc-300 dark:text-slate-600 text-[10px]">•</span>}
+                    <div className="px-2.5 py-1 rounded-md bg-zinc-100 dark:bg-slate-800/50 border border-zinc-200 dark:border-slate-700/50 text-zinc-600 dark:text-slate-300">{txt}</div>
+                  </React.Fragment>
                 ))}
-              </svg>
-              <div style={{ position: 'absolute', bottom: -10, left: 0, right: 0, display: 'flex', justifyContent: 'space-between', fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.25)' }}>
-                <span>JUN</span><span>JUL</span><span>AUG</span><span>SEP</span>
+                <span className="text-zinc-300 dark:text-slate-600 text-[10px]">•</span>
+                <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.30)' }}>Scanned {repo.lastScanned}</span>
               </div>
             </div>
           </div>
 
-          <div style={{ background: 'rgba(10,14,26,0.70)', border: '1px solid rgba(99,155,255,0.10)', borderRadius: 16, padding: '22px 24px', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', boxShadow: '0 4px 24px rgba(0,0,0,0.3)' }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: '#FFFFFF', letterSpacing: '-0.3px', marginBottom: 20 }}>Risk Overview</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 24, padding: '8px 0' }}>
-              <div style={{ position: 'relative', width: 96, height: 96, borderRadius: '50%', background: `conic-gradient(#EF4444 0% ${criticalPct}%, #EAB308 ${criticalPct}% ${criticalPct + mediumPct}%, rgba(255,255,255,0.15) ${criticalPct + mediumPct}% 100%)`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <div style={{ position: 'absolute', inset: 8, background: 'rgba(10,14,26,0.95)', borderRadius: '50%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                  <div style={{ fontSize: 24, fontWeight: 800, color: '#FFFFFF', lineHeight: 1 }}><AnimatedCounter value={totalRisks} /></div>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.30)', marginTop: 2 }}>TOTAL</div>
+            {/* KPI STRIP */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
+              {[
+                { val: repo.metrics.riskScore, lbl: 'PR RISK SCORE', acc: 'from-amber-400 to-amber-600', txt: 'text-amber-500 dark:text-amber-400', icn: TrendingUp },
+                { val: repo.metrics.testStability, lbl: 'TEST STABILITY', acc: 'from-emerald-400 to-emerald-600', txt: 'text-emerald-500 dark:text-emerald-400', icn: TestTube2 },
+                { val: repo.metrics.architectureDrift, lbl: 'ARCH DRIFT', acc: 'from-blue-400 to-blue-600', txt: 'text-blue-500 dark:text-blue-400', icn: Activity },
+                { val: repo.metrics.lastAction, lbl: 'LAST AUTO ACTION', acc: 'from-purple-400 to-purple-600', txt: 'text-purple-500 dark:text-purple-400', icn: CheckCircle }
+              ].map((kpi, i) => (
+                <div key={i} className="group relative bg-white/70 dark:bg-slate-900/60 border border-zinc-200/60 dark:border-slate-800/80 backdrop-blur-2xl rounded-2xl p-6 overflow-hidden flex flex-col justify-between shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-zinc-300 dark:hover:border-slate-700/80 hover:bg-white/90 dark:hover:bg-slate-800/80">
+                  <div className={`absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r ${kpi.acc} opacity-80`} />
+                  <kpi.icn className={`w-5 h-5 mb-2 ${kpi.txt}`} />
+                  <div>
+                    <div className="text-2xl font-['JetBrains_Mono',_monospace] font-bold text-zinc-900 dark:text-white mb-1 tracking-tight truncate">{kpi.val}</div>
+                    <div className="text-[10px] font-bold text-zinc-500 dark:text-slate-400 uppercase tracking-widest">{kpi.lbl}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* AGENT COMMAND CENTER */}
+            <div className="mb-8">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-1 h-3.5 bg-indigo-500 rounded-full" />
+                <h2 className="text-xs font-['JetBrains_Mono',_monospace] font-bold text-zinc-500 dark:text-slate-400 uppercase tracking-widest">AGENT COMMAND CENTER</h2>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {triAgentCards.map((card, idx) => (
+                  <div key={idx} onClick={card.action} className="group cursor-pointer bg-white/70 dark:bg-slate-900/60 border border-zinc-200/60 dark:border-slate-800/80 backdrop-blur-2xl shadow-sm rounded-2xl overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:border-zinc-300 dark:hover:border-slate-700/80 hover:bg-white/90 dark:hover:bg-slate-800/80 hover:shadow-md grid grid-cols-1 sm:grid-cols-2">
+
+                    <div className="p-6 flex flex-col">
+                      <div className="w-9 h-9 rounded-lg flex items-center justify-center mb-4" style={{ backgroundColor: `${card.accentColor}15`, border: `1px solid ${card.accentColor}30` }}>
+                        <card.icon className="w-[18px] h-[18px]" style={{ color: card.accentColor }} />
+                      </div>
+                      <div className="text-lg font-bold text-zinc-900 dark:text-white mb-2 tracking-tight">{card.title}</div>
+                      <div className="text-[13px] leading-relaxed text-zinc-500 dark:text-slate-400 mb-6 flex-1">{card.description}</div>
+                      <button
+                        className="px-4 py-2 rounded-xl text-[13px] font-semibold transition-all duration-200 flex items-center gap-2 w-fit border border-transparent hover:gap-3"
+                        style={getAgentBtnColor(card.cta)}
+                      >
+                        {card.cta} <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    <div className="bg-zinc-50/50 dark:bg-slate-800/20 border-t sm:border-t-0 sm:border-l border-zinc-200/50 dark:border-slate-700/30 p-4 flex flex-col relative min-h-[160px]">
+                      {idx === 0 && <Card1Preview />}
+                      {idx === 1 && <Card2Preview />}
+                      {idx === 2 && <Card3Preview />}
+                      {idx === 3 && <Card4Preview />}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+            {/* REPOSITORY ACTIVITY / RISK OVERVIEW */}
+            <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-4 mb-8">
+
+              <div className="bg-white/70 dark:bg-slate-900/60 border border-zinc-200/60 dark:border-slate-800/80 rounded-2xl p-6 backdrop-blur-2xl shadow-sm flex flex-col">
+                <div className="flex justify-between items-center mb-5">
+                  <div className="text-[15px] font-bold text-zinc-900 dark:text-white tracking-tight">Repository Activity</div>
+                  <div className="text-[11px] font-medium text-zinc-400 dark:text-slate-500">30 Days</div>
+                </div>
+                <div className="flex-1 relative">
+                  <svg viewBox="0 0 100 40" preserveAspectRatio="none" className="w-full h-[140px] overflow-visible">
+                    <defs>
+                      <linearGradient id="blueGlow" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="rgba(96,165,250,0.15)" />
+                        <stop offset="100%" stopColor="transparent" />
+                      </linearGradient>
+                    </defs>
+                    <path d="M 0,40 L 0,35 Q 10,25 20,30 T 40,10 T 60,20 T 80,5 T 100,15 L 100,40 Z" fill="url(#blueGlow)" />
+                    <motion.path
+                      d="M 0,35 Q 10,25 20,30 T 40,10 T 60,20 T 80,5 T 100,15" fill="none" stroke="#60A5FA" strokeWidth="1.5"
+                      strokeLinecap="round" strokeLinejoin="round" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }}
+                      transition={{ duration: 2.5, ease: "easeOut" }}
+                    />
+                    {[{ x: 0, y: 35 }, { x: 20, y: 30 }, { x: 40, y: 10 }, { x: 60, y: 20 }, { x: 80, y: 5 }, { x: 100, y: 15 }].map((pt, i) => (
+                      <motion.circle
+                        key={i} cx={pt.x} cy={pt.y} r="2" className="fill-blue-400 stroke-white dark:stroke-slate-900 stroke-[0.8px]"
+                        initial={{ opacity: 0, scale: 0 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 1 + i * 0.2 }}
+                      />
+                    ))}
+                  </svg>
+                  <div className="absolute -bottom-2.5 left-0 right-0 flex justify-between text-[10px] font-semibold text-zinc-400 dark:text-slate-500">
+                    <span>JUN</span><span>JUL</span><span>AUG</span><span>SEP</span>
+                  </div>
                 </div>
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 14, flex: 1 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#EF4444' }} />
-                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>Critical</div>
+              <div className="bg-white/70 dark:bg-slate-900/60 border border-zinc-200/60 dark:border-slate-800/80 rounded-2xl p-6 backdrop-blur-2xl shadow-sm">
+                <div className="text-[15px] font-bold text-zinc-900 dark:text-white tracking-tight mb-5">Risk Overview</div>
+                <div className="flex items-center gap-6 py-2">
+                  <div className="relative w-24 h-24 rounded-full flex items-center justify-center" style={{ background: `conic-gradient(#EF4444 0% ${criticalPct}%, #EAB308 ${criticalPct}% ${criticalPct + mediumPct}%, rgba(156, 163, 175, 0.2) ${criticalPct + mediumPct}% 100%)` }}>
+                    <div className="absolute inset-2 bg-white dark:bg-slate-900 rounded-full flex flex-col items-center justify-center shadow-sm">
+                      <div className="text-2xl font-black text-zinc-900 dark:text-white leading-none"><AnimatedCounter value={totalRisks} /></div>
+                      <div className="text-[10px] font-bold text-zinc-400 dark:text-slate-500 mt-0.5">TOTAL</div>
+                    </div>
                   </div>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: '#FFFFFF' }}><AnimatedCounter value={repo.risks.critical} /></div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#EAB308' }} />
-                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>Medium</div>
+
+                  <div className="flex flex-col gap-3.5 flex-1">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-2 h-2 rounded-full bg-red-500" />
+                        <div className="text-[11px] text-zinc-500 dark:text-slate-400 font-medium">Critical</div>
+                      </div>
+                      <div className="text-[22px] font-black text-zinc-900 dark:text-white leading-none"><AnimatedCounter value={repo.risks.critical} /></div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-2 h-2 rounded-full bg-yellow-500" />
+                        <div className="text-[11px] text-zinc-500 dark:text-slate-400 font-medium">Medium</div>
+                      </div>
+                      <div className="text-[22px] font-black text-zinc-900 dark:text-white leading-none"><AnimatedCounter value={repo.risks.medium} /></div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-2 h-2 rounded-full bg-zinc-200 dark:bg-slate-700" />
+                        <div className="text-[11px] text-zinc-500 dark:text-slate-400 font-medium">Low</div>
+                      </div>
+                      <div className="text-[22px] font-black text-zinc-900 dark:text-white leading-none"><AnimatedCounter value={repo.risks.low} /></div>
+                    </div>
                   </div>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: '#FFFFFF' }}><AnimatedCounter value={repo.risks.medium} /></div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'rgba(255,255,255,0.50)' }} />
-                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>Low</div>
-                  </div>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: '#FFFFFF' }}><AnimatedCounter value={repo.risks.low} /></div>
                 </div>
               </div>
+
             </div>
           </div>
 
-        </div>
+            {/* RECENT AUTONOMOUS ACTIVITY */}
+            <div className="bg-white/70 dark:bg-slate-900/60 border border-zinc-200/60 dark:border-slate-800/80 rounded-2xl overflow-hidden mb-8 backdrop-blur-2xl shadow-sm">
+              <div className="px-5 py-4 border-b border-zinc-200/60 dark:border-white/5 text-[15px] font-bold text-zinc-900 dark:text-white tracking-tight">Recent Autonomous Activity</div>
+              {activityItems.map((item, i) => (
+                <div
+                  key={i}
+                  className={`flex items-start gap-3.5 px-5 py-3.5 transition-colors duration-150 hover:bg-zinc-50/80 dark:hover:bg-white/5 ${i === activityItems.length - 1 ? '' : 'border-b border-zinc-200/40 dark:border-white/5'}`}
+                >
+                  <div className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center" style={{ backgroundColor: `${item.color}15`, border: `1px solid ${item.color}25` }}>
+                    <item.icon className="w-3.5 h-3.5" style={{ color: item.color }} />
+                  </div>
+                  <div className="flex flex-col flex-1 gap-1">
+                    <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: item.color }}>{item.agent}</div>
+                    <div className="text-[13px] leading-relaxed text-zinc-600 dark:text-slate-300 font-medium">{item.text}</div>
+                  </div>
+                  <div className="px-2.5 py-1 rounded-lg bg-zinc-100/80 dark:bg-white/5 border border-zinc-200/80 dark:border-white/10 text-[11px] font-medium text-zinc-500 dark:text-slate-400 self-center shrink-0">
+                    {item.time}
+                  </div>
+                </div>
+              ))}
+            </div>
 
-        {/* RECENT AUTONOMOUS ACTIVITY */}
-        <div style={{ background: 'rgba(10,14,26,0.70)', border: '1px solid rgba(99,155,255,0.10)', borderRadius: 16, overflow: 'hidden', marginBottom: 32, backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}>
-          <div style={{ padding: '20px 22px 16px', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: 15, fontWeight: 700, color: '#FFFFFF' }}>Recent Autonomous Activity</div>
-          {activityItems.map((item, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 14, padding: '14px 22px', borderBottom: i === activityItems.length - 1 ? 'none' : '1px solid rgba(255,255,255,0.04)', transition: 'background 0.15s ease' }} onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-              <div style={{ width: 32, height: 32, borderRadius: '50%', background: `${item.color}15`, border: `1px solid ${item.color}25`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <item.icon size={14} color={item.color} />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, gap: 3 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.10em', color: item.color }}>{item.agent}</div>
-                <div style={{ fontSize: 13, lineHeight: 1.5, color: 'rgba(255,255,255,0.65)' }}>{item.text}</div>
-              </div>
-              <div style={{ padding: '3px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', fontSize: 11, color: 'rgba(255,255,255,0.30)', alignSelf: 'center', flexShrink: 0 }}>{item.time}</div>
+            {/* BOTTOM TOOL CARDS */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-10">
+              {[
+                { icon: Settings, label: 'Repository Settings', sub: 'Manage integrations & tokens' },
+                { icon: Webhook, label: 'Webhook Status', sub: '3 active endpoints' },
+                { icon: Sliders, label: 'Agent Configuration', sub: 'Rules & thresholds' }
+              ].map((tool, i) => (
+                <div
+                  key={i}
+                  className="bg-white/70 dark:bg-slate-900/60 border border-zinc-200/60 dark:border-slate-800/80 rounded-[14px] p-[18px_20px] flex items-center gap-3.5 cursor-pointer backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 hover:bg-white/90 dark:hover:bg-slate-800/80 hover:border-zinc-300 dark:hover:border-slate-700/80 hover:shadow-sm group"
+                >
+                  <div className="w-9 h-9 rounded-lg bg-indigo-50 dark:bg-slate-800/50 border border-indigo-100 dark:border-slate-700/50 flex flex-shrink-0 items-center justify-center transition-colors group-hover:bg-indigo-100/50 dark:group-hover:bg-slate-700">
+                    <tool.icon className="w-4 h-4 text-indigo-500 dark:text-slate-400" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-semibold text-zinc-900 dark:text-white">{tool.label}</div>
+                    <div className="text-xs text-zinc-500 dark:text-slate-400 mt-0.5">{tool.sub}</div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-zinc-400 dark:text-slate-500 transition-transform group-hover:translate-x-0.5" />
+                </div>
+              ))}
             </div>
           ))}
         </div>
 
-        {/* BOTTOM TOOL CARDS */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 40 }}>
-          {[
-            { icon: Settings, label: 'Repository Settings', sub: 'Manage integrations & tokens' },
-            { icon: Webhook, label: 'Webhook Status', sub: '3 active endpoints' },
-            { icon: Sliders, label: 'Agent Configuration', sub: 'Rules & thresholds' }
-          ].map((tool, i) => (
-            <div key={i} style={{ background: 'rgba(10,14,26,0.70)', border: '1px solid rgba(99,155,255,0.10)', borderRadius: 14, padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer', transition: 'all 0.2s ease', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(14,20,40,0.85)'; e.currentTarget.style.border = '1px solid rgba(99,155,255,0.22)'; e.currentTarget.style.transform = 'translateY(-1px)' }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(10,14,26,0.70)'; e.currentTarget.style.border = '1px solid rgba(99,155,255,0.10)'; e.currentTarget.style.transform = 'translateY(0)' }}>
-              <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(99,155,255,0.08)', border: '1px solid rgba(99,155,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <tool.icon size={16} color="rgba(255,255,255,0.50)" />
+            {/* FOOTER */}
+            <div className="py-5 border-t border-zinc-200 dark:border-slate-800/60 flex flex-col sm:flex-row justify-between items-center gap-4">
+              <div className="text-xs text-zinc-400 dark:text-slate-500">© 2026 Velocis Technologies</div>
+              <div className="flex gap-5">
+                {['Docs', 'Security', 'System Status'].map(link => (
+                  <span
+                    key={link}
+                    className="text-xs text-zinc-500 dark:text-slate-400 cursor-pointer transition-colors hover:text-zinc-800 dark:hover:text-white"
+                  >
+                    {link}
+                  </span>
+                ))}
               </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: '#FFFFFF' }}>{tool.label}</div>
-                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>{tool.sub}</div>
-              </div>
-              <ChevronRight size={16} color="rgba(255,255,255,0.20)" />
             </div>
           ))}
         </div>
 
-        {/* FOOTER */}
-        <div style={{ padding: '20px 0', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.20)' }}>© 2026 Velocis Technologies</div>
-          <div style={{ display: 'flex', gap: 20 }}>
-            {['Docs', 'Security', 'System Status'].map(link => (
-              <span key={link} style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)', cursor: 'pointer' }} onMouseEnter={e => e.currentTarget.style.color = 'rgba(255,255,255,0.60)'} onMouseLeave={e => e.currentTarget.style.color = 'rgba(255,255,255,0.25)'}>{link}</span>
-            ))}
           </div>
         </div>
 
