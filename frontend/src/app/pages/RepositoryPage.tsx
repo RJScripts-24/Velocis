@@ -451,7 +451,7 @@ export function RepositoryPage() {
       icon: Eye,
       accentBg: "rgba(52, 211, 153, 0.1)",
       accentColor: "#34D399",
-      action: () => navigate('/cortex'),
+      action: () => navigate('/repo/:id/cortex'),
       cta: "Visual Cortex"
     },
     {
@@ -460,7 +460,7 @@ export function RepositoryPage() {
       icon: FileText,
       accentBg: "rgba(124, 58, 237, 0.1)",
       accentColor: "#7C3AED",
-      action: () => navigate('/workspace'),
+      action: () => navigate("/repo/:id/workspace"),
       cta: "Workspace"
     },
     {
@@ -469,7 +469,7 @@ export function RepositoryPage() {
       icon: TestTube2,
       accentBg: "rgba(37, 99, 235, 0.1)",
       accentColor: "#2563EB",
-      action: () => navigate('/pipeline'),
+      action: () => navigate('/repo/:id/pipeline'),
       cta: "QA Pipeline"
     },
     {
@@ -478,7 +478,7 @@ export function RepositoryPage() {
       icon: Cloud,
       accentBg: "rgba(217, 119, 6, 0.1)",
       accentColor: "#D97706",
-      action: () => navigate('/infrastructure'),
+      action: () => navigate('/repo/:id/infrastructure'),
       cta: "Infrastructure"
     }
   ];
