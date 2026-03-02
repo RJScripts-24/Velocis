@@ -493,14 +493,9 @@ export const AuthPage: React.FC = () => {
 
     const handleGitHubAuth = () => {
         setIsLoading(true);
-<<<<<<< Updated upstream
-        // TODO: Replace with actual OAuth → window.location.href = '/api/auth/github';
-        setTimeout(() => { setIsLoading(false); navigate('/onboarding'); }, 1200);
-=======
         setErrorMsg(null);
         // Redirect browser to backend — backend sets cookie + redirects to GitHub
         window.location.href = `${BACKEND_URL}/api/auth/github`;
->>>>>>> Stashed changes
     };
 
 
