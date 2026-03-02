@@ -839,7 +839,7 @@ async function fetchDiff(params: FetchDiffParams): Promise<FetchDiffResult> {
  *   recursive: true,
  * });
  */
-async function fetchRepoTree(
+export async function fetchRepoTree(
   params: FetchRepoTreeParams
 ): Promise<RepoTreeItem[]> {
   const { repoFullName, token, ref = "HEAD", recursive = true } = params;

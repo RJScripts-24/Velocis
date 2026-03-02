@@ -122,13 +122,8 @@ function mapZodErrors(zodError: ZodError): ValidationError[] {
 
     // Enrich with received/expected where Zod provides them
     if (issue.code === "invalid_type") {
-      base.received = issue.received;
-      base.expected = issue.expected;
-    }
-
-    if (issue.code === "invalid_literal") {
-      base.received = issue.received;
-      base.expected = String(issue.expected);
+      base.expected = (issue as any).expected;
+      base.received = (issue as any).received;
     }
 
     if (issue.code === "unrecognized_keys") {

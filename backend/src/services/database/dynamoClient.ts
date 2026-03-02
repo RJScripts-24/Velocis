@@ -119,7 +119,7 @@ export type DynamoTransactOperation =
 
 let _docClient: DynamoDBDocumentClient | null = null;
 
-function getDocClient(): DynamoDBDocumentClient {
+export function getDocClient(): DynamoDBDocumentClient {
   if (!_docClient) {
     const clientConfig: DynamoDBClientConfig = {
       region: config.AWS_REGION,

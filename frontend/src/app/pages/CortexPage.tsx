@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useMemo, Suspense } from 'react';
+import { useState, useRef, useMemo, Suspense, useEffect } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { Html, MapControls, Grid, RoundedBox, Text } from '@react-three/drei';
 import { motion, AnimatePresence } from 'motion/react';
@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router';
 import * as THREE from 'three';
+import { getCortexServices, getCortexTimeline, type CortexServicesResponse, type TimelineEvent as ApiTimelineEvent } from '../../lib/api';
 
 /* ═══════════════════════════════════════════
    DATA
@@ -24,31 +25,11 @@ interface Service {
   tests: number; errors: number; deployment: string;
 }
 
-const services: Service[] = [
-  { id: 1, name: 'auth-service', status: 'healthy', layer: 'edge', pos: [-8, 0.3, -4], connections: [2, 3], p95: '38ms', errRate: '0.0%', sparkline: [60, 75, 65], tests: 100, errors: 0, deployment: '2h ago' },
-  { id: 2, name: 'api-gateway', status: 'warning', layer: 'edge', pos: [-2, 0.3, -6], connections: [4, 5, 6], p95: '91ms', errRate: '3.2%', sparkline: [55, 80, 95], tests: 94, errors: 4, deployment: '3h ago' },
-  { id: 3, name: 'user-db', status: 'healthy', layer: 'data', pos: [-8, 0.3, 6], connections: [], p95: '12ms', errRate: '0.0%', sparkline: [40, 42, 38], tests: 100, errors: 0, deployment: '1d ago' },
-  { id: 4, name: 'payment-service', status: 'warning', layer: 'compute', pos: [4, 0.3, -5], connections: [7], p95: '74ms', errRate: '2.1%', sparkline: [50, 68, 74], tests: 94, errors: 2, deployment: '30m ago' },
-  { id: 5, name: 'notification-svc', status: 'healthy', layer: 'compute', pos: [4, 0.3, 1], connections: [8], p95: '29ms', errRate: '0.0%', sparkline: [30, 28, 32], tests: 100, errors: 0, deployment: '5h ago' },
-  { id: 6, name: 'analytics-service', status: 'critical', layer: 'compute', pos: [4, 0.3, 6], connections: [9], p95: '820ms', errRate: '14.3%', sparkline: [45, 72, 100], tests: 85, errors: 12, deployment: '15m ago' },
-  { id: 7, name: 'stripe-api', status: 'healthy', layer: 'edge', pos: [10, 0.3, -5], connections: [], p95: '55ms', errRate: '0.0%', sparkline: [55, 57, 54], tests: 100, errors: 0, deployment: '1d ago' },
-  { id: 8, name: 'email-queue', status: 'healthy', layer: 'data', pos: [10, 0.3, 1], connections: [], p95: '8ms', errRate: '0.0%', sparkline: [20, 22, 19], tests: 100, errors: 0, deployment: '6h ago' },
-  { id: 9, name: 'postgres-db', status: 'healthy', layer: 'data', pos: [10, 0.3, 6], connections: [], p95: '15ms', errRate: '0.0%', sparkline: [42, 40, 44], tests: 100, errors: 0, deployment: '2d ago' },
-];
+const services: Service[] = [];
+const BLAST_PAIRS = new Set<string>();
+let CRITICAL_ID: number | null = null;
 
-const BLAST_PAIRS = new Set(['2-6', '6-9']);
-const CRITICAL_ID = 6;
-
-const timelineEvents = [
-  { position: 7, label: 'Deploy v2.0', color: '#22c55e' },
-  { position: 19, label: 'Sentinel Scan', color: '#8b5cf6' },
-  { position: 33, label: 'Deploy v2.1', color: '#22c55e' },
-  { position: 47, label: 'Sentinel Scan', color: '#8b5cf6' },
-  { position: 60, label: 'Anomaly Detected', color: '#ef4444' },
-  { position: 71, label: 'Sentinel Scan', color: '#8b5cf6' },
-  { position: 82, label: 'Rollback Initiated', color: '#f59e0b' },
-  { position: 91, label: 'analytics-service CRIT', color: '#ef4444' },
-];
+const timelineEvents: { position: number; label: string; color: string }[] = [];
 
 const STATUS: Record<string, { dot: string; label: string; bg: string; text: string }> = {
   healthy: { dot: '#22c55e', label: 'Healthy', bg: 'rgba(34,197,94,0.10)', text: '#22c55e' },
@@ -74,18 +55,19 @@ function Sparkline({ data, color }: { data: number[]; color: string }) {
    3D SERVICE NODE
 ═══════════════════════════════════════════ */
 function ServiceNode({
-  svc, isDark, isSelected, onSelect, filters
+  svc, isDark, isSelected, onSelect, filters, criticalId
 }: {
   svc: Service; isDark: boolean; isSelected: boolean;
   onSelect: (id: number | null) => void;
   filters: { sentinel: boolean; fortress: boolean; cortex: boolean };
+  criticalId: number | null;
 }) {
   const meshRef = useRef<THREE.Mesh>(null!);
   const glowRef = useRef<THREE.Mesh>(null!);
   const boxMatRef = useRef<THREE.MeshStandardMaterial>(null!);
   const [hovered, setHovered] = useState(false);
 
-  const isCrit = svc.id === CRITICAL_ID;
+  const isCrit = svc.id === criticalId;
   const isHealthy = svc.status === 'healthy';
   const cfg = STATUS[svc.status];
   const sparkC = svc.status === 'critical' ? '#ef4444' : svc.status === 'warning' ? '#f59e0b' : '#22c55e';
@@ -260,15 +242,15 @@ function ServiceNode({
 /* ═══════════════════════════════════════════
    3D CONNECTIONS
 ═══════════════════════════════════════════ */
-function Connections({ isDark }: { isDark: boolean }) {
+function Connections({ isDark, services: svcList, blastPairs }: { isDark: boolean; services: Service[]; blastPairs: Set<string> }) {
   const lines = useMemo(() => {
     const result: { curve: THREE.QuadraticBezierCurve3; color: string; emissive: string; intensity: number; thickness: number }[] = [];
-    services.forEach(svc => {
+    svcList.forEach(svc => {
       svc.connections.forEach(tid => {
-        const tgt = services.find(s => s.id === tid);
+        const tgt = svcList.find(s => s.id === tid);
         if (!tgt) return;
         const key = `${svc.id}-${tid}`;
-        const isBlast = BLAST_PAIRS.has(key);
+        const isBlast = blastPairs.has(key);
 
         // Node heights to compute curve start/end
         const h0 = 0.4 + (svc.id % 3) * 0.4;
@@ -393,11 +375,14 @@ function SwimlanePlatform({
    3D SCENE (everything inside <Canvas>)
 ═══════════════════════════════════════════ */
 function Scene({
-  isDark, selectedNode, setSelectedNode, filters
+  isDark, selectedNode, setSelectedNode, filters, services: svcList, blastPairs, criticalId
 }: {
   isDark: boolean; selectedNode: number | null;
   setSelectedNode: (id: number | null) => void;
   filters: { sentinel: boolean; fortress: boolean; cortex: boolean };
+  services: Service[];
+  blastPairs: Set<string>;
+  criticalId: number | null;
 }) {
   return (
     <>
@@ -437,13 +422,13 @@ function Scene({
       <SwimlanePlatform position={[1.5, 0, 6.5]} size={[22, 5]} label="Data / Persistence" color="#f59e0b" isDark={isDark} />
 
       {/* Connections */}
-      <Connections isDark={isDark} />
+      <Connections isDark={isDark} services={svcList} blastPairs={blastPairs} />
 
       {/* Sentinel laser */}
       {filters.sentinel && <SentinelLaser />}
 
       {/* Service nodes */}
-      {services.map(svc => (
+      {svcList.map(svc => (
         <ServiceNode
           key={svc.id}
           svc={svc}
@@ -451,6 +436,7 @@ function Scene({
           isSelected={selectedNode === svc.id}
           onSelect={setSelectedNode}
           filters={filters}
+          criticalId={criticalId}
         />
       ))}
 
@@ -489,16 +475,49 @@ export function CortexPage() {
   const [selectedNode, setSelectedNode] = useState<number | null>(null);
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   const [view, setView] = useState<'graph' | 'service' | 'flow'>('graph');
-  const [isDark, setIsDark] = useState(true);
+  const [isDark, setIsDark] = useState(false);
   const [filters, setFilters] = useState({ sentinel: true, fortress: true, cortex: true });
   const [layers, setLayers] = useState({ microservices: true, apis: true, databases: true, external: true, queues: true });
   const [hoveredEvent, setHoveredEvent] = useState<number | null>(null);
 
-  const repoName = id === 'infrazero' ? 'InfraZero' : id === 'immersa' ? 'Immersa' :
-    id === 'velocis-core' ? 'velocis-core' : id === 'ai-observatory' ? 'ai-observatory' :
-      id === 'distributed-lab' ? 'distributed-lab' : 'test-sandbox';
+  // ── API state ──────────────────────────────────────────────────────────────
+  const [svcData, setSvcData] = useState<Service[]>([]);
+  const [blastPairs, setBlastPairs] = useState<Set<string>>(new Set());
+  const [criticalId, setCriticalId] = useState<number | null>(null);
+  const [timelineData, setTimelineData] = useState<{ position: number; label: string; color: string }[]>([]);
+  const [cortexLoading, setCortexLoading] = useState(true);
 
-  const selectedService = selectedNode ? services.find(s => s.id === selectedNode) : null;
+  useEffect(() => {
+    if (!id) return;
+    setCortexLoading(true);
+    Promise.all([getCortexServices(id), getCortexTimeline(id)])
+      .then(([res, tlRes]) => {
+        const mapped: Service[] = res.services.map(s => ({
+          id: s.id,
+          name: s.name,
+          status: s.status,
+          layer: s.layer,
+          pos: [s.position.x, s.position.y, s.position.z] as [number, number, number],
+          connections: s.connections,
+          p95: s.metrics.p95_latency,
+          errRate: `${s.metrics.error_rate_pct}%`,
+          sparkline: s.metrics.sparkline,
+          tests: s.tests.passing,
+          errors: s.tests.errors,
+          deployment: s.last_deployment_ago,
+        }));
+        setSvcData(mapped);
+        const pairs = new Set<string>(res.blast_radius_pairs.map(p => `${p.source_id}-${p.target_id}`));
+        setBlastPairs(pairs);
+        setCriticalId(res.critical_service_id);
+        setTimelineData(tlRes.events.map(e => ({ position: e.position_pct, label: e.label, color: e.color })));
+      })
+      .catch(console.error)
+      .finally(() => setCortexLoading(false));
+  }, [id]);
+
+  const selectedService = selectedNode ? svcData.find(s => s.id === selectedNode) : null;
+  const repoName = id ?? 'Unknown';
 
   const bg = isDark ? '#080a0f' : '#eef0f4';
   const panelBg = isDark ? 'rgba(10,12,18,0.97)' : 'rgba(255,255,255,0.97)';
@@ -646,9 +665,9 @@ export function CortexPage() {
                     style={{ backgroundColor: isDark ? '#0e1117' : '#f9fafb', border: `1px solid ${border}` }}>
                     <div className="text-[10px] font-bold tracking-widest uppercase" style={{ color: muted }}>System Status</div>
                     {[
-                      { label: 'Healthy', count: services.filter(s => s.status === 'healthy').length, color: '#22c55e' },
-                      { label: 'Degraded', count: services.filter(s => s.status === 'warning').length, color: '#f59e0b' },
-                      { label: 'Critical', count: services.filter(s => s.status === 'critical').length, color: '#ef4444' },
+                      { label: 'Healthy', count: svcData.filter(s => s.status === 'healthy').length, color: '#22c55e' },
+                      { label: 'Degraded', count: svcData.filter(s => s.status === 'warning').length, color: '#f59e0b' },
+                      { label: 'Critical', count: svcData.filter(s => s.status === 'critical').length, color: '#ef4444' },
                     ].map(({ label, count, color }) => (
                       <div key={label} className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
@@ -723,6 +742,9 @@ export function CortexPage() {
                   selectedNode={selectedNode}
                   setSelectedNode={setSelectedNode}
                   filters={filters}
+                  services={svcData}
+                  blastPairs={blastPairs}
+                  criticalId={criticalId}
                 />
               </Suspense>
             </Canvas>
@@ -834,7 +856,7 @@ export function CortexPage() {
                     <h3 style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: muted, marginBottom: 10 }}>Dependencies</h3>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                       {selectedService.connections.map(cid => {
-                        const c = services.find(s => s.id === cid);
+                        const c = svcData.find(s => s.id === cid);
                         if (!c) return null;
                         const ccfg = STATUS[c.status];
                         return (
@@ -896,7 +918,7 @@ export function CortexPage() {
                 position: 'absolute', inset: '50% 0', height: 2, transform: 'translateY(-50%)', borderRadius: 999,
                 backgroundColor: isDark ? '#1a1f2e' : '#e5e7eb'
               }} />
-              {timelineEvents.map((ev, i) => (
+              {timelineData.map((ev, i) => (
                 <div key={i} style={{ position: 'absolute', top: '50%', left: `${ev.position}%`, transform: 'translate(-50%,-50%)', zIndex: 2, cursor: 'pointer' }}
                   onMouseEnter={() => setHoveredEvent(i)} onMouseLeave={() => setHoveredEvent(null)}>
                   <div style={{

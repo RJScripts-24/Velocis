@@ -45,7 +45,7 @@ import * as path from "path";
 import * as os from "os";
 import { execSync, spawnSync, SpawnSyncReturns } from "child_process";
 import { DynamoDBDocumentClient, PutCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
-import { dynamoClient } from "../../services/database/dynamoClient";
+import { dynamoClient, getDocClient } from "../../services/database/dynamoClient";
 import { logger } from "../../utils/logger";
 import { config } from "../../utils/config";
 
@@ -264,7 +264,7 @@ function cleanupSandbox(sandboxDir: string): void {
 function parseJestOutput(
   jsonOutput: string,
   rawOutput: string
-): { suites: TestSuiteResult[]; totals: Omit<TestExecutionResult, "status" | "filePath" | "testFilePath" | "attemptNumber" | "rawOutput" | "rawError" | "executedAt" | "sandboxDir" | "duration"> } {
+): { suites: TestSuiteResult[]; totals: Omit<TestExecutionResult, "status" | "filePath" | "testFilePath" | "attemptNumber" | "rawOutput" | "rawError" | "executedAt" | "sandboxDir" | "duration" | "suites"> } {
   // ── Try JSON output first (most reliable) ─────────────────────────────
   try {
     const jestResult = JSON.parse(jsonOutput);
@@ -283,7 +283,9 @@ function parseJestOutput(
         passed: suite.numPassingTests,
         failed: suite.numFailingTests,
         skipped: suite.numPendingTests,
-        duration: suite.perfStats?.end - suite.perfStats?.start ?? 0,
+        duration: (suite.perfStats?.end != null && suite.perfStats?.start != null)
+          ? suite.perfStats.end - suite.perfStats.start
+          : 0,
         testCases,
       };
     });
@@ -441,13 +443,13 @@ async function persistResultToDynamo(
   filePath: string,
   result: TestExecutionResult
 ): Promise<void> {
-  const docClient = DynamoDBDocumentClient.from(dynamoClient);
+  const docClient = getDocClient();
 
   try {
     // ── Write to AI_Activity (drives Cortex node color) ──────────────────
     await docClient.send(
       new PutCommand({
-        TableName: config.DYNAMO_TABLE_AI_ACTIVITY,
+        TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
         Item: {
           PK: `REPO#${repoId}`,
           SK: `FORTRESS#${filePath}`,
@@ -468,7 +470,7 @@ async function persistResultToDynamo(
     // ── Update Repositories table aggregate stats ────────────────────────
     await docClient.send(
       new UpdateCommand({
-        TableName: config.DYNAMO_TABLE_REPOSITORIES,
+        TableName: config.DYNAMO_REPOSITORIES_TABLE,
         Key: { PK: `REPO#${repoId}`, SK: "FORTRESS_STATS" },
         UpdateExpression:
           "SET #lastRun = :lastRun, #totalRuns = if_not_exists(#totalRuns, :zero) + :one, " +

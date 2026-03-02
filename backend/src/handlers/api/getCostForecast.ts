@@ -74,7 +74,7 @@ import {
   DynamoDBDocumentClient,
   GetCommand,
 } from "@aws-sdk/lib-dynamodb";
-import { dynamoClient } from "../../services/database/dynamoClient";
+import { dynamoClient, getDocClient } from "../../services/database/dynamoClient";
 import { verifyRepoAccess } from "../../services/github/auth";
 import { fetchRepoTree } from "../../services/github/repoOps";
 import {
@@ -281,7 +281,7 @@ const CACHE_HIT_THRESHOLD_MS = 200;
 /** Standard CORS + security headers */
 const BASE_RESPONSE_HEADERS: Record<string, string> = {
   "Content-Type": "application/json",
-  "Access-Control-Allow-Origin": config.FRONTEND_ORIGIN ?? "*",
+  "Access-Control-Allow-Origin": config.FRONTEND_URL ?? "*",
   "Access-Control-Allow-Headers":
     "Content-Type, Authorization, x-repo-owner, x-repo-name",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
@@ -415,7 +415,7 @@ async function authorizeRequest(
   headerRepoOwner: string,
   headerRepoName: string
 ): Promise<{ repoOwner: string; repoName: string; lastFilePaths: string[] }> {
-  const docClient = DynamoDBDocumentClient.from(dynamoClient);
+  const docClient = getDocClient();
 
   // ── Step 1: Verify repo is registered ─────────────────────────────────
   let repoRecord: {
@@ -427,7 +427,7 @@ async function authorizeRequest(
   try {
     const result = await docClient.send(
       new GetCommand({
-        TableName: config.DYNAMO_TABLE_REPOSITORIES,
+        TableName: config.DYNAMO_REPOSITORIES_TABLE,
         Key: { PK: `REPO#${repoId}`, SK: "METADATA" },
       })
     );
@@ -493,7 +493,7 @@ async function resolveFilePaths(
   accessToken: string,
   commitSha?: string
 ): Promise<{ filePaths: string[]; resolvedCommitSha: string }> {
-  const docClient = DynamoDBDocumentClient.from(dynamoClient);
+  const docClient = getDocClient();
 
   // Try fetching the most recent push event record from DynamoDB
   try {
@@ -504,7 +504,7 @@ async function resolveFilePaths(
     if (sk) {
       const result = await docClient.send(
         new GetCommand({
-          TableName: config.DYNAMO_TABLE_AI_ACTIVITY,
+          TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
           Key: { PK: `REPO#${repoId}`, SK: sk },
         })
       );
@@ -521,7 +521,7 @@ async function resolveFilePaths(
     // No specific commitSha — fetch the latest push record
     const latestResult = await docClient.send(
       new GetCommand({
-        TableName: config.DYNAMO_TABLE_REPOSITORIES,
+        TableName: config.DYNAMO_REPOSITORIES_TABLE,
         Key: { PK: `REPO#${repoId}`, SK: "LATEST_PUSH" },
       })
     );
@@ -547,7 +547,7 @@ async function resolveFilePaths(
   );
 
   try {
-    const tree = await fetchRepoTree(repoOwner, repoName, accessToken);
+    const tree = await fetchRepoTree({ repoFullName: `${repoOwner}/${repoName}`, token: accessToken, recursive: true });
     const infraFiles = tree
       .filter(
         (f) =>

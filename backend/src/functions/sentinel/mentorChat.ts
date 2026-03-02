@@ -68,7 +68,7 @@ import {
   UpdateCommand,
   DeleteCommand,
 } from "@aws-sdk/lib-dynamodb";
-import { dynamoClient } from "../../services/database/dynamoClient";
+import { dynamoClient, getDocClient } from "../../services/database/dynamoClient";
 import { fetchFileContent } from "../../services/github/repoOps";
 import { translateText } from "../../services/aws/translate";
 import { invokeClaude } from "../../services/aws/bedrockClient";
@@ -312,10 +312,10 @@ async function streamToken(
  */
 async function loadSession(connectionId: string): Promise<ChatSession | null> {
   try {
-    const docClient = DynamoDBDocumentClient.from(dynamoClient);
+    const docClient = getDocClient();
     const result = await docClient.send(
       new GetCommand({
-        TableName: config.DYNAMO_TABLE_AI_ACTIVITY,
+        TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
         Key: {
           PK: `CONNECTION#${connectionId}`,
           SK: "SESSION",
@@ -337,10 +337,10 @@ async function loadSession(connectionId: string): Promise<ChatSession | null> {
  */
 async function saveSession(session: ChatSession): Promise<void> {
   try {
-    const docClient = DynamoDBDocumentClient.from(dynamoClient);
+    const docClient = getDocClient();
     await docClient.send(
       new PutCommand({
-        TableName: config.DYNAMO_TABLE_AI_ACTIVITY,
+        TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
         Item: {
           PK: `CONNECTION#${session.connectionId}`,
           SK: "SESSION",
@@ -359,10 +359,10 @@ async function saveSession(session: ChatSession): Promise<void> {
  */
 async function deleteSession(connectionId: string): Promise<void> {
   try {
-    const docClient = DynamoDBDocumentClient.from(dynamoClient);
+    const docClient = getDocClient();
     await docClient.send(
       new DeleteCommand({
-        TableName: config.DYNAMO_TABLE_AI_ACTIVITY,
+        TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
         Key: {
           PK: `CONNECTION#${connectionId}`,
           SK: "SESSION",
@@ -1247,16 +1247,17 @@ async function handleLanguageChange(
   message: IncomingClientMessage,
   apiGateway: ApiGatewayManagementApiClient
 ): Promise<ChatSession> {
-  const newLanguage = message.language ?? "en";
+  const newLanguage = (message.language ?? "en") as SupportedLanguage;
   const oldLanguage = session.language;
   session.language = newLanguage;
 
   const confirmationInNewLanguage = newLanguage !== "en"
-    ? await translateText(
-        `Language switched from ${LANGUAGE_NAMES[oldLanguage]} to ${LANGUAGE_NAMES[newLanguage]}. I will now respond in ${LANGUAGE_NAMES[newLanguage]}.`,
-        "en",
-        TRANSLATE_CODES[newLanguage]
-      ).catch(() => `Language switched to ${LANGUAGE_NAMES[newLanguage]}.`)
+    ? await translateText({
+        text: `Language switched from ${LANGUAGE_NAMES[oldLanguage]} to ${LANGUAGE_NAMES[newLanguage]}. I will now respond in ${LANGUAGE_NAMES[newLanguage]}.`,
+        sourceLanguage: "en",
+        targetLanguage: TRANSLATE_CODES[newLanguage] as any,
+      }).then((r) => r.translatedText)
+      .catch(() => `Language switched to ${LANGUAGE_NAMES[newLanguage]}.`)
     : `Language switched to English. I'll respond in English from now on.`;
 
   await sendToConnection(apiGateway, session.connectionId, {

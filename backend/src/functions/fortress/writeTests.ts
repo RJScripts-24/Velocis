@@ -55,7 +55,7 @@
 
 import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
 import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
-import { dynamoClient } from "../../services/database/dynamoClient";
+import { dynamoClient, getDocClient } from "../../services/database/dynamoClient";
 import { fetchFileContent } from "../../services/github/repoOps";
 import { logger } from "../../utils/logger";
 import { config } from "../../utils/config";
@@ -553,12 +553,12 @@ async function persistWriteResult(
   commitSha: string,
   result: WriteTestsResult
 ): Promise<void> {
-  const docClient = DynamoDBDocumentClient.from(dynamoClient);
+  const docClient = getDocClient();
 
   try {
     await docClient.send(
       new PutCommand({
-        TableName: config.DYNAMO_TABLE_AI_ACTIVITY,
+        TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
         Item: {
           PK: `REPO#${repoId}`,
           SK: `WRITETESTS#${filePath}`,

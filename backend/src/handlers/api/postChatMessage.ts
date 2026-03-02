@@ -579,8 +579,9 @@ export const handler = async (
     };
   }
 
-  const { repoId, sessionId, message, language, filePath, connectionId } =
+  const { repoId, sessionId, message, language: rawLang, filePath, connectionId } =
     request;
+  const language: SupportedLanguage = rawLang ?? "en";
 
   try {
     // ── 2. Fetch Context in Parallel ──────────

@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TestTube2, RefreshCw, Pause, Maximize2, Target, RotateCcw, Download, Grid3x3, CheckCircle, AlertCircle, Play, Code, Cpu, FileSearch, Wrench, X, Activity, Clock, Sun, Moon } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router';
+import { getPipeline, getPipelineRuns, triggerPipeline, type PipelineRunSummary } from '../../lib/api';
 
 type NodeState = 'idle' | 'running' | 'success' | 'failed';
 type PipelineMode = 'live' | 'recent' | 'historical';
@@ -17,36 +18,67 @@ interface PipelineNode {
   description?: string;
 }
 
-const pipelineSteps: PipelineNode[] = [
-  { id: 'push', label: 'Code Pushed', icon: Code, state: 'success', duration: '0s', description: 'Commit detected from main branch' },
-  { id: 'llama', label: 'Llama 3 Writes Test', icon: Cpu, state: 'success', duration: '4.2s', description: 'AI-generated test case based on code changes' },
-  { id: 'test', label: 'Test Execution', icon: TestTube2, state: 'failed', duration: '2.1s', description: 'Running test suite against new code' },
-  { id: 'claude', label: 'Claude Analyzes Error', icon: FileSearch, state: 'running', duration: '3.8s', description: 'Analyzing failure patterns and root cause' },
-  { id: 'fix', label: 'Auto Code Fix', icon: Wrench, state: 'idle', description: 'Generating automated fix based on analysis' },
-  { id: 'rerun', label: 'Test Re-run', icon: RotateCcw, state: 'idle', description: 'Validating fix with test suite' },
-  { id: 'pass', label: 'Test Pass', icon: CheckCircle, state: 'idle', description: 'Self-healing loop completed successfully' }
-];
+const ICON_MAP: Record<string, any> = {
+  Code, Cpu, TestTube2, FileSearch, Wrench, RotateCcw, CheckCircle, Activity, RefreshCw, Play,
+};
+
+const pipelineSteps: PipelineNode[] = [];
 
 export function PipelinePage() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const [mode, setMode] = useState<PipelineMode>('live');
-  const [selectedNode, setSelectedNode] = useState<string | null>('claude');
+  const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [nodes, setNodes] = useState<PipelineNode[]>(pipelineSteps);
+  const [recentRuns, setRecentRuns] = useState<{ status: string; time: string }[]>([]);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Dark mode state
   const [isDarkMode, setIsDarkMode] = useState(false);
-
-  // Apply dark class to an enclosing wrapper
   const themeClass = isDarkMode ? 'dark' : '';
 
-  const repoName = id === 'infrazero' ? 'InfraZero' :
-    id === 'immersa' ? 'Immersa' :
-      id === 'velocis-core' ? 'velocis-core' :
-        id === 'ai-observatory' ? 'ai-observatory' :
-          id === 'distributed-lab' ? 'distributed-lab' :
-            'test-sandbox';
+  const repoName = id ?? 'Unknown';
+
+  const loadPipelineData = () => {
+    if (!id) return;
+    getPipeline(id)
+      .then(run => {
+        const mapped: PipelineNode[] = run.steps.map(s => ({
+          id: s.id,
+          label: s.label,
+          icon: ICON_MAP[s.icon] ?? Activity,
+          state: s.state as NodeState,
+          duration: s.duration_s != null ? `${s.duration_s}s` : undefined,
+          description: s.description,
+        }));
+        setNodes(mapped);
+        if (!selectedNode && mapped.length > 0) {
+          const running = mapped.find(n => n.state === 'running') ?? mapped.find(n => n.state === 'failed');
+          if (running) setSelectedNode(running.id);
+        }
+      })
+      .catch(console.error);
+  };
+
+  useEffect(() => {
+    if (!id) return;
+    loadPipelineData();
+    getPipelineRuns(id, { limit: 8, mode: 'recent' })
+      .then(res => setRecentRuns(res.runs.map(r => ({ status: r.status, time: r.timestamp_ago }))))
+      .catch(console.error);
+  }, [id]);
+
+  useEffect(() => {
+    if (autoRefresh) {
+      pollingRef.current = setInterval(loadPipelineData, 2000);
+    } else {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    }
+    return () => { if (pollingRef.current) clearInterval(pollingRef.current); };
+  }, [autoRefresh, id]);
+
+  const handleManualRefresh = () => loadPipelineData();
 
   const selectedNodeData = nodes.find(n => n.id === selectedNode);
 
@@ -72,16 +104,7 @@ export function PipelinePage() {
     }
   };
 
-  const recentRuns = [
-    { status: 'success', time: '2m ago' },
-    { status: 'success', time: '8m ago' },
-    { status: 'success', time: '15m ago' },
-    { status: 'failed', time: '23m ago' },
-    { status: 'success', time: '35m ago' },
-    { status: 'success', time: '42m ago' },
-    { status: 'success', time: '1h ago' },
-    { status: 'success', time: '1h ago' }
-  ];
+  // recentRuns loaded from API via useEffect above
 
   return (
     <div className={`${themeClass} w-full h-full`}>

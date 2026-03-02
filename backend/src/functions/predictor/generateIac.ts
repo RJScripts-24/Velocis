@@ -49,7 +49,7 @@ import {
   type Filter,
 } from "@aws-sdk/client-pricing";
 import { DynamoDBDocumentClient, PutCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
-import { dynamoClient } from "../../services/database/dynamoClient";
+import { dynamoClient, getDocClient } from "../../services/database/dynamoClient";
 import { fetchFileContent } from "../../services/github/repoOps";
 import { logger } from "../../utils/logger";
 import { config } from "../../utils/config";
@@ -239,7 +239,7 @@ function detectAwsPatterns(
   }
 
   // Also detect resource names from common patterns
-  // e.g. TableName: config.DYNAMO_TABLE_REPOSITORIES → DynamoDB table detected
+  // e.g. TableName: config.DYNAMO_REPOSITORIES_TABLE → DynamoDB table detected
   const tableNameMatches = sourceCode.match(/TableName[:\s]+["'`]?([A-Za-z_\-]+)["'`]?/g);
   const bucketNameMatches = sourceCode.match(/Bucket[:\s]+["'`]?([A-Za-z_\-]+)["'`]?/g);
   const functionNameMatches = sourceCode.match(/FunctionName[:\s]+["'`]?([A-Za-z_\-]+)["'`]?/g);
@@ -780,10 +780,10 @@ function buildCloudFormationTemplate(
 
 async function getCachedResult(repoId: string): Promise<IacGenerationResult | null> {
   try {
-    const docClient = DynamoDBDocumentClient.from(dynamoClient);
+    const docClient = getDocClient();
     const result = await docClient.send(
       new GetCommand({
-        TableName: config.DYNAMO_TABLE_REPOSITORIES,
+        TableName: config.DYNAMO_REPOSITORIES_TABLE,
         Key: { PK: `REPO#${repoId}`, SK: "IAC_RESULT" },
       })
     );
@@ -813,10 +813,10 @@ async function setCachedResult(
   iacResult: IacGenerationResult
 ): Promise<void> {
   try {
-    const docClient = DynamoDBDocumentClient.from(dynamoClient);
+    const docClient = getDocClient();
     await docClient.send(
       new PutCommand({
-        TableName: config.DYNAMO_TABLE_REPOSITORIES,
+        TableName: config.DYNAMO_REPOSITORIES_TABLE,
         Item: {
           PK: `REPO#${repoId}`,
           SK: "IAC_RESULT",
@@ -962,10 +962,10 @@ export async function generateIac(
   //  because the previous cached result may have been for a different commitSha)
   let previousForecast: CostForecast | undefined;
   try {
-    const docClient = DynamoDBDocumentClient.from(dynamoClient);
+    const docClient = getDocClient();
     const prev = await docClient.send(
       new GetCommand({
-        TableName: config.DYNAMO_TABLE_REPOSITORIES,
+        TableName: config.DYNAMO_REPOSITORIES_TABLE,
         Key: { PK: `REPO#${repoId}`, SK: "IAC_RESULT_PREV" },
       })
     );
@@ -1074,10 +1074,10 @@ export async function generateIac(
 
   // Also persist as "previous" for next run's delta calculation
   try {
-    const docClient = DynamoDBDocumentClient.from(dynamoClient);
+    const docClient = getDocClient();
     await docClient.send(
       new PutCommand({
-        TableName: config.DYNAMO_TABLE_REPOSITORIES,
+        TableName: config.DYNAMO_REPOSITORIES_TABLE,
         Item: {
           PK: `REPO#${repoId}`,
           SK: "IAC_RESULT_PREV",

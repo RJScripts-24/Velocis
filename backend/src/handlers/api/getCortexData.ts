@@ -69,7 +69,7 @@ import {
   DynamoDBDocumentClient,
   GetCommand,
 } from "@aws-sdk/lib-dynamodb";
-import { dynamoClient } from "../../services/database/dynamoClient";
+import { dynamoClient, getDocClient } from "../../services/database/dynamoClient";
 import { verifyRepoAccess } from "../../services/github/auth";
 import {
   buildCortexGraph,
@@ -241,7 +241,7 @@ const VALID_LAYERS = [0, 1, 2, 3];
 /** Standard CORS + security headers applied to every response */
 const BASE_RESPONSE_HEADERS: Record<string, string> = {
   "Content-Type": "application/json",
-  "Access-Control-Allow-Origin": config.FRONTEND_ORIGIN ?? "*",
+  "Access-Control-Allow-Origin": config.FRONTEND_URL ?? "*",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, x-repo-owner, x-repo-name",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
   "Cache-Control": "no-cache, no-store, must-revalidate", // Graph data is live — never CDN cache
@@ -405,13 +405,13 @@ async function authorizeRequest(
   repoName: string
 ): Promise<{ repoOwner: string; repoName: string }> {
   // ── Step 1: Verify repo is registered in DynamoDB ─────────────────────
-  const docClient = DynamoDBDocumentClient.from(dynamoClient);
+  const docClient = getDocClient();
   let repoRecord: { repoOwner: string; repoName: string; installedAt: string } | null = null;
 
   try {
     const result = await docClient.send(
       new GetCommand({
-        TableName: config.DYNAMO_TABLE_REPOSITORIES,
+        TableName: config.DYNAMO_REPOSITORIES_TABLE,
         Key: { PK: `REPO#${repoId}`, SK: "METADATA" },
       })
     );
@@ -576,12 +576,12 @@ async function fetchFortressHistory(
   repoId: string,
   filePath: string
 ): Promise<FortressTestRecord[]> {
-  const docClient = DynamoDBDocumentClient.from(dynamoClient);
+  const docClient = getDocClient();
 
   try {
     const result = await docClient.send(
       new GetCommand({
-        TableName: config.DYNAMO_TABLE_AI_ACTIVITY,
+        TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
         Key: {
           PK: `REPO#${repoId}`,
           SK: `FORTRESS#${filePath}`,
@@ -620,14 +620,14 @@ async function fetchSentinelFindings(
   repoId: string,
   filePath: string
 ): Promise<SentinelFindingRecord[]> {
-  const docClient = DynamoDBDocumentClient.from(dynamoClient);
+  const docClient = getDocClient();
 
   try {
     // The most recent Sentinel review for this repo is stored at SENTINEL_STATS
     // and per-commit records store findingSummaries
     const result = await docClient.send(
       new GetCommand({
-        TableName: config.DYNAMO_TABLE_REPOSITORIES,
+        TableName: config.DYNAMO_REPOSITORIES_TABLE,
         Key: {
           PK: `REPO#${repoId}`,
           SK: "SENTINEL_STATS",

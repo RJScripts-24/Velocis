@@ -53,7 +53,7 @@
 
 import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
 import { DynamoDBDocumentClient, PutCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
-import { dynamoClient } from "../../services/database/dynamoClient";
+import { dynamoClient, getDocClient } from "../../services/database/dynamoClient";
 import { pushFixCommit, fetchFileContent } from "../../services/github/repoOps";
 import { logger } from "../../utils/logger";
 import { config } from "../../utils/config";
@@ -457,13 +457,13 @@ async function persistHealResult(
   healResult: SelfHealResult,
   analysis: ParsedAnalysis
 ): Promise<void> {
-  const docClient = DynamoDBDocumentClient.from(dynamoClient);
+  const docClient = getDocClient();
 
   try {
     // ── Write per-attempt heal record ─────────────────────────────────────
     await docClient.send(
       new PutCommand({
-        TableName: config.DYNAMO_TABLE_AI_ACTIVITY,
+        TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
         Item: {
           PK: `REPO#${repoId}`,
           SK: `SELFHEAL#${filePath}#ATTEMPT#${attemptNumber}`,
@@ -485,7 +485,7 @@ async function persistHealResult(
     // ── Update the aggregate heal stats for this file ─────────────────────
     await docClient.send(
       new UpdateCommand({
-        TableName: config.DYNAMO_TABLE_AI_ACTIVITY,
+        TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
         Key: {
           PK: `REPO#${repoId}`,
           SK: `FORTRESS#${filePath}`,
@@ -534,14 +534,14 @@ async function loadPreviousExplanations(
 ): Promise<string[]> {
   if (currentAttempt <= 1) return [];
 
-  const docClient = DynamoDBDocumentClient.from(dynamoClient);
+  const docClient = getDocClient();
   const explanations: string[] = [];
 
   for (let attempt = 1; attempt < currentAttempt; attempt++) {
     try {
       const { Item } = await docClient.send(
         new PutCommand({
-          TableName: config.DYNAMO_TABLE_AI_ACTIVITY,
+          TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
           Item: {
             PK: `REPO#${repoId}`,
             SK: `SELFHEAL#${filePath}#ATTEMPT#${attempt}`,
@@ -796,7 +796,7 @@ export async function selfHeal(event: SelfHealInput): Promise<SelfHealOutput> {
   );
 
   // ── Step 6: Validate fix quality ─────────────────────────────────────────
-  const isTestFix = analysis.strategy === "STRATEGY_FIX" || analysis.strategy === "TEST_FIX";
+  const isTestFix = analysis.strategy === "TEST_FIX";
   const fixedCode = isTestFix ? analysis.fixedTestCode : analysis.fixedSourceCode;
   const codeToCompare = isTestFix ? testCode : sourceCode;
 

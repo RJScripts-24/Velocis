@@ -20,7 +20,7 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
 import { fetchRepoTree, fetchFileContent } from "../../services/github/repoOps";
-import { dynamoClient } from "../../services/database/dynamoClient";
+import { dynamoClient, getDocClient } from "../../services/database/dynamoClient";
 import { logger } from "../../utils/logger";
 import { config } from "../../utils/config";
 
@@ -288,10 +288,10 @@ async function getFortressStatus(
   filePath: string
 ): Promise<NodeStatus> {
   try {
-    const docClient = DynamoDBDocumentClient.from(dynamoClient);
+    const docClient = getDocClient();
     const result = await docClient.send(
       new GetCommand({
-        TableName: config.DYNAMO_TABLE_AI_ACTIVITY,
+        TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
         Key: {
           PK: `REPO#${repoId}`,
           SK: `FORTRESS#${filePath}`,
@@ -336,7 +336,7 @@ async function buildNodes(
 ): Promise<{ nodes: CortexNode[]; importMap: Map<string, string[]> }> {
   logger.info({ repoId, repoName }, "Cortex: Fetching repo file tree");
 
-  const tree = await fetchRepoTree(repoOwner, repoName, accessToken);
+  const tree = await fetchRepoTree({ repoFullName: `${repoOwner}/${repoName}`, token: accessToken, recursive: true });
   const importMap = new Map<string, string[]>(); // nodeId → [importedNodeIds]
   const nodes: CortexNode[] = [];
 
@@ -397,7 +397,7 @@ async function buildNodes(
       status,
       language,
       linesOfCode,
-      lastModified: file.lastModified ?? new Date().toISOString(),
+      lastModified: new Date().toISOString(),
       importCount: imports.length,
       dependencyCount: 0, // Calculated in step 2
       layer,
@@ -554,10 +554,10 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes — fast enough for "live" feel
 
 async function getCachedGraph(repoId: string): Promise<CortexGraph | null> {
   try {
-    const docClient = DynamoDBDocumentClient.from(dynamoClient);
+    const docClient = getDocClient();
     const result = await docClient.send(
       new GetCommand({
-        TableName: config.DYNAMO_TABLE_REPOSITORIES,
+        TableName: config.DYNAMO_REPOSITORIES_TABLE,
         Key: { PK: `REPO#${repoId}`, SK: "CORTEX_GRAPH" },
       })
     );
@@ -584,10 +584,10 @@ async function getCachedGraph(repoId: string): Promise<CortexGraph | null> {
 
 async function setCachedGraph(repoId: string, graph: CortexGraph): Promise<void> {
   try {
-    const docClient = DynamoDBDocumentClient.from(dynamoClient);
+    const docClient = getDocClient();
     await docClient.send(
       new PutCommand({
-        TableName: config.DYNAMO_TABLE_REPOSITORIES,
+        TableName: config.DYNAMO_REPOSITORIES_TABLE,
         Item: {
           PK: `REPO#${repoId}`,
           SK: "CORTEX_GRAPH",

@@ -5,6 +5,9 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ChevronDown, Shield, Send, Paperclip, FileCode, Sun, Moon, AlertCircle, Lightbulb, Info, Home, Folder, Sparkles, Zap, CheckCircle2, Activity } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router';
 import Editor from '@monaco-editor/react';
+import { getFileContent, getAnnotations, postChatMessage, getChatHistory } from '../../lib/api';
+
+const INITIAL_FILE = '/src/auth.controller.ts';
 
 const codeExample = `import { Controller, Post, Body, UseGuards, Req } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
@@ -125,9 +128,12 @@ export function WorkspacePage() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const [language, setLanguage] = useState<'en' | 'hi' | 'ta'>('en');
-  const [messages, setMessages] = useState<Message[]>(regionalMessages[language]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [hoveredLine, setHoveredLine] = useState<number | null>(null);
+  const [codeContent, setCodeContent] = useState<string>('');
+  const [annotations, setAnnotations] = useState<{ line: number; type: string; message: string }[]>([]);
+  const [isSending, setIsSending] = useState(false);
 
   // Dark mode state
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -135,46 +141,76 @@ export function WorkspacePage() {
   // Apply dark class to an enclosing wrapper
   const themeClass = isDarkMode ? 'dark' : '';
 
-  const repoName = id === 'infrazero' ? 'InfraZero' :
-    id === 'immersa' ? 'Immersa' :
-      id === 'velocis-core' ? 'velocis-core' :
-        id === 'ai-observatory' ? 'ai-observatory' :
-          id === 'distributed-lab' ? 'distributed-lab' :
-            'test-sandbox';
+  const repoName = id ?? 'Unknown';
+
+  // ─ Fetch initial data on mount ───────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!id) return;
+    Promise.all([
+      getFileContent(id, INITIAL_FILE).catch(() => null),
+      getAnnotations(id, INITIAL_FILE).catch(() => null),
+      getChatHistory(id, 20).catch(() => null),
+    ]).then(([fileRes, annotRes, chatRes]) => {
+      if (fileRes) setCodeContent(fileRes.content);
+      if (annotRes) {
+        setAnnotations(annotRes.annotations.map(a => ({
+          line: a.line,
+          type: a.type,
+          message: `${a.title}: ${a.message}`,
+        })));
+      }
+      if (chatRes) {
+        const mapped: Message[] = chatRes.messages.map(m => ({
+          role: (m.role === 'user' ? 'user' : 'sentinel') as 'sentinel' | 'user',
+          content: m.content,
+          isAnalysis: m.is_analysis,
+          analysisData: m.analysis ? {
+            line: m.analysis.line,
+            title: m.analysis.title,
+            description: m.analysis.description,
+            chips: m.analysis.suggestions,
+          } : undefined,
+          timestamp: m.timestamp_ago,
+        }));
+        setMessages(mapped);
+      }
+    }).catch(console.error);
+  }, [id]);
 
   const handleLanguageChange = (newLang: 'en' | 'hi' | 'ta') => {
     setLanguage(newLang);
-    setMessages(regionalMessages[newLang]);
   };
 
-  const handleSendMessage = () => {
-    if (!inputValue.trim()) return;
-
-    const newMessage: Message = {
-      role: 'user',
-      content: inputValue,
-      timestamp: 'Just now'
-    };
-
-    setMessages([...messages, newMessage]);
+  const handleSendMessage = async () => {
+    if (!inputValue.trim() || !id) return;
+    const text = inputValue;
+    const newMessage: Message = { role: 'user', content: text, timestamp: 'Just now' };
+    setMessages(prev => [...prev, newMessage]);
     setInputValue('');
-
-    // Simulate Sentinel response
-    setTimeout(() => {
-      const sentinelResponse: Message = {
+    setIsSending(true);
+    try {
+      const res = await postChatMessage(id, { message: text, context: { file_path: INITIAL_FILE }, language });
+      const reply: Message = {
         role: 'sentinel',
-        content: language === 'en' ? "I can help you refactor this code. Let me analyze the surrounding logic first." : language === 'hi' ? "मैं इस code को refactor करने में आपकी मदद कर सकता हूं।" : "இந்த code ஐ refactor செய்ய நான் உங்களுக்கு உதவ முடியும்.",
-        timestamp: 'Just now'
+        content: res.content,
+        isAnalysis: res.is_analysis,
+        analysisData: res.analysis ? {
+          line: res.analysis.line,
+          title: res.analysis.title,
+          description: res.analysis.description,
+          chips: res.analysis.suggestions,
+        } : undefined,
+        timestamp: res.timestamp_ago,
       };
-      setMessages(prev => [...prev, sentinelResponse]);
-    }, 1000);
+      setMessages(prev => [...prev, reply]);
+    } catch {
+      setMessages(prev => [...prev, { role: 'sentinel', content: 'Failed to get response. Please try again.', timestamp: 'Just now' }]);
+    } finally {
+      setIsSending(false);
+    }
   };
 
-  const annotations = [
-    { line: 15, type: 'warning', message: 'Sentinel: Potential race condition detected. Token generation needs rate limiting.' },
-    { line: 32, type: 'suggestion', message: 'Suggested refactor: Extract user validation into a separate method for better testability.' },
-    { line: 39, type: 'info', message: 'Consider adding proper error logging for production debugging.' }
-  ];
+  // annotations come from API state (set in useEffect above)
 
   return (
     <div className={`${themeClass} w-full h-full`}>
@@ -297,7 +333,7 @@ export function WorkspacePage() {
                 defaultLanguage="typescript"
                 theme={isDarkMode ? 'velocis-dark' : 'light'}
                 beforeMount={handleEditorWillMount}
-                value={codeExample}
+                value={codeContent}
                 options={{
                   fontFamily: 'JetBrains Mono, monospace',
                   fontSize: 13,

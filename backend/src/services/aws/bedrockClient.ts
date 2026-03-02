@@ -97,10 +97,10 @@ function getClient(): BedrockRuntimeClient {
       region: config.AWS_REGION,
       // In Lambda, credentials come from the execution role automatically
       // For local dev, AWS_PROFILE or env vars are used
-      ...(config.IS_LOCAL && {
+      ...(config.IS_LOCAL && config.AWS_ACCESS_KEY_ID && config.AWS_SECRET_ACCESS_KEY && {
         credentials: {
-          accessKeyId: config.AWS_ACCESS_KEY_ID,
-          secretAccessKey: config.AWS_SECRET_ACCESS_KEY,
+          accessKeyId: config.AWS_ACCESS_KEY_ID as string,
+          secretAccessKey: config.AWS_SECRET_ACCESS_KEY as string,
         },
       }),
     });
