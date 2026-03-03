@@ -74,7 +74,7 @@ const ConfigSchema = z.object({
   // ── Amazon Bedrock ─────────────────────────────────────────────────────────
   BEDROCK_REGION: z
     .string()
-    .optional()
+    .default("us-east-1")               // Nova Pro us. cross-region profile requires a US region
     .refine(
       (val) => !val || /^[a-z]{2}-[a-z]+-\d$/.test(val),
       { message: "BEDROCK_REGION must be a valid AWS region" }

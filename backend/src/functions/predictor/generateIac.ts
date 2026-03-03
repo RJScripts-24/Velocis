@@ -151,7 +151,7 @@ export interface GenerateIacInput {
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────────────────────
 
-const BEDROCK_MODEL_ID = "anthropic.claude-3-5-sonnet-20241022-v2:0";
+const BEDROCK_MODEL_ID = "us.amazon.nova-pro-v1:0";
 const MAX_TOKENS = 8000;
 const MAX_SOURCE_CHARS_PER_FILE = 4000;
 const MAX_FILES_TO_ANALYZE = 10;
@@ -610,11 +610,12 @@ async function invokeClaudeForIac(
   userPrompt: string
 ): Promise<{ responseText: string; latencyMs: number }> {
   const requestBody = {
-    anthropic_version: "bedrock-2023-05-31",
-    max_tokens: MAX_TOKENS,
-    system: systemPrompt,
-    messages: [{ role: "user", content: userPrompt }],
-    temperature: 0.1, // IaC must be precise — near-deterministic output
+    system: [{ text: systemPrompt }],
+    messages: [{ role: "user", content: [{ text: userPrompt }] }],
+    inferenceConfig: {
+      max_new_tokens: MAX_TOKENS,
+      temperature: 0.1,
+    },
   };
 
   const t0 = Date.now();
@@ -630,15 +631,15 @@ async function invokeClaudeForIac(
     const response = await bedrockClient.send(command);
     const latencyMs = Date.now() - t0;
     const parsed = JSON.parse(new TextDecoder().decode(response.body));
-    const responseText: string = parsed.content?.[0]?.text ?? "";
+    const responseText: string = parsed.output?.message?.content?.[0]?.text ?? "";
 
     logger.info(
       {
         latencyMs,
-        inputTokens: parsed.usage?.input_tokens,
-        outputTokens: parsed.usage?.output_tokens,
+        inputTokens: parsed.usage?.inputTokens,
+        outputTokens: parsed.usage?.outputTokens,
       },
-      "IaC Predictor: Bedrock Claude invocation complete"
+      "IaC Predictor: Bedrock Nova Pro invocation complete"
     );
 
     return { responseText, latencyMs };

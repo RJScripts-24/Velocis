@@ -201,7 +201,7 @@ export interface WebSocketEvent {
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────────────────────
 
-const BEDROCK_MODEL_ID = "anthropic.claude-3-5-sonnet-20241022-v2:0";
+const BEDROCK_MODEL_ID = "us.amazon.nova-pro-v1:0";
 
 /** Maximum tokens per streaming response */
 const MAX_RESPONSE_TOKENS = 2048;
@@ -269,7 +269,7 @@ function generateSessionId(): string {
 async function sendToConnection(
   apiGateway: ApiGatewayManagementApiClient,
   connectionId: string,
-  payload: { type: ServerMessageType; [key: string]: unknown }
+  payload: { type: ServerMessageType;[key: string]: unknown }
 ): Promise<boolean> {
   try {
     await apiGateway.send(
@@ -432,19 +432,20 @@ async function summarizeSessionHistory(session: ChatSession): Promise<ChatSessio
   const recentMessages = session.messages.slice(-10);
 
   const summaryPrompt = {
-    anthropic_version: "bedrock-2023-05-31",
-    max_tokens: 500,
+    system: [{ text: "You summarize code review conversations into concise bullet points." }],
     messages: [
       {
         role: "user",
-        content: `Summarize the following conversation between a developer and Sentinel (an AI code reviewer) in 3-5 bullet points. Preserve: key decisions made, code issues identified, fixes applied, and any important context about the codebase.
+        content: [{
+          text: `Summarize the following conversation between a developer and Sentinel (an AI code reviewer) in 3-5 bullet points. Preserve: key decisions made, code issues identified, fixes applied, and any important context about the codebase.
 
 Conversation:
 ${messagesToSummarize.map((m) => `${m.role.toUpperCase()}: ${m.content.slice(0, 500)}`).join("\n\n")}
 
-Respond with ONLY the bullet-point summary, no preamble.`,
+Respond with ONLY the bullet-point summary, no preamble.` }],
       },
     ],
+    inferenceConfig: { max_new_tokens: 500 },
   };
 
   try {
@@ -456,7 +457,7 @@ Respond with ONLY the bullet-point summary, no preamble.`,
     });
     const response = await bedrockClient.send(command);
     const parsed = JSON.parse(new TextDecoder().decode(response.body));
-    const summary = parsed.content?.[0]?.text ?? "Previous conversation context unavailable.";
+    const summary = parsed.output?.message?.content?.[0]?.text ?? "Previous conversation context unavailable.";
 
     // Inject summary as a system message at the start of history
     const summaryMessage: ChatMessage = {
@@ -514,12 +515,12 @@ ${session.activeFileContent.slice(0, MAX_FILE_CONTEXT_CHARS)}${session.activeFil
     session.sessionFindings.length > 0
       ? `## Issues Identified This Session
 ${session.sessionFindings
-  .slice(0, 10)
-  .map(
-    (f) =>
-      `- [${f.severity.toUpperCase()}] ${f.title} in \`${f.location.filePath}:${f.location.startLine}\``
-  )
-  .join("\n")}`
+        .slice(0, 10)
+        .map(
+          (f) =>
+            `- [${f.severity.toUpperCase()}] ${f.title} in \`${f.location.filePath}:${f.location.startLine}\``
+        )
+        .join("\n")}`
       : "";
 
   const learnedContext =
@@ -629,11 +630,15 @@ async function invokeClaudeStreaming(
   }
 
   const requestBody = {
-    anthropic_version: "bedrock-2023-05-31",
-    max_tokens: MAX_RESPONSE_TOKENS,
-    system: systemPrompt,
-    messages: bedrockMessages,
-    temperature: 0.3, // Slightly warmer than reviews — chat benefits from natural variation
+    system: [{ text: systemPrompt }],
+    messages: bedrockMessages.map((m) => ({
+      role: m.role,
+      content: [{ text: m.content }],
+    })),
+    inferenceConfig: {
+      max_new_tokens: MAX_RESPONSE_TOKENS,
+      temperature: 0.3,
+    },
   };
 
   const command = new InvokeModelWithResponseStreamCommand({
@@ -663,8 +668,8 @@ async function invokeClaudeStreaming(
         const decoded = JSON.parse(new TextDecoder().decode(chunk.chunk.bytes));
 
         // Handle streaming delta events
-        if (decoded.type === "content_block_delta") {
-          const token = decoded.delta?.text ?? "";
+        if (decoded.contentBlockDelta?.delta?.text) {
+          const token = decoded.contentBlockDelta.delta.text;
           fullResponse += token;
 
           // Stream token to client
@@ -675,14 +680,10 @@ async function invokeClaudeStreaming(
           }
         }
 
-        // Extract usage from message_delta events
-        if (decoded.type === "message_delta" && decoded.usage) {
-          outputTokens = decoded.usage.output_tokens ?? 0;
-        }
-
-        // Extract input tokens from message_start event
-        if (decoded.type === "message_start" && decoded.message?.usage) {
-          inputTokens = decoded.message.usage.input_tokens ?? 0;
+        // Extract usage from metadata
+        if (decoded.metadata?.usage) {
+          outputTokens = decoded.metadata.usage.outputTokens ?? 0;
+          inputTokens = decoded.metadata.usage.inputTokens ?? 0;
         }
       }
     }
@@ -707,11 +708,12 @@ async function invokeClaudeDirect(
   maxTokens: number = 1024
 ): Promise<string> {
   const requestBody = {
-    anthropic_version: "bedrock-2023-05-31",
-    max_tokens: maxTokens,
-    system: systemPrompt,
-    messages,
-    temperature: 0.1,
+    system: [{ text: systemPrompt }],
+    messages: messages.map((m) => ({
+      role: m.role,
+      content: [{ text: m.content }],
+    })),
+    inferenceConfig: { max_new_tokens: maxTokens, temperature: 0.1 },
   };
 
   const command = new InvokeModelCommand({
@@ -723,7 +725,7 @@ async function invokeClaudeDirect(
 
   const response = await bedrockClient.send(command);
   const parsed = JSON.parse(new TextDecoder().decode(response.body));
-  return parsed.content?.[0]?.text ?? "";
+  return parsed.output?.message?.content?.[0]?.text ?? "";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -897,7 +899,7 @@ async function handleChatMessage(
   // Update learned context asynchronously (non-blocking)
   updateLearnedContext(session, content, fullResponse)
     .then((updated) => { session.learnedContext = updated; })
-    .catch(() => {});
+    .catch(() => { });
 
   return session;
 }
@@ -1253,10 +1255,10 @@ async function handleLanguageChange(
 
   const confirmationInNewLanguage = newLanguage !== "en"
     ? await translateText({
-        text: `Language switched from ${LANGUAGE_NAMES[oldLanguage]} to ${LANGUAGE_NAMES[newLanguage]}. I will now respond in ${LANGUAGE_NAMES[newLanguage]}.`,
-        sourceLanguage: "en",
-        targetLanguage: TRANSLATE_CODES[newLanguage] as any,
-      }).then((r) => r.translatedText)
+      text: `Language switched from ${LANGUAGE_NAMES[oldLanguage]} to ${LANGUAGE_NAMES[newLanguage]}. I will now respond in ${LANGUAGE_NAMES[newLanguage]}.`,
+      sourceLanguage: "en",
+      targetLanguage: TRANSLATE_CODES[newLanguage] as any,
+    }).then((r) => r.translatedText)
       .catch(() => `Language switched to ${LANGUAGE_NAMES[newLanguage]}.`)
     : `Language switched to English. I'll respond in English from now on.`;
 
@@ -1667,8 +1669,7 @@ export async function handleMentorChat(
     rawReply = bedrockResponse.text;
   } catch (err: any) {
     throw new Error(
-      `MentorChatError: Bedrock invocation failed — ${
-        err instanceof Error ? err.message : String(err)
+      `MentorChatError: Bedrock invocation failed — ${err instanceof Error ? err.message : String(err)
       }`
     );
   }

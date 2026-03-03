@@ -1,7 +1,7 @@
 // src/services/aws/bedrockClient.ts
 // Centralized LLM orchestration for all three Velocis agents
 // All Bedrock calls flow through here — no agent talks to Bedrock directly
-// Handles: Claude 3.5 Sonnet (Sentinel), Llama 3 (Fortress), Titan Embeddings (RAG)
+// Handles: Amazon Nova Pro 1.0 (Sentinel), Llama 3 (Fortress), Titan Embeddings (RAG)
 
 import {
   BedrockRuntimeClient,
@@ -19,7 +19,8 @@ import { config } from "../../utils/config";
 
 export const BEDROCK_MODELS = {
   // Sentinel: Deep logic, security, architectural review, self-healing
-  CLAUDE_SONNET: "anthropic.claude-3-5-sonnet-20241022-v2:0",
+  // DeepSeek V3 on Bedrock uses OpenAI-compatible request/response format
+  DEEPSEEK_V3: "deepseek.v3.2",
 
   // Fortress: High-speed unit test generation
   LLAMA3: "meta.llama3-70b-instruct-v1:0",
@@ -93,8 +94,11 @@ let _client: BedrockRuntimeClient | null = null;
 
 function getClient(): BedrockRuntimeClient {
   if (!_client) {
+    // Nova Pro uses the "us." cross-region inference prefix which requires a US region.
+    // BEDROCK_REGION defaults to us-east-1; set it explicitly in .env to override.
+    const bedrockRegion = config.BEDROCK_REGION || config.AWS_REGION;
     _client = new BedrockRuntimeClient({
-      region: config.AWS_REGION,
+      region: bedrockRegion,
       // In Lambda, credentials come from the execution role automatically
       // For local dev, AWS_PROFILE or env vars are used
       ...(config.IS_LOCAL && config.AWS_ACCESS_KEY_ID && config.AWS_SECRET_ACCESS_KEY && {
@@ -104,27 +108,31 @@ function getClient(): BedrockRuntimeClient {
         },
       }),
     });
-    logger.info({ msg: "BedrockRuntimeClient initialized", region: config.AWS_REGION });
+    logger.info({ msg: "BedrockRuntimeClient initialized", region: bedrockRegion });
   }
   return _client;
 }
 
 // ─────────────────────────────────────────────
-// CLAUDE 3.5 SONNET — Sentinel & Self-Healing
+// DEEPSEEK V3 — Sentinel & Self-Healing
 // Used for: deep logic review, security analysis,
 //           architectural mentorship, Fortress self-healing
+// DeepSeek V3 uses OpenAI-compatible request format:
+//   - messages: [{ role: "system"|"user"|"assistant", content: string }]
+//   - max_tokens, temperature, top_p at top level
+// Response: choices[0].message.content (OpenAI format)
 // ─────────────────────────────────────────────
 
 /**
- * Invokes Claude 3.5 Sonnet via the Bedrock Messages API.
+ * Invokes DeepSeek V3 via the Bedrock InvokeModel API.
+ * Uses OpenAI-compatible request/response format.
  * Supports multi-turn conversation history for the Vibe Coding workspace.
  *
  * @example
- * // Sentinel reviewing a file
  * const result = await invokeClaude({
  *   systemPrompt: sentinelMentorPrompt,
  *   messages: [{ role: "user", content: codeContent }],
- *   temperature: 0.2,  // Low temp = consistent, deterministic reviews
+ *   temperature: 0.2,
  * });
  */
 export async function invokeClaude(
@@ -136,26 +144,23 @@ export async function invokeClaude(
     maxTokens = 4096,
     temperature = 0.2,
     topP = 0.9,
-    stopSequences = [],
   } = params;
 
   const startTime = Date.now();
 
+  // DeepSeek V3 uses OpenAI-compatible request format
   const requestBody = {
-    anthropic_version: "bedrock-2023-05-31",
+    messages: [
+      { role: "system", content: systemPrompt },
+      ...messages.map((m) => ({ role: m.role, content: m.content })),
+    ],
     max_tokens: maxTokens,
     temperature,
     top_p: topP,
-    system: systemPrompt,
-    messages: messages.map((m) => ({
-      role: m.role,
-      content: m.content,
-    })),
-    ...(stopSequences.length > 0 && { stop_sequences: stopSequences }),
   };
 
   const command = new InvokeModelCommand({
-    modelId: BEDROCK_MODELS.CLAUDE_SONNET,
+    modelId: BEDROCK_MODELS.DEEPSEEK_V3,
     contentType: "application/json",
     accept: "application/json",
     body: JSON.stringify(requestBody),
@@ -163,11 +168,12 @@ export async function invokeClaude(
 
   try {
     logger.info({
-      msg: "invokeClaude: sending request",
-      model: BEDROCK_MODELS.CLAUDE_SONNET,
+      msg: "invokeDeepSeekV3: sending request",
+      model: BEDROCK_MODELS.DEEPSEEK_V3,
       inputMessages: messages.length,
       maxTokens,
       temperature,
+      region: config.BEDROCK_REGION || config.AWS_REGION,
     });
 
     const response = await getClient().send(command);
@@ -176,17 +182,19 @@ export async function invokeClaude(
     );
 
     const latencyMs = Date.now() - startTime;
-    const text = responseBody.content?.[0]?.text ?? "";
-    const inputTokens = responseBody.usage?.input_tokens ?? 0;
-    const outputTokens = responseBody.usage?.output_tokens ?? 0;
-    const stopReason = responseBody.stop_reason ?? "unknown";
+    // DeepSeek V3 response: OpenAI-compatible — choices[0].message.content
+    const text = responseBody.choices?.[0]?.message?.content ?? "";
+    const inputTokens = responseBody.usage?.prompt_tokens ?? 0;
+    const outputTokens = responseBody.usage?.completion_tokens ?? 0;
+    const stopReason = responseBody.choices?.[0]?.finish_reason ?? "unknown";
 
     logger.info({
-      msg: "invokeClaude: response received",
+      msg: "invokeDeepSeekV3: response received",
       latencyMs,
       inputTokens,
       outputTokens,
       stopReason,
+      region: config.BEDROCK_REGION || config.AWS_REGION,
     });
 
     return {
@@ -194,33 +202,33 @@ export async function invokeClaude(
       inputTokens,
       outputTokens,
       stopReason,
-      model: BEDROCK_MODELS.CLAUDE_SONNET,
+      model: BEDROCK_MODELS.DEEPSEEK_V3,
       latencyMs,
     };
   } catch (err) {
     logger.error({
-      msg: "invokeClaude: invocation failed",
+      msg: "invokeDeepSeekV3: invocation failed",
       error: String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+      region: config.BEDROCK_REGION || config.AWS_REGION,
+      model: BEDROCK_MODELS.DEEPSEEK_V3,
       latencyMs: Date.now() - startTime,
     });
-    throw new BedrockInvocationError("Claude", err);
+    throw new BedrockInvocationError("DeepSeekV3", err);
   }
 }
 
 // ─────────────────────────────────────────────
-// CLAUDE STREAMING — Vibe Coding WebSocket Chat
+// DEEPSEEK V3 STREAMING — Vibe Coding WebSocket Chat
 // Streams tokens back in real-time for the split-screen workspace
+// DeepSeek streaming uses OpenAI SSE-compatible delta format:
+//   chunk: { choices: [{ delta: { content: "..." }, finish_reason: null }] }
+//   final: { choices: [{ delta: {}, finish_reason: "stop" }] }
 // ─────────────────────────────────────────────
 
 /**
- * Streams Claude's response token by token.
+ * Streams DeepSeek V3's response token by token.
  * Each chunk is yielded as it arrives — perfect for the WebSocket chat UI.
- * The caller is responsible for forwarding chunks to the WebSocket connection.
- *
- * @example
- * for await (const chunk of invokeClaudeStream(params)) {
- *   websocket.send(JSON.stringify({ token: chunk.text, done: chunk.isComplete }));
- * }
  */
 export async function* invokeClaudeStream(
   params: ClaudeInvokeParams
@@ -233,17 +241,20 @@ export async function* invokeClaudeStream(
     topP = 0.9,
   } = params;
 
+  // DeepSeek V3 uses OpenAI-compatible request format
   const requestBody = {
-    anthropic_version: "bedrock-2023-05-31",
+    messages: [
+      { role: "system", content: systemPrompt },
+      ...messages.map((m) => ({ role: m.role, content: m.content })),
+    ],
     max_tokens: maxTokens,
     temperature,
     top_p: topP,
-    system: systemPrompt,
-    messages: messages.map((m) => ({ role: m.role, content: m.content })),
+    stream: true,
   };
 
   const command = new InvokeModelWithResponseStreamCommand({
-    modelId: BEDROCK_MODELS.CLAUDE_SONNET,
+    modelId: BEDROCK_MODELS.DEEPSEEK_V3,
     contentType: "application/json",
     accept: "application/json",
     body: JSON.stringify(requestBody),
@@ -251,8 +262,9 @@ export async function* invokeClaudeStream(
 
   try {
     logger.info({
-      msg: "invokeClaudeStream: starting stream",
-      model: BEDROCK_MODELS.CLAUDE_SONNET,
+      msg: "invokeDeepSeekV3Stream: starting stream",
+      model: BEDROCK_MODELS.DEEPSEEK_V3,
+      region: config.BEDROCK_REGION || config.AWS_REGION,
     });
 
     const response = await getClient().send(command);
@@ -265,29 +277,34 @@ export async function* invokeClaudeStream(
       if (event.chunk?.bytes) {
         const decoded = JSON.parse(new TextDecoder().decode(event.chunk.bytes));
 
-        // Claude streaming event types
-        if (decoded.type === "content_block_delta") {
-          yield {
-            text: decoded.delta?.text ?? "",
-            isComplete: false,
-          };
-        }
+        // DeepSeek V3 streaming: OpenAI-compatible delta format
+        const choice = decoded.choices?.[0];
+        if (!choice) continue;
 
-        if (decoded.type === "message_stop") {
+        if (choice.finish_reason) {
+          // Stream complete
           yield {
             text: "",
             isComplete: true,
-            stopReason: decoded["amazon-bedrock-invocationMetrics"]?.stopReason,
+            stopReason: choice.finish_reason,
+          };
+        } else if (choice.delta?.content) {
+          yield {
+            text: choice.delta.content,
+            isComplete: false,
           };
         }
       }
     }
   } catch (err) {
     logger.error({
-      msg: "invokeClaudeStream: stream failed",
+      msg: "invokeDeepSeekV3Stream: stream failed",
       error: String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+      region: config.BEDROCK_REGION || config.AWS_REGION,
+      model: BEDROCK_MODELS.DEEPSEEK_V3,
     });
-    throw new BedrockInvocationError("ClaudeStream", err);
+    throw new BedrockInvocationError("DeepSeekV3Stream", err);
   }
 }
 
@@ -540,8 +557,9 @@ function formatLlamaPrompt(systemPrompt: string, userPrompt: string): string {
 // ─────────────────────────────────────────────
 
 const TOKEN_COSTS_PER_1K = {
-  [BEDROCK_MODELS.CLAUDE_SONNET]: { input: 0.003, output: 0.015 },
-  [BEDROCK_MODELS.LLAMA3]:        { input: 0.00265, output: 0.0035 },
+  // DeepSeek V3 pricing: ~$0.14/1M input, ~$0.28/1M output tokens
+  [BEDROCK_MODELS.DEEPSEEK_V3]: { input: 0.00014, output: 0.00028 },
+  [BEDROCK_MODELS.LLAMA3]: { input: 0.00265, output: 0.0035 },
   [BEDROCK_MODELS.TITAN_EMBEDDINGS]: { input: 0.0001, output: 0 },
 } as const;
 

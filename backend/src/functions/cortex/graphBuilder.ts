@@ -239,26 +239,18 @@ async function generateAiSummary(
   try {
     const truncatedSource = sourceCode.slice(0, 2000); // Keep token cost low
     const prompt = {
-      anthropic_version: "bedrock-2023-05-31",
-      max_tokens: 100,
+      system: [{ text: "You analyze source code files and describe their architectural role in one sentence." }],
       messages: [
         {
           role: "user",
-          content: `You are analyzing a file in the Velocis codebase.
-File: ${filePath}
-
-Source (truncated):
-\`\`\`
-${truncatedSource}
-\`\`\`
-
-Respond with ONLY a single sentence (max 20 words) describing what this file does architecturally. No preamble.`,
+          content: [{ text: `You are analyzing a file in the Velocis codebase.\nFile: ${filePath}\n\nSource (truncated):\n\`\`\`\n${truncatedSource}\n\`\`\`\n\nRespond with ONLY a single sentence (max 20 words) describing what this file does architecturally. No preamble.` }],
         },
       ],
+      inferenceConfig: { max_new_tokens: 100 },
     };
 
     const command = new InvokeModelCommand({
-      modelId: "anthropic.claude-3-5-sonnet-20241022-v2:0",
+      modelId: "us.amazon.nova-pro-v1:0",
       contentType: "application/json",
       accept: "application/json",
       body: JSON.stringify(prompt),
@@ -266,7 +258,7 @@ Respond with ONLY a single sentence (max 20 words) describing what this file doe
 
     const response = await bedrockClient.send(command);
     const parsed = JSON.parse(new TextDecoder().decode(response.body));
-    return parsed.content?.[0]?.text?.trim() ?? "No summary available.";
+    return parsed.output?.message?.content?.[0]?.text?.trim() ?? "No summary available.";
   } catch (err) {
     logger.warn({ filePath, err }, "AI summary generation failed — skipping");
     return "Summary unavailable.";

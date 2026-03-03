@@ -124,10 +124,13 @@ interface ConversationMessage {
 // centralized service wrappers imported above.
 // ─────────────────────────────────────────────
 
+
+// Use correct regions for each AWS service
+const BEDROCK_REGION = config.BEDROCK_REGION || config.AWS_REGION;
 const REGION = config.AWS_REGION;
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-const _bedrockSdkClient = new BedrockRuntimeClient({ region: REGION });     // reserved — use centralInvokeClaude / invokeClaudeStream
+const _bedrockSdkClient = new BedrockRuntimeClient({ region: BEDROCK_REGION });     // reserved — use centralInvokeClaude / invokeClaudeStream
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const _translateSdkClient = new TranslateClient({ region: REGION });        // reserved — use translateText
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -142,7 +145,7 @@ const REPOS_TABLE = DYNAMO_TABLES.REPOSITORIES;
 // CODEBASE_CONTEXT_TABLE has no config equivalent yet — kept as env var
 const CODEBASE_CONTEXT_TABLE =
   (process.env.CODEBASE_CONTEXT_TABLE || "") as DynamoTableName;
-const CLAUDE_MODEL_ID = BEDROCK_MODELS.CLAUDE_SONNET;
+const CLAUDE_MODEL_ID = BEDROCK_MODELS.DEEPSEEK_V3;
 const WEBSOCKET_ENDPOINT = process.env.WEBSOCKET_ENDPOINT;
 
 // ─────────────────────────────────────────────
@@ -289,7 +292,7 @@ const saveConversationTurn = async (
 };
 
 // ─────────────────────────────────────────────
-// Bedrock (Claude 3.5 Sonnet) — via centralized bedrockClient
+// Bedrock (Nova Pro) — via centralized bedrockClient
 // ─────────────────────────────────────────────
 
 /**
@@ -571,7 +574,12 @@ export const handler = async (
     request = validateRequest(rawBody);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Invalid request";
-    logger.error({ msg: "Validation error", error: message });
+    logger.error({
+      msg: "Validation error",
+      error: message,
+      stack: err instanceof Error ? err.stack : undefined,
+      region: BEDROCK_REGION,
+    });
     return {
       statusCode: 400,
       headers: corsHeaders,
@@ -676,10 +684,17 @@ export const handler = async (
       body: JSON.stringify(sentinelResponse),
     };
   } catch (err: unknown) {
-    const errorMessage =
-      err instanceof Error ? err.message : "Internal server error";
-    logger.error({ msg: "Sentinel Lambda error", error: String(err) });
-
+    const errorMessage = err instanceof Error ? err.message : "Internal server error";
+    logger.error({
+      msg: "Sentinel Lambda error",
+      error: String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+      region: BEDROCK_REGION,
+      model: CLAUDE_MODEL_ID,
+      repoId,
+      sessionId,
+      filePath,
+    });
     return {
       statusCode: 500,
       headers: corsHeaders,
@@ -687,6 +702,8 @@ export const handler = async (
         error: "Internal Server Error",
         message: errorMessage,
         requestId: event.requestContext.requestId,
+        region: BEDROCK_REGION,
+        model: CLAUDE_MODEL_ID,
       }),
     };
   }

@@ -130,7 +130,7 @@ export interface SelfHealOutput extends SelfHealInput {
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────────────────────
 
-const BEDROCK_MODEL_ID = "anthropic.claude-3-5-sonnet-20241022-v2:0";
+const BEDROCK_MODEL_ID = "us.amazon.nova-pro-v1:0";
 const MAX_TOKENS = 4096;
 const MAX_SOURCE_CHARS = 8000;   // Truncate very large files before sending to Bedrock
 const MAX_OUTPUT_CHARS = 5000;   // Truncate raw test output before sending to Bedrock
@@ -228,8 +228,8 @@ function buildUserPrompt(
       ? `## Previous Healing Attempts (All Failed)
 These fixes have already been tried and did NOT work. Do NOT repeat them.
 ${previousExplanations
-  .map((exp, i) => `### Attempt ${i + 1}:\n${exp}`)
-  .join("\n\n")}`
+        .map((exp, i) => `### Attempt ${i + 1}:\n${exp}`)
+        .join("\n\n")}`
       : "";
 
   return `## Task
@@ -367,11 +367,12 @@ async function invokeClaudeForHeal(
   userPrompt: string
 ): Promise<{ responseText: string; latencyMs: number }> {
   const requestBody = {
-    anthropic_version: "bedrock-2023-05-31",
-    max_tokens: MAX_TOKENS,
-    system: systemPrompt,
-    messages: [{ role: "user", content: userPrompt }],
-    temperature: 0.1, // Low temperature — we want deterministic, precise fixes
+    system: [{ text: systemPrompt }],
+    messages: [{ role: "user", content: [{ text: userPrompt }] }],
+    inferenceConfig: {
+      max_new_tokens: MAX_TOKENS,
+      temperature: 0.1,
+    },
   };
 
   const t0 = Date.now();
@@ -387,15 +388,15 @@ async function invokeClaudeForHeal(
     const response = await bedrockClient.send(command);
     const latencyMs = Date.now() - t0;
     const parsed = JSON.parse(new TextDecoder().decode(response.body));
-    const responseText: string = parsed.content?.[0]?.text ?? "";
+    const responseText: string = parsed.output?.message?.content?.[0]?.text ?? "";
 
     logger.info(
       {
         latencyMs,
-        outputTokens: parsed.usage?.output_tokens,
-        inputTokens: parsed.usage?.input_tokens,
+        outputTokens: parsed.usage?.outputTokens,
+        inputTokens: parsed.usage?.inputTokens,
       },
-      "Fortress: Bedrock Claude invocation complete"
+      "Fortress: Bedrock Nova Pro invocation complete"
     );
 
     return { responseText, latencyMs };

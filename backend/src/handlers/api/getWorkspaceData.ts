@@ -40,7 +40,10 @@ import { dynamoClient, DYNAMO_TABLES } from "../../services/database/dynamoClien
 import { getUserToken } from "../../services/github/auth";
 
 const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({}));
-const bedrock = new BedrockRuntimeClient({ region: config.AWS_REGION });
+// DeepSeek V3.2 on Bedrock — use BEDROCK_REGION (us-east-1), not AWS_REGION (ap-south-1).
+const BEDROCK_REGION = config.BEDROCK_REGION || config.AWS_REGION;
+const DEEPSEEK_V3_MODEL_ID = "deepseek.v3.2";
+const bedrock = new BedrockRuntimeClient({ region: BEDROCK_REGION });
 const JWT_SECRET = process.env.JWT_SECRET ?? "changeme-in-production";
 const USERS_TABLE = process.env.USERS_TABLE ?? "velocis-users";
 const ANNOTATIONS_TABLE = process.env.ANNOTATIONS_TABLE ?? "velocis-annotations";
@@ -233,27 +236,39 @@ export const getAnnotations = async (
   const ref = event.queryStringParameters?.ref ?? "main";
   if (!filePath) return errors.badRequest("Missing path query parameter.");
 
-  const res = await dynamo.send(
-    new ScanCommand({
-      TableName: ANNOTATIONS_TABLE,
-      FilterExpression: "repoId = :r AND filePath = :fp AND #ref = :ref",
-      ExpressionAttributeNames: { "#ref": "ref" },
-      ExpressionAttributeValues: { ":r": repoId, ":fp": filePath, ":ref": ref },
-    })
-  );
+  try {
+    const res = await dynamo.send(
+      new ScanCommand({
+        TableName: ANNOTATIONS_TABLE,
+        FilterExpression: "repoId = :r AND filePath = :fp AND #ref = :ref",
+        ExpressionAttributeNames: { "#ref": "ref" },
+        ExpressionAttributeValues: { ":r": repoId, ":fp": filePath, ":ref": ref },
+      })
+    );
 
-  const annotations = (res.Items ?? [])
-    .sort((a: any, b: any) => (a.line ?? 0) - (b.line ?? 0))
-    .map((a: any) => ({
-      id: a.id,
-      line: a.line,
-      type: a.type ?? "info",
-      title: a.title ?? "",
-      message: a.message ?? "",
-      suggestions: a.suggestions ?? [],
-    }));
+    const annotations = (res.Items ?? [])
+      .sort((a: any, b: any) => (a.line ?? 0) - (b.line ?? 0))
+      .map((a: any) => ({
+        id: a.id,
+        line: a.line,
+        type: a.type ?? "info",
+        title: a.title ?? "",
+        message: a.message ?? "",
+        suggestions: a.suggestions ?? [],
+      }));
 
-  return ok({ path: filePath, annotations });
+    return ok({ path: filePath, annotations });
+  } catch (e: any) {
+    logger.warn({
+      repoId,
+      filePath,
+      msg: "getAnnotations: DynamoDB scan failed (table may not exist)",
+      table: ANNOTATIONS_TABLE,
+      error: e?.message,
+    });
+    // Return empty annotations rather than crashing — table may not be provisioned yet
+    return ok({ path: filePath, annotations: [] });
+  }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -263,6 +278,7 @@ export const getAnnotations = async (
 export const sendChatMessage = async (
   event: APIGatewayProxyEvent
 ): Promise<APIGatewayProxyResult> => {
+  try {
   if (event.httpMethod === "OPTIONS") return preflight();
 
   const user = await resolveUser(event);
@@ -298,15 +314,19 @@ export const sendChatMessage = async (
 
   let responseContent = "";
   try {
+    // DeepSeek V3 uses OpenAI-compatible request format
     const payload = {
-      anthropic_version: "bedrock-2023-05-31",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
       max_tokens: 1024,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userPrompt }],
+      temperature: 0.3,
+      top_p: 0.9,
     };
 
     const cmd = new InvokeModelCommand({
-      modelId: "anthropic.claude-3-5-sonnet-20241022-v2:0",
+      modelId: DEEPSEEK_V3_MODEL_ID,
       contentType: "application/json",
       accept: "application/json",
       body: JSON.stringify(payload),
@@ -314,9 +334,17 @@ export const sendChatMessage = async (
 
     const bedrockRes = await bedrock.send(cmd);
     const parsed = JSON.parse(new TextDecoder().decode(bedrockRes.body));
-    responseContent = parsed.content?.[0]?.text ?? "";
+    // DeepSeek V3 response: OpenAI-compatible — choices[0].message.content
+    responseContent = parsed.choices?.[0]?.message?.content ?? "";
   } catch (e: any) {
-    logger.error({ repoId, msg: "Bedrock invocation failed", error: e?.message });
+    logger.error({
+      repoId,
+      msg: "Bedrock invocation failed",
+      error: e?.message,
+      stack: e?.stack,
+      region: BEDROCK_REGION,
+      model: DEEPSEEK_V3_MODEL_ID,
+    });
     return errors.agentUnavailable("Sentinel");
   }
 
@@ -328,22 +356,31 @@ export const sendChatMessage = async (
     } catch (_) { /* fallback to English */ }
   }
 
-  // Persist to DynamoDB
-  await dynamo.send(
-    new PutCommand({
-      TableName: CHAT_TABLE,
-      Item: {
-        messageId,
-        repoId,
-        userId: user.userId,
-        role: "sentinel",
-        content: finalContent,
-        language,
-        context: context ?? null,
-        timestamp: now,
-      },
-    })
-  );
+  // Persist to DynamoDB (non-fatal — don't fail the response if the table is missing)
+  try {
+    await dynamo.send(
+      new PutCommand({
+        TableName: CHAT_TABLE,
+        Item: {
+          messageId,
+          repoId,
+          userId: user.userId,
+          role: "sentinel",
+          content: finalContent,
+          language,
+          context: context ?? null,
+          timestamp: now,
+        },
+      })
+    );
+  } catch (dbErr: any) {
+    logger.warn({
+      repoId,
+      msg: "Failed to persist chat message to DynamoDB (non-fatal)",
+      table: CHAT_TABLE,
+      error: dbErr?.message,
+    });
+  }
 
   return ok({
     message_id: messageId,
@@ -352,6 +389,16 @@ export const sendChatMessage = async (
     timestamp: now,
     timestamp_ago: "Just now",
   });
+  } catch (err: any) {
+    logger.error({
+      msg: "sendChatMessage: unhandled error",
+      error: err?.message,
+      stack: err?.stack,
+      region: BEDROCK_REGION,
+      model: DEEPSEEK_V3_MODEL_ID,
+    });
+    return errors.internal(err?.message ?? "Unexpected error in chat handler");
+  }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -371,26 +418,37 @@ export const getChatHistory = async (
 
   const limit = Math.min(200, parseInt(event.queryStringParameters?.limit ?? "50", 10));
 
-  const res = await dynamo.send(
-    new ScanCommand({
-      TableName: CHAT_TABLE,
-      FilterExpression: "repoId = :r AND userId = :u",
-      ExpressionAttributeValues: { ":r": repoId, ":u": user.userId },
-    })
-  );
+  try {
+    const res = await dynamo.send(
+      new ScanCommand({
+        TableName: CHAT_TABLE,
+        FilterExpression: "repoId = :r AND userId = :u",
+        ExpressionAttributeValues: { ":r": repoId, ":u": user.userId },
+      })
+    );
 
-  const messages = (res.Items ?? [])
-    .sort((a: any, b: any) => (a.timestamp ?? "").localeCompare(b.timestamp ?? ""))
-    .slice(-limit)
-    .map((m: any) => ({
-      message_id: m.messageId,
-      role: m.role,
-      content: m.content ?? undefined,
-      is_analysis: m.isAnalysis ?? false,
-      analysis: m.analysis ?? undefined,
-      timestamp: m.timestamp,
-      timestamp_ago: timeAgo(m.timestamp),
-    }));
+    const messages = (res.Items ?? [])
+      .sort((a: any, b: any) => (a.timestamp ?? "").localeCompare(b.timestamp ?? ""))
+      .slice(-limit)
+      .map((m: any) => ({
+        message_id: m.messageId,
+        role: m.role,
+        content: m.content ?? undefined,
+        is_analysis: m.isAnalysis ?? false,
+        analysis: m.analysis ?? undefined,
+        timestamp: m.timestamp,
+        timestamp_ago: timeAgo(m.timestamp),
+      }));
 
-  return ok({ messages });
+    return ok({ messages });
+  } catch (e: any) {
+    logger.warn({
+      repoId,
+      msg: "getChatHistory: DynamoDB scan failed (table may not exist)",
+      table: CHAT_TABLE,
+      error: e?.message,
+    });
+    // Return empty history rather than crashing
+    return ok({ messages: [] });
+  }
 };

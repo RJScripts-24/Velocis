@@ -200,7 +200,7 @@ export interface AnalyzeLogicInput {
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────────────────────
 
-const BEDROCK_MODEL_ID = "anthropic.claude-3-5-sonnet-20241022-v2:0";
+const BEDROCK_MODEL_ID = "us.amazon.nova-pro-v1:0";
 
 /** Token budgets per review depth */
 const MAX_TOKENS: Record<ReviewDepth, number> = {
@@ -453,11 +453,12 @@ async function invokeClaudeForReview(
   reviewDepth: ReviewDepth
 ): Promise<{ responseText: string; latencyMs: number }> {
   const requestBody = {
-    anthropic_version: "bedrock-2023-05-31",
-    max_tokens: MAX_TOKENS[reviewDepth],
-    system: systemPrompt,
-    messages: [{ role: "user", content: userPrompt }],
-    temperature: 0.1,
+    system: [{ text: systemPrompt }],
+    messages: [{ role: "user", content: [{ text: userPrompt }] }],
+    inferenceConfig: {
+      max_new_tokens: MAX_TOKENS[reviewDepth],
+      temperature: 0.1,
+    },
   };
 
   const t0 = Date.now();
@@ -473,16 +474,16 @@ async function invokeClaudeForReview(
     const response = await bedrockClient.send(command);
     const latencyMs = Date.now() - t0;
     const parsed = JSON.parse(new TextDecoder().decode(response.body));
-    const responseText: string = parsed.content?.[0]?.text ?? "";
+    const responseText: string = parsed.output?.message?.content?.[0]?.text ?? "";
 
     logger.info(
       {
         latencyMs,
-        inputTokens: parsed.usage?.input_tokens,
-        outputTokens: parsed.usage?.output_tokens,
+        inputTokens: parsed.usage?.inputTokens,
+        outputTokens: parsed.usage?.outputTokens,
         reviewDepth,
       },
-      "Sentinel: Bedrock Claude invocation complete"
+      "Sentinel: Bedrock Nova Pro invocation complete"
     );
 
     return { responseText, latencyMs };
@@ -1290,7 +1291,7 @@ const SENTINEL_SYSTEM_PROMPT =
 export async function runSentinelReview(codeDiff: string): Promise<string> {
   try {
     const command = new ConverseCommand({
-      modelId: "amazon.nova-pro-v1:0",
+      modelId: "us.amazon.nova-pro-v1:0",
       system: [
         {
           text: SENTINEL_SYSTEM_PROMPT,
