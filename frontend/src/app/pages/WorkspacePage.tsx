@@ -2,10 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ChevronDown, Shield, Send, Paperclip, FileCode, Sun, Moon, AlertCircle, Lightbulb, Info, Home, Folder, Sparkles, Zap, CheckCircle2, Activity } from 'lucide-react';
+import { ChevronDown, Shield, Send, Paperclip, FileCode, Sun, Moon, AlertCircle, Lightbulb, Info, Home, Folder, Sparkles, Zap, CheckCircle2, Activity, Search } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router';
 import Editor from '@monaco-editor/react';
-import { getFileContent, getAnnotations, postChatMessage, getChatHistory } from '../../lib/api';
+import { getWorkspaceFiles, WorkspaceFile, getFileContent, getAnnotations, postChatMessage, getChatHistory } from '../../lib/api';
 
 const INITIAL_FILE = '/src/auth.controller.ts';
 
@@ -134,6 +134,11 @@ export function WorkspacePage() {
   const [codeContent, setCodeContent] = useState<string>('');
   const [annotations, setAnnotations] = useState<{ line: number; type: string; message: string }[]>([]);
   const [isSending, setIsSending] = useState(false);
+  const [allFiles, setAllFiles] = useState<WorkspaceFile[]>([]);
+  const [selectedFile, setSelectedFile] = useState<string>('');
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [fileSearchQuery, setFileSearchQuery] = useState('');
+  const [isLoadingFile, setIsLoadingFile] = useState(false);
 
   // Dark mode state
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -146,36 +151,79 @@ export function WorkspacePage() {
   // ─ Fetch initial data on mount ───────────────────────────────────────────────────────
   useEffect(() => {
     if (!id) return;
-    Promise.all([
-      getFileContent(id, INITIAL_FILE).catch(() => null),
-      getAnnotations(id, INITIAL_FILE).catch(() => null),
-      getChatHistory(id, 20).catch(() => null),
-    ]).then(([fileRes, annotRes, chatRes]) => {
+
+    getWorkspaceFiles(id, '/', true)
+      .then((wsRes) => {
+        const files = wsRes.files.filter(f => f.type === 'file');
+        setAllFiles(files);
+
+        const targetFile = files.find(f => f.path === INITIAL_FILE) ? INITIAL_FILE : files[0]?.path;
+
+        if (targetFile) {
+          setSelectedFile(targetFile);
+          Promise.all([
+            getFileContent(id, targetFile).catch(() => null),
+            getAnnotations(id, targetFile).catch(() => null),
+            getChatHistory(id, 20).catch(() => null),
+          ]).then(([fileRes, annotRes, chatRes]) => {
+            if (fileRes) setCodeContent(fileRes.content);
+            else setCodeContent('// Failed to load file content');
+
+            if (annotRes) {
+              setAnnotations(annotRes.annotations.map(a => ({
+                line: a.line,
+                type: a.type,
+                message: `${a.title}: ${a.message}`,
+              })));
+            }
+            if (chatRes) {
+              const mapped: Message[] = chatRes.messages.map(m => ({
+                role: (m.role === 'user' ? 'user' : 'sentinel') as 'sentinel' | 'user',
+                content: m.content,
+                isAnalysis: m.is_analysis,
+                analysisData: m.analysis ? {
+                  line: m.analysis.line,
+                  title: m.analysis.title,
+                  description: m.analysis.description,
+                  chips: m.analysis.suggestions,
+                } : undefined,
+                timestamp: m.timestamp_ago,
+              }));
+              setMessages(mapped);
+            }
+          });
+        }
+      })
+      .catch(console.error);
+  }, [id]);
+
+  const loadFile = async (filePath: string) => {
+    if (!id || filePath === selectedFile) return;
+    setIsLoadingFile(true);
+    setSelectedFile(filePath);
+    try {
+      const [fileRes, annotRes] = await Promise.all([
+        getFileContent(id, filePath).catch(() => null),
+        getAnnotations(id, filePath).catch(() => null)
+      ]);
       if (fileRes) setCodeContent(fileRes.content);
+      else setCodeContent('// Failed to load file content');
+
       if (annotRes) {
         setAnnotations(annotRes.annotations.map(a => ({
           line: a.line,
           type: a.type,
           message: `${a.title}: ${a.message}`,
         })));
+      } else {
+        setAnnotations([]);
       }
-      if (chatRes) {
-        const mapped: Message[] = chatRes.messages.map(m => ({
-          role: (m.role === 'user' ? 'user' : 'sentinel') as 'sentinel' | 'user',
-          content: m.content,
-          isAnalysis: m.is_analysis,
-          analysisData: m.analysis ? {
-            line: m.analysis.line,
-            title: m.analysis.title,
-            description: m.analysis.description,
-            chips: m.analysis.suggestions,
-          } : undefined,
-          timestamp: m.timestamp_ago,
-        }));
-        setMessages(mapped);
-      }
-    }).catch(console.error);
-  }, [id]);
+    } catch {
+      setCodeContent('// Error loading file');
+    } finally {
+      setIsLoadingFile(false);
+    }
+  };
 
   const handleLanguageChange = (newLang: 'en' | 'hi' | 'ta') => {
     setLanguage(newLang);
@@ -189,7 +237,7 @@ export function WorkspacePage() {
     setInputValue('');
     setIsSending(true);
     try {
-      const res = await postChatMessage(id, { message: text, context: { file_path: INITIAL_FILE }, language });
+      const res = await postChatMessage(id, { message: text, context: { file_path: selectedFile }, language });
       const reply: Message = {
         role: 'sentinel',
         content: res.content,
@@ -272,11 +320,63 @@ export function WorkspacePage() {
             </div>
 
             {/* Center - File Context */}
-            <button className="hidden md:flex items-center gap-2 px-4 py-2 rounded-lg bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-700 shadow-sm hover:shadow-md transition-all font-['JetBrains_Mono',_monospace] text-xs font-semibold text-zinc-700 dark:text-slate-300 group">
-              <FileCode className="w-4 h-4 text-indigo-500 dark:text-indigo-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors" />
-              <span>auth-service / auth.controller.ts</span>
-              <ChevronDown className="w-4 h-4 text-zinc-400 dark:text-slate-500" />
-            </button>
+            <div className="relative hidden md:flex items-center justify-center">
+              <button
+                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-700 shadow-sm hover:shadow-md transition-all font-['JetBrains_Mono',_monospace] text-xs font-semibold text-zinc-700 dark:text-slate-300 group"
+              >
+                <FileCode className="w-4 h-4 text-indigo-500 dark:text-indigo-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors" />
+                <span className="truncate max-w-[200px]">{selectedFile.split('/').pop() || selectedFile}</span>
+                <ChevronDown className={`w-4 h-4 text-zinc-400 dark:text-slate-500 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              <AnimatePresence>
+                {isDropdownOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 5 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute top-full mt-2 left-1/2 -translate-x-1/2 w-[400px] bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden z-[100] flex flex-col"
+                  >
+                    <div className="p-2 border-b border-zinc-100 dark:border-slate-800">
+                      <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-50 dark:bg-slate-800/50 rounded-lg border border-zinc-200/50 dark:border-slate-700/50">
+                        <Search className="w-3.5 h-3.5 text-zinc-400" />
+                        <input
+                          autoFocus
+                          type="text"
+                          placeholder="Search files..."
+                          value={fileSearchQuery}
+                          onChange={e => setFileSearchQuery(e.target.value)}
+                          className="bg-transparent border-none outline-none text-xs text-zinc-700 dark:text-slate-300 w-full placeholder:text-zinc-400"
+                        />
+                      </div>
+                    </div>
+                    <div className="max-h-[300px] overflow-y-auto p-1 scrollbar-thin scrollbar-thumb-zinc-200 dark:scrollbar-thumb-slate-700">
+                      {allFiles
+                        .filter(f => f.path.toLowerCase().includes(fileSearchQuery.toLowerCase()))
+                        .map(f => (
+                          <button
+                            key={f.path}
+                            onClick={() => {
+                              setIsDropdownOpen(false);
+                              loadFile(f.path);
+                            }}
+                            className={`w-full text-left px-3 py-2 flex items-center text-xs font-['JetBrains_Mono',_monospace] hover:bg-zinc-50 dark:hover:bg-slate-800 rounded-md transition-colors ${selectedFile === f.path ? 'bg-indigo-50/50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 font-semibold' : 'text-zinc-600 dark:text-slate-400'}`}
+                          >
+                            <FileCode className="w-3.5 h-3.5 mr-2 shrink-0 opacity-70" />
+                            <span className="truncate" title={f.path}>{f.path}</span>
+                          </button>
+                        ))
+                      }
+                      {allFiles.filter(f => f.path.toLowerCase().includes(fileSearchQuery.toLowerCase())).length === 0 && (
+                        <div className="px-3 py-4 text-center text-xs text-zinc-500">No files found</div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
 
             {/* Right - Actions */}
             <div className="flex items-center gap-3">
@@ -309,7 +409,7 @@ export function WorkspacePage() {
                 <div className="flex items-center gap-2">
                   <FileCode className="w-4 h-4 text-indigo-500 dark:text-indigo-400" />
                   <span className="font-['JetBrains_Mono',_monospace] text-sm font-semibold text-zinc-800 dark:text-slate-200">
-                    auth.controller.ts
+                    {selectedFile.split('/').pop() || selectedFile}
                   </span>
                   <span className="text-zinc-300 dark:text-slate-700 mx-1 hidden sm:inline">•</span>
                   <span className="text-xs font-medium px-2 py-0.5 rounded-md bg-zinc-200/50 dark:bg-slate-800 text-zinc-600 dark:text-slate-400 hidden sm:inline transition-colors">main</span>
@@ -326,7 +426,7 @@ export function WorkspacePage() {
             </div>
 
             {/* Editor Area */}
-            <div className="flex-1 overflow-auto bg-transparent relative z-10 pt-2 pb-0">
+            <div className={`flex-1 overflow-auto bg-transparent relative z-10 pt-2 pb-0 transition-opacity duration-300 ${isLoadingFile ? 'opacity-50' : 'opacity-100'}`}>
               <Editor
                 height="100%"
                 width="100%"

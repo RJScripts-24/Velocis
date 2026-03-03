@@ -22,7 +22,6 @@ import {
   GetCommand,
   PutCommand,
   ScanCommand,
-  QueryCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
@@ -35,18 +34,60 @@ import { logger } from "../../utils/logger";
 import { fetchFileContent, fetchRepoTree } from "../../services/github/repoOps";
 import { translateText } from "../../services/aws/translate";
 import { config } from "../../utils/config";
+import * as crypto from "crypto";
+import axios from "axios";
+import { dynamoClient, DYNAMO_TABLES } from "../../services/database/dynamoClient";
+import { getUserToken } from "../../services/github/auth";
 
-const dynamo            = DynamoDBDocumentClient.from(new DynamoDBClient({}));
-const bedrock           = new BedrockRuntimeClient({ region: config.AWS_REGION });
-const JWT_SECRET        = process.env.JWT_SECRET          ?? "changeme-in-production";
-const USERS_TABLE       = process.env.USERS_TABLE         ?? "velocis-users";
-const ANNOTATIONS_TABLE = process.env.ANNOTATIONS_TABLE   ?? "velocis-annotations";
-const CHAT_TABLE        = process.env.CHAT_TABLE          ?? "velocis-workspace-chat";
+const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+const bedrock = new BedrockRuntimeClient({ region: config.AWS_REGION });
+const JWT_SECRET = process.env.JWT_SECRET ?? "changeme-in-production";
+const USERS_TABLE = process.env.USERS_TABLE ?? "velocis-users";
+const ANNOTATIONS_TABLE = process.env.ANNOTATIONS_TABLE ?? "velocis-annotations";
+const CHAT_TABLE = process.env.CHAT_TABLE ?? "velocis-workspace-chat";
 
 type Language = "en" | "hi" | "ta";
 
-async function resolveUser(authHeader: string | undefined) {
-  const token = extractBearerToken(authHeader);
+function parseCookieValue(cookieHeader: string | undefined | null, name: string): string | null {
+  if (!cookieHeader) return null;
+  for (const cookie of cookieHeader.split(";").map((c) => c.trim())) {
+    const [key, ...valueParts] = cookie.split("=");
+    if (key?.trim() === name) return valueParts.join("=").trim() || null;
+  }
+  return null;
+}
+
+async function resolveUser(event: APIGatewayProxyEvent): Promise<{ userId: string; githubToken: string } | null> {
+  const cookieHeader = event.headers?.["cookie"] ?? event.headers?.["Cookie"];
+  const sessionToken = parseCookieValue(cookieHeader, "velocis_session");
+  if (sessionToken) {
+    try {
+      const hash = crypto.createHash("sha256").update(sessionToken).digest("hex");
+      const session = await dynamoClient.get<{ userId: string; githubId: string; expiresAt: string }>({
+        tableName: DYNAMO_TABLES.USERS,
+        key: { userId: `session_${hash}` },
+      });
+      if (session && new Date(session.expiresAt) > new Date()) {
+        let githubToken = "";
+        try {
+          githubToken = await getUserToken(session.githubId);
+        } catch {
+          try {
+            const u = await dynamoClient.get<{ accessToken?: string; github_token?: string }>({
+              tableName: DYNAMO_TABLES.USERS,
+              key: { userId: session.githubId },
+            });
+            githubToken = u?.accessToken ?? u?.github_token ?? "";
+          } catch { /* non-fatal */ }
+        }
+        return { userId: session.githubId, githubToken };
+      }
+    } catch (e) {
+      logger.error({ msg: "Session lookup failed", error: String(e) });
+    }
+  }
+
+  const token = extractBearerToken(event.headers?.Authorization ?? event.headers?.authorization);
   if (!token) return null;
   try {
     const { sub: userId } = jwt.verify(token, JWT_SECRET) as { sub: string };
@@ -55,6 +96,19 @@ async function resolveUser(authHeader: string | undefined) {
     );
     if (!res.Item) return null;
     return { userId, githubToken: res.Item.github_token as string };
+  } catch {
+    return null;
+  }
+}
+
+async function getGitHubLogin(githubToken: string): Promise<string | null> {
+  if (!githubToken) return null;
+  try {
+    const res = await axios.get("https://api.github.com/user", {
+      headers: { Authorization: `Bearer ${githubToken}`, "User-Agent": "Velocis-App" },
+      timeout: 5000,
+    });
+    return res.data?.login ?? null;
   } catch {
     return null;
   }
@@ -69,20 +123,23 @@ export const listFiles = async (
 ): Promise<APIGatewayProxyResult> => {
   if (event.httpMethod === "OPTIONS") return preflight();
 
-  const user = await resolveUser(event.headers?.Authorization ?? event.headers?.authorization);
+  const user = await resolveUser(event);
   if (!user) return errors.unauthorized();
 
   const repoId = event.pathParameters?.repoId;
   if (!repoId) return errors.badRequest("Missing repoId.");
 
   const path = event.queryStringParameters?.path ?? "/";
+  const isRecursive = event.queryStringParameters?.recursive === "true";
 
-  // repoId here is a slug like "infrazero" — we need owner/name.
-  // Headers x-repo-owner and x-repo-name are expected from the frontend.
-  const owner = event.headers?.["x-repo-owner"] ?? "";
-  const name  = event.headers?.["x-repo-name"]  ?? repoId;
+  let owner = event.headers?.["x-repo-owner"] ?? "";
+  const name = event.headers?.["x-repo-name"] ?? repoId;
 
-  if (!owner) return errors.badRequest("Missing x-repo-owner header.");
+  if (!owner) {
+    const inferredOwner = await getGitHubLogin(user.githubToken);
+    if (inferredOwner) owner = inferredOwner;
+    else return errors.badRequest("Missing x-repo-owner header and could not infer owner.");
+  }
 
   try {
     const tree = await fetchRepoTree({ repoFullName: `${owner}/${name}`, token: user.githubToken, recursive: true });
@@ -90,6 +147,7 @@ export const listFiles = async (
 
     const files = tree
       .filter((item: any) => {
+        if (isRecursive) return item.type === "blob"; // Only return files when recursive
         const itemDir = item.path.includes("/")
           ? item.path.substring(0, item.path.lastIndexOf("/"))
           : "";
@@ -117,19 +175,23 @@ export const getFileContent = async (
 ): Promise<APIGatewayProxyResult> => {
   if (event.httpMethod === "OPTIONS") return preflight();
 
-  const user = await resolveUser(event.headers?.Authorization ?? event.headers?.authorization);
+  const user = await resolveUser(event);
   if (!user) return errors.unauthorized();
 
   const repoId = event.pathParameters?.repoId;
   if (!repoId) return errors.badRequest("Missing repoId.");
 
   const filePath = event.queryStringParameters?.path;
-  const ref      = event.queryStringParameters?.ref ?? "main";
+  const ref = event.queryStringParameters?.ref ?? "main";
   if (!filePath) return errors.badRequest("Missing path query parameter.");
 
-  const owner = event.headers?.["x-repo-owner"] ?? "";
-  const name  = event.headers?.["x-repo-name"]  ?? repoId;
-  if (!owner) return errors.badRequest("Missing x-repo-owner header.");
+  let owner = event.headers?.["x-repo-owner"] ?? "";
+  const name = event.headers?.["x-repo-name"] ?? repoId;
+  if (!owner) {
+    const inferredOwner = await getGitHubLogin(user.githubToken);
+    if (inferredOwner) owner = inferredOwner;
+    else return errors.badRequest("Missing x-repo-owner header and could not infer owner.");
+  }
 
   // Detect language from extension
   const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
@@ -161,14 +223,14 @@ export const getAnnotations = async (
 ): Promise<APIGatewayProxyResult> => {
   if (event.httpMethod === "OPTIONS") return preflight();
 
-  const user = await resolveUser(event.headers?.Authorization ?? event.headers?.authorization);
+  const user = await resolveUser(event);
   if (!user) return errors.unauthorized();
 
   const repoId = event.pathParameters?.repoId;
   if (!repoId) return errors.badRequest("Missing repoId.");
 
   const filePath = event.queryStringParameters?.path;
-  const ref      = event.queryStringParameters?.ref ?? "main";
+  const ref = event.queryStringParameters?.ref ?? "main";
   if (!filePath) return errors.badRequest("Missing path query parameter.");
 
   const res = await dynamo.send(
@@ -183,11 +245,11 @@ export const getAnnotations = async (
   const annotations = (res.Items ?? [])
     .sort((a: any, b: any) => (a.line ?? 0) - (b.line ?? 0))
     .map((a: any) => ({
-      id:          a.id,
-      line:        a.line,
-      type:        a.type        ?? "info",
-      title:       a.title       ?? "",
-      message:     a.message     ?? "",
+      id: a.id,
+      line: a.line,
+      type: a.type ?? "info",
+      title: a.title ?? "",
+      message: a.message ?? "",
       suggestions: a.suggestions ?? [],
     }));
 
@@ -203,7 +265,7 @@ export const sendChatMessage = async (
 ): Promise<APIGatewayProxyResult> => {
   if (event.httpMethod === "OPTIONS") return preflight();
 
-  const user = await resolveUser(event.headers?.Authorization ?? event.headers?.authorization);
+  const user = await resolveUser(event);
   if (!user) return errors.unauthorized();
 
   const repoId = event.pathParameters?.repoId;
@@ -225,11 +287,11 @@ export const sendChatMessage = async (
   if (!message) return errors.badRequest("message is required.");
 
   const messageId = `msg_${randomUUID().replace(/-/g, "").slice(0, 8)}`;
-  const now       = new Date().toISOString();
+  const now = new Date().toISOString();
 
   // Build the prompt — include file context if provided
   let systemPrompt = "You are Sentinel, Velocis's AI code review and mentoring assistant. Provide concise, actionable guidance.";
-  let userPrompt   = message;
+  let userPrompt = message;
   if (context?.file_path) {
     userPrompt = `[File: ${context.file_path}${context.line ? ` line ${context.line}` : ""}]\n\n${message}`;
   }
@@ -244,15 +306,15 @@ export const sendChatMessage = async (
     };
 
     const cmd = new InvokeModelCommand({
-      modelId:     "anthropic.claude-3-5-sonnet-20241022-v2:0",
+      modelId: "anthropic.claude-3-5-sonnet-20241022-v2:0",
       contentType: "application/json",
-      accept:      "application/json",
-      body:        JSON.stringify(payload),
+      accept: "application/json",
+      body: JSON.stringify(payload),
     });
 
-    const bedrockRes  = await bedrock.send(cmd);
-    const parsed      = JSON.parse(new TextDecoder().decode(bedrockRes.body));
-    responseContent   = parsed.content?.[0]?.text ?? "";
+    const bedrockRes = await bedrock.send(cmd);
+    const parsed = JSON.parse(new TextDecoder().decode(bedrockRes.body));
+    responseContent = parsed.content?.[0]?.text ?? "";
   } catch (e: any) {
     logger.error({ repoId, msg: "Bedrock invocation failed", error: e?.message });
     return errors.agentUnavailable("Sentinel");
@@ -273,22 +335,22 @@ export const sendChatMessage = async (
       Item: {
         messageId,
         repoId,
-        userId:    user.userId,
-        role:      "sentinel",
-        content:   finalContent,
+        userId: user.userId,
+        role: "sentinel",
+        content: finalContent,
         language,
-        context:   context ?? null,
+        context: context ?? null,
         timestamp: now,
       },
     })
   );
 
   return ok({
-    message_id:     messageId,
-    role:           "sentinel",
-    content:        finalContent,
-    timestamp:      now,
-    timestamp_ago:  "Just now",
+    message_id: messageId,
+    role: "sentinel",
+    content: finalContent,
+    timestamp: now,
+    timestamp_ago: "Just now",
   });
 };
 
@@ -301,7 +363,7 @@ export const getChatHistory = async (
 ): Promise<APIGatewayProxyResult> => {
   if (event.httpMethod === "OPTIONS") return preflight();
 
-  const user = await resolveUser(event.headers?.Authorization ?? event.headers?.authorization);
+  const user = await resolveUser(event);
   if (!user) return errors.unauthorized();
 
   const repoId = event.pathParameters?.repoId;
@@ -321,12 +383,12 @@ export const getChatHistory = async (
     .sort((a: any, b: any) => (a.timestamp ?? "").localeCompare(b.timestamp ?? ""))
     .slice(-limit)
     .map((m: any) => ({
-      message_id:    m.messageId,
-      role:          m.role,
-      content:       m.content      ?? undefined,
-      is_analysis:   m.isAnalysis   ?? false,
-      analysis:      m.analysis     ?? undefined,
-      timestamp:     m.timestamp,
+      message_id: m.messageId,
+      role: m.role,
+      content: m.content ?? undefined,
+      is_analysis: m.isAnalysis ?? false,
+      analysis: m.analysis ?? undefined,
+      timestamp: m.timestamp,
       timestamp_ago: timeAgo(m.timestamp),
     }));
 

@@ -160,10 +160,10 @@ export interface InstallJobResponse {
 }
 
 export const installRepo = (repoId: number | string): Promise<InstallJobResponse> =>
-  request(`/repos/${repoId}/install`, { method: 'POST' });
+  request(`/api/repos/${repoId}/install`, { method: 'POST' });
 
 export const getInstallStatus = (repoId: number | string): Promise<InstallJobResponse> =>
-  request(`/repos/${repoId}/install/status`);
+  request(`/api/repos/${repoId}/install/status`);
 
 // ─── 5. Dashboard ─────────────────────────────────────────────────────────────
 export interface ActivityEvent {
@@ -209,7 +209,7 @@ export interface DashboardResponse {
 }
 
 export const getDashboard = (range?: '1h' | '24h' | '7d' | '30d'): Promise<DashboardResponse> =>
-  request(`/dashboard${range ? `?range=${range}` : ''}`);
+  request(`/api/dashboard${range ? `?range=${range}` : ''}`);
 
 // ─── 6. Repository Overview ───────────────────────────────────────────────────
 export interface RepoDetail {
@@ -239,7 +239,7 @@ export interface RepoDetail {
 }
 
 export const getRepo = (repoId: string): Promise<RepoDetail> =>
-  request(`/repos/${repoId}`);
+  request(`/api/repos/${repoId}`);
 
 // ─── 7. Sentinel ──────────────────────────────────────────────────────────────
 export interface PrFinding {
@@ -266,13 +266,13 @@ export interface SentinelPr {
 export interface SentinelPrsResponse { prs: SentinelPr[] }
 
 export const getSentinelPrs = (repoId: string): Promise<SentinelPrsResponse> =>
-  request(`/repos/${repoId}/sentinel/prs`);
+  request(`/api/repos/${repoId}/sentinel/prs`);
 
 export const getSentinelPr = (repoId: string, prNumber: number): Promise<SentinelPr> =>
-  request(`/repos/${repoId}/sentinel/prs/${prNumber}`);
+  request(`/api/repos/${repoId}/sentinel/prs/${prNumber}`);
 
 export const triggerSentinelScan = (repoId: string): Promise<{ scan_id: string; status: string; message: string }> =>
-  request(`/repos/${repoId}/sentinel/scan`, { method: 'POST' });
+  request(`/api/repos/${repoId}/sentinel/scan`, { method: 'POST' });
 
 export interface SentinelEvent {
   id: string;
@@ -293,7 +293,7 @@ export const getSentinelActivity = (
   const qs = new URLSearchParams();
   if (params?.limit) qs.set('limit', String(params.limit));
   if (params?.page) qs.set('page', String(params.page));
-  return request(`/repos/${repoId}/sentinel/activity${qs.toString() ? `?${qs}` : ''}`);
+  return request(`/api/repos/${repoId}/sentinel/activity${qs.toString() ? `?${qs}` : ''}`);
 };
 
 // ─── 8. Fortress (Pipeline) ───────────────────────────────────────────────────
@@ -328,7 +328,7 @@ export interface PipelineRunSummary {
 }
 
 export const getPipeline = (repoId: string): Promise<PipelineRun> =>
-  request(`/repos/${repoId}/pipeline`);
+  request(`/api/repos/${repoId}/pipeline`);
 
 export const getPipelineRuns = (
   repoId: string,
@@ -338,14 +338,14 @@ export const getPipelineRuns = (
   if (params?.limit) qs.set('limit', String(params.limit));
   if (params?.page) qs.set('page', String(params.page));
   if (params?.mode) qs.set('mode', params.mode);
-  return request(`/repos/${repoId}/pipeline/runs${qs.toString() ? `?${qs}` : ''}`);
+  return request(`/api/repos/${repoId}/pipeline/runs${qs.toString() ? `?${qs}` : ''}`);
 };
 
 export const triggerPipeline = (
   repoId: string,
   branch = 'main',
 ): Promise<{ run_id: string; status: string }> =>
-  request(`/repos/${repoId}/pipeline/trigger`, {
+  request(`/api/repos/${repoId}/pipeline/trigger`, {
     method: 'POST',
     body: JSON.stringify({ branch }),
   });
@@ -379,16 +379,16 @@ export interface TimelineEvent {
 }
 
 export const getCortexServices = (repoId: string): Promise<CortexServicesResponse> =>
-  request(`/repos/${repoId}/cortex/services`);
+  request(`/api/repos/${repoId}/cortex/services`);
 
 export const getCortexServiceDetail = (
   repoId: string,
   serviceId: number,
 ): Promise<CortexService & { timeline_events: TimelineEvent[]; fortress_action: string }> =>
-  request(`/repos/${repoId}/cortex/services/${serviceId}`);
+  request(`/api/repos/${repoId}/cortex/services/${serviceId}`);
 
 export const getCortexTimeline = (repoId: string): Promise<{ events: TimelineEvent[] }> =>
-  request(`/repos/${repoId}/cortex/timeline`);
+  request(`/api/repos/${repoId}/cortex/timeline`);
 
 // ─── 10. Workspace ────────────────────────────────────────────────────────────
 export interface WorkspaceFile {
@@ -425,8 +425,9 @@ export interface ChatMessage {
 export const getWorkspaceFiles = (
   repoId: string,
   path = '/',
+  recursive = false,
 ): Promise<{ path: string; files: WorkspaceFile[] }> =>
-  request(`/repos/${repoId}/workspace/files?path=${encodeURIComponent(path)}`);
+  request(`/api/repos/${repoId}/workspace/files?path=${encodeURIComponent(path)}${recursive ? '&recursive=true' : ''}`);
 
 export const getFileContent = (
   repoId: string,
@@ -434,7 +435,7 @@ export const getFileContent = (
   ref = 'main',
 ): Promise<{ path: string; ref: string; content: string; language: string }> =>
   request(
-    `/repos/${repoId}/workspace/files/content?path=${encodeURIComponent(filePath)}&ref=${ref}`,
+    `/api/repos/${repoId}/workspace/files/content?path=${encodeURIComponent(filePath)}&ref=${ref}`,
   );
 
 export const getAnnotations = (
@@ -443,14 +444,14 @@ export const getAnnotations = (
   ref = 'main',
 ): Promise<{ path: string; annotations: CodeAnnotation[] }> =>
   request(
-    `/repos/${repoId}/workspace/annotations?path=${encodeURIComponent(filePath)}&ref=${ref}`,
+    `/api/repos/${repoId}/workspace/annotations?path=${encodeURIComponent(filePath)}&ref=${ref}`,
   );
 
 export const postChatMessage = (
   repoId: string,
   payload: { message: string; context?: { file_path?: string; line?: number; annotation_id?: string }; language?: Language },
 ): Promise<ChatMessage> =>
-  request(`/repos/${repoId}/workspace/chat`, {
+  request(`/api/repos/${repoId}/workspace/chat`, {
     method: 'POST',
     body: JSON.stringify(payload),
   });
@@ -459,7 +460,7 @@ export const getChatHistory = (
   repoId: string,
   limit = 50,
 ): Promise<{ messages: ChatMessage[] }> =>
-  request(`/repos/${repoId}/workspace/chat/history?limit=${limit}`);
+  request(`/api/repos/${repoId}/workspace/chat/history?limit=${limit}`);
 
 // ─── 11. Infrastructure ───────────────────────────────────────────────────────
 export interface CostBreakdownItem {
@@ -485,20 +486,20 @@ export const getInfrastructure = (
   repoId: string,
   environment: Environment = 'production',
 ): Promise<InfrastructureData> =>
-  request(`/repos/${repoId}/infrastructure?environment=${environment}`);
+  request(`/api/repos/${repoId}/infrastructure?environment=${environment}`);
 
 export const getTerraformCode = (
   repoId: string,
   environment: Environment = 'production',
 ): Promise<{ environment: Environment; generated_at: string; source_commit: string; terraform_code: string }> =>
-  request(`/repos/${repoId}/infrastructure/terraform?environment=${environment}`);
+  request(`/api/repos/${repoId}/infrastructure/terraform?environment=${environment}`);
 
 export const generateIac = (
   repoId: string,
   environment: Environment = 'production',
   branch = 'main',
 ): Promise<{ job_id: string; status: string; message: string }> =>
-  request(`/repos/${repoId}/infrastructure/generate`, {
+  request(`/api/repos/${repoId}/infrastructure/generate`, {
     method: 'POST',
     body: JSON.stringify({ environment, branch }),
   });
@@ -515,7 +516,7 @@ export const getActivity = (params?: {
   if (params?.repo_id) qs.set('repo_id', params.repo_id);
   if (params?.limit) qs.set('limit', String(params.limit));
   if (params?.page) qs.set('page', String(params.page));
-  return request(`/activity${qs.toString() ? `?${qs}` : ''}`);
+  return request(`/api/activity${qs.toString() ? `?${qs}` : ''}`);
 };
 
 // ─── 13. System Health ────────────────────────────────────────────────────────
@@ -527,4 +528,4 @@ export interface SystemHealth {
   agents: { name: AgentName; status: 'running' | 'stopped' | 'degraded'; uptime_pct: number }[];
 }
 
-export const getSystemHealth = (): Promise<SystemHealth> => request('/system/health');
+export const getSystemHealth = (): Promise<SystemHealth> => request('/api/system/health');
