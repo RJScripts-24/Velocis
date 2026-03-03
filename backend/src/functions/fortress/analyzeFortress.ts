@@ -110,3 +110,68 @@ export async function generateQATestPlan(codeContent: string): Promise<string> {
 
   return "";
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SYSTEM PROMPT — API Documenter
+// ─────────────────────────────────────────────────────────────────────────────
+
+const API_DOC_SYSTEM_PROMPT =
+  "You are Devlin, an expert Technical Writer and API Architect. " +
+  "Analyze the provided backend code and generate comprehensive API documentation. " +
+  "For each route you find, extract: " +
+  "1) The endpoint URL, " +
+  "2) The HTTP method, " +
+  "3) The required request payload/parameters, and " +
+  "4) The expected success and error responses. " +
+  "Format the output entirely in beautiful, highly readable Markdown. " +
+  "Include a JSON block at the end formatted for Swagger/OpenAPI if possible.";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FUNCTION — generateApiDocs
+// Role: Technical Writer / API Architect
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Analyzes the provided backend source code and generates comprehensive
+ * API documentation in Markdown (with a Swagger/OpenAPI JSON block)
+ * using DeepSeek V3 via the Bedrock Converse API.
+ *
+ * Temperature is intentionally very low (0.1) to produce deterministic,
+ * well-structured Markdown/JSON output.
+ *
+ * @param codeContent - Raw backend source code to document.
+ * @returns Markdown-formatted API documentation string.
+ */
+export async function generateApiDocs(codeContent: string): Promise<string> {
+  const messages: Message[] = [
+    {
+      role: "user",
+      content: [{ text: codeContent }],
+    },
+  ];
+
+  const system: SystemContentBlock[] = [{ text: API_DOC_SYSTEM_PROMPT }];
+
+  const input: ConverseCommandInput = {
+    modelId: DEEPSEEK_MODEL,
+    messages,
+    system,
+    inferenceConfig: {
+      maxTokens: 2500,
+      temperature: 0.1,
+    },
+  };
+
+  const command = new ConverseCommand(input);
+  const response = await bedrockClient.send(command);
+
+  const outputContent = response.output?.message?.content;
+  if (Array.isArray(outputContent) && outputContent.length > 0) {
+    const firstBlock = outputContent[0];
+    if ("text" in firstBlock && typeof firstBlock.text === "string") {
+      return firstBlock.text;
+    }
+  }
+
+  return "";
+}

@@ -254,6 +254,9 @@ app.get("/api/repos/:repoId/pipeline/runs/:runId", wrap(getPipelineData.getPipel
 // § 8a — Fortress QA Strategist
 app.post("/api/fortress/qa-plan", wrap(getPipelineData.postQAPlan as LambdaHandler));
 
+// § 8b — Fortress API Documenter
+app.post("/api/fortress/api-docs", wrap(getPipelineData.postApiDocs as LambdaHandler));
+
 // § 9 — Cortex agent (service map)
 app.get("/api/repos/:repoId/cortex/services", wrap(getCortexServices.listServices as LambdaHandler));
 app.get("/api/repos/:repoId/cortex/services/:serviceId", wrap(getCortexServices.getServiceDetail as LambdaHandler));

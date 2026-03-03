@@ -28,7 +28,7 @@ import { ok, errors, preflight, extractBearerToken } from "../../utils/apiRespon
 import { timeAgo } from "./getDashboard";
 import { logger } from "../../utils/logger";
 import { config } from "../../utils/config";
-import { generateQATestPlan } from "../../functions/fortress/analyzeFortress";
+import { generateQATestPlan, generateApiDocs } from "../../functions/fortress/analyzeFortress";
 import { repoOps, getInstallationToken, fetchFileContent } from "../../services/github/repoOps";
 import { getUserToken } from "../../services/github/auth";
 
@@ -752,6 +752,164 @@ export const postQAPlan = async (
     return ok({ status: "success", qaPlanMarkdown, filesAnalyzed: fetchedPaths });
   } catch (err: any) {
     logger.error("[Fortress] postQAPlan — Bedrock call failed", { error: err?.message });
+    return {
+      statusCode: 500,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        status: "error",
+        message: err?.message ?? "Internal server error — Bedrock invocation failed.",
+      }),
+    };
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/fortress/api-docs
+// Fortress API Documenter — generates Markdown API docs from raw source code
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * POST /api/fortress/api-docs
+ *
+ * Accepts raw backend source code, passes it to DeepSeek V3 via Bedrock, and
+ * returns comprehensive API documentation formatted in Markdown with an
+ * optional Swagger/OpenAPI JSON block.
+ *
+ * Body:     { codeContent: string }
+ * Response: { status: "success", apiDocsMarkdown: string }
+ */
+export const postApiDocs = async (
+  event: APIGatewayProxyEvent
+): Promise<APIGatewayProxyResult> => {
+  if (event.httpMethod === "OPTIONS") return preflight();
+
+  // ── Auth ──────────────────────────────────────────────────────────────────
+  const userId = await requireAuth(
+    event.headers?.Authorization ?? event.headers?.authorization,
+    event.headers?.cookie ?? event.headers?.Cookie ?? ""
+  );
+  if (!userId) return errors.unauthorized();
+
+  // ── Parse body ────────────────────────────────────────────────────────────
+  let codeContent: string | undefined;
+  let repoId: string | undefined;
+  let branch = "HEAD";
+  try {
+    const body = JSON.parse(event.body ?? "{}");
+    codeContent = body.codeContent;
+    repoId = body.repoId;
+    if (body.branch && typeof body.branch === "string") branch = body.branch;
+  } catch {
+    return errors.badRequest("Invalid JSON body.");
+  }
+
+  // ── If repoId provided, fetch source files from GitHub ───────────────────
+  if (!codeContent && repoId) {
+    // Resolve repo record from DynamoDB
+    let repoRecord: any;
+    try {
+      const scanRes = await dynamo.send(
+        new ScanCommand({
+          TableName: REPOS_TABLE,
+          FilterExpression: "repoSlug = :r OR repoId = :r",
+          ExpressionAttributeValues: { ":r": repoId },
+        })
+      );
+      repoRecord = scanRes.Items?.[0];
+      if (!repoRecord) {
+        const fallback = await dynamo.send(
+          new ScanCommand({
+            TableName: REPOS_TABLE,
+            FilterExpression: "contains(repoSlug, :r) OR contains(repoId, :r)",
+            ExpressionAttributeValues: { ":r": repoId.toLowerCase() },
+          })
+        );
+        repoRecord = fallback.Items?.[0];
+      }
+    } catch (err: any) {
+      logger.error("[Fortress] postApiDocs — DynamoDB lookup failed", { error: err?.message });
+      return errors.internal("Could not look up repository. Please try again.");
+    }
+
+    if (!repoRecord) {
+      return errors.notFound(`Repository '${repoId}' is not registered with Velocis. Install it first.`);
+    }
+
+    const repoName: string = repoRecord.repoName ?? repoRecord.repoId ?? repoId;
+    let repoOwner = "";
+    const rawFull: string = repoRecord.repoFullName ?? repoRecord.fullName ?? "";
+    if (rawFull.includes("/")) {
+      repoOwner = rawFull.split("/")[0];
+    } else if (repoRecord.repoOwner) {
+      repoOwner = repoRecord.repoOwner;
+    } else {
+      const userRes = await dynamo.send(new GetCommand({ TableName: USERS_TABLE, Key: { userId } }));
+      repoOwner = userRes.Item?.username ?? userRes.Item?.githubLogin ?? userRes.Item?.displayName ?? "";
+    }
+
+    if (!repoOwner) {
+      return errors.badRequest("Cannot determine repository owner. Reconnect your GitHub account.");
+    }
+
+    const fullName = `${repoOwner}/${repoName}`;
+    let token: string;
+    const installationId = repoRecord.installationId ? Number(repoRecord.installationId) : undefined;
+    if (installationId) {
+      try { token = await getInstallationToken(installationId); }
+      catch { token = await getUserToken(userId).catch(() => ""); }
+    } else {
+      token = await getUserToken(userId).catch(() => "");
+    }
+    if (!token) return errors.internal("No GitHub access token available. Re-connect your GitHub account.");
+
+    try {
+      const tree = await repoOps.fetchRepoTree({ repoFullName: fullName, token, ref: branch, recursive: true });
+      const sourceFilePaths = tree
+        .filter((f: any) =>
+          f.type === "blob" &&
+          ANALYSABLE_EXTS.some((e) => (f.path as string).endsWith(e)) &&
+          !SKIP_PATTERNS.some((p) => (f.path as string).includes(p))
+        )
+        .map((f: any) => f.path as string)
+        .slice(0, 8);
+
+      if (sourceFilePaths.length === 0) {
+        return errors.badRequest("No analyzable source files found (.ts/.tsx/.js/.jsx).");
+      }
+
+      const result = await repoOps.fetchFileContents({ repoFullName: fullName, filePaths: sourceFilePaths, token, ...(branch !== "HEAD" && { ref: branch }) });
+      const fetchedPaths = sourceFilePaths.filter((p) => result.files[p]);
+      if (fetchedPaths.length === 0) return errors.internal("All file reads failed.");
+
+      codeContent = [
+        `Repository: ${fullName}`,
+        `Branch: ${branch === "HEAD" ? "default" : branch}`,
+        `Files: ${fetchedPaths.length}`,
+        "",
+        ...fetchedPaths.map((p, i) =>
+          `=== FILE [${i + 1}/${fetchedPaths.length}]: ${p} ===\n${(result.files[p] as any).content}`
+        ),
+      ].join("\n\n");
+    } catch (err: any) {
+      logger.error("[Fortress] postApiDocs — file fetch failed", { error: err?.message });
+      return errors.internal(`Could not fetch repository files: ${err?.message ?? "GitHub API error"}`);
+    }
+  }
+
+  if (!codeContent || typeof codeContent !== "string" || codeContent.trim() === "") {
+    return errors.badRequest("Either codeContent or repoId is required.");
+  }
+
+  // ── Invoke DeepSeek V3 via Bedrock ────────────────────────────────────────
+  try {
+    const apiDocsMarkdown = await generateApiDocs(codeContent);
+    logger.info("[Fortress] postApiDocs — docs generated", {
+      inputLength: codeContent.length,
+      outputLength: apiDocsMarkdown.length,
+    });
+    return ok({ status: "success", apiDocsMarkdown });
+  } catch (err: any) {
+    logger.error("[Fortress] postApiDocs — Bedrock call failed", { error: err?.message });
     return {
       statusCode: 500,
       headers: { "Content-Type": "application/json" },
