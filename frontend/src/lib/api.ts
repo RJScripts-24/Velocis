@@ -232,6 +232,10 @@ export interface RepoDetail {
   fortress: { status_message: string; last_run_ago: string };
   cortex: { last_update_ago: string; service_count: number };
   risks: { critical: number; medium: number; low: number };
+  commit_sparkline?: number[];
+  commit_trend_label?: string;
+  commit_trend_direction?: 'up' | 'down' | 'flat';
+  commit_by_month?: { month: string; count: number; days: number[] }[];
 }
 
 export const getRepo = (repoId: string): Promise<RepoDetail> =>

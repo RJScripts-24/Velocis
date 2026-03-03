@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+﻿import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   Bell, CheckCircle, Shield, TestTube2, Eye, GitBranch,
@@ -8,35 +8,35 @@ import {
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router';
 import type { RepoDetail, ActivityEvent } from '../../lib/api';
+import { CommitBarChart } from './DashboardPage';
 
-// Mock repo — replace with API calls once backend auth is live
-const MOCK_REPO: RepoDetail = {
-  id: 'velocis-commerce',
-  name: 'velocis-commerce',
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+
+// Default fallback values used while data is loading or if the API fails
+const FALLBACK_REPO: RepoDetail = {
+  id: '',
+  name: 'Loadingâ€¦',
   status: 'healthy',
-  status_label: 'Healthy',
+  status_label: 'Loading',
   visibility: 'private',
-  language: 'TypeScript',
-  last_scanned_ago: '3 minutes ago',
+  language: 'â€”',
+  last_scanned_ago: 'â€”',
   last_scanned_at: new Date().toISOString(),
-  size_loc: '24,180 LOC',
+  size_loc: 'â€”',
   metrics: {
-    risk_score: '12/100',
-    test_stability_pct: 94,
-    architecture_drift: 'Low',
-    last_action_ago: '2 minutes ago',
+    risk_score: 'â€”',
+    test_stability_pct: 0,
+    architecture_drift: 'â€”',
+    last_action_ago: 'â€”',
   },
-  sentinel: { active_prs: 2, last_update_ago: '2m ago' },
-  fortress: { status_message: '42 tests passing', last_run_ago: '5m ago' },
-  cortex: { last_update_ago: '8m ago', service_count: 7 },
-  risks: { critical: 0, medium: 3, low: 9 },
+  sentinel: { active_prs: 0, last_update_ago: 'â€”' },
+  fortress: { status_message: 'â€”', last_run_ago: 'â€”' },
+  cortex: { last_update_ago: 'â€”', service_count: 0 },
+  risks: { critical: 0, medium: 0, low: 0 },
+  commit_sparkline: [],
+  commit_trend_label: '',
+  commit_trend_direction: 'flat' as const,
 };
-
-const MOCK_ACTIVITY: ActivityEvent[] = [
-  { id: '1', agent: 'sentinel', message: 'Security scan complete — no critical issues', repo_id: 'velocis-commerce', repo_name: 'velocis-commerce', severity: 'healthy', timestamp_ago: '2m ago', timestamp: new Date().toISOString() },
-  { id: '2', agent: 'fortress', message: '42 unit tests passing', repo_id: 'velocis-commerce', repo_name: 'velocis-commerce', severity: 'healthy', timestamp_ago: '5m ago', timestamp: new Date().toISOString() },
-  { id: '3', agent: 'cortex', message: 'Dependency graph updated', repo_id: 'velocis-commerce', repo_name: 'velocis-commerce', severity: 'info', timestamp_ago: '12m ago', timestamp: new Date().toISOString() },
-];
 
 
 
@@ -61,7 +61,7 @@ function AnimatedCounter({ value }: { value: number }) {
   return <>{count}</>;
 }
 
-// ─── Mini Terminal (replaces node-network SVG for "Launch Visual Cortex") ───
+// â”€â”€â”€ Mini Terminal (replaces node-network SVG for "Launch Visual Cortex") â”€â”€â”€
 const MiniTerminal = () => (
   <div className="w-full h-full bg-[#1e1e1e] rounded-lg overflow-hidden border border-zinc-700/60 flex flex-col">
     {/* macOS-style window header */}
@@ -69,23 +69,23 @@ const MiniTerminal = () => (
       <span className="w-[9px] h-[9px] rounded-full bg-[#ff5f57]" />
       <span className="w-[9px] h-[9px] rounded-full bg-[#febc2e]" />
       <span className="w-[9px] h-[9px] rounded-full bg-[#28c840]" />
-      <span className="ml-2 text-[10px] text-zinc-500 font-mono">cortex — live trace</span>
+      <span className="ml-2 text-[10px] text-zinc-500 font-mono">cortex â€” live trace</span>
     </div>
     {/* Terminal body */}
     <div className="p-3 font-mono text-[11px] leading-snug space-y-[3px] flex-1">
-      <div><span className="text-zinc-600">12:01:03</span> <span className="text-emerald-400">[TRACE]</span> <span className="text-zinc-300">GET /api/services → 200</span> <span className="text-zinc-600">38ms</span></div>
+      <div><span className="text-zinc-600">12:01:03</span> <span className="text-emerald-400">[TRACE]</span> <span className="text-zinc-300">GET /api/services â†’ 200</span> <span className="text-zinc-600">38ms</span></div>
       <div><span className="text-zinc-600">12:01:04</span> <span className="text-sky-400">[SPAN ]</span> <span className="text-zinc-300">db.query workers_pool</span> <span className="text-zinc-600">12ms</span></div>
       <div><span className="text-zinc-600">12:01:04</span> <span className="text-amber-400">[WARN ]</span> <span className="text-amber-300/90">writer.go:214 mutex contention</span></div>
-      <div><span className="text-zinc-600">12:01:05</span> <span className="text-emerald-400">[TRACE]</span> <span className="text-zinc-300">POST /api/scale → 202</span> <span className="text-zinc-600">21ms</span></div>
+      <div><span className="text-zinc-600">12:01:05</span> <span className="text-emerald-400">[TRACE]</span> <span className="text-zinc-300">POST /api/scale â†’ 202</span> <span className="text-zinc-600">21ms</span></div>
       <div className="flex items-center gap-1 pt-0.5">
         <span className="text-zinc-600">12:01:05</span>
-        <span className="text-zinc-400 animate-pulse">▍</span>
+        <span className="text-zinc-400 animate-pulse">â–</span>
       </div>
     </div>
   </div>
 );
 
-// ─── PR Risk Bars — monochromatic indigo scale, thin (h-1.5) ─────────────────
+// â”€â”€â”€ PR Risk Bars â€” monochromatic indigo scale, thin (h-1.5) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const prData = [
   { label: "PR #478", risk: 15 },
   { label: "PR #479", risk: 62 },
@@ -95,7 +95,7 @@ const prData = [
   { label: "PR #483", risk: 27 },
 ];
 
-// Monochromatic indigo: higher risk → more saturated/darker shade
+// Monochromatic indigo: higher risk â†’ more saturated/darker shade
 const getIndigoBarColor = (risk: number) => {
   if (risk >= 80) return 'bg-indigo-700 dark:bg-indigo-500';
   if (risk >= 55) return 'bg-indigo-500 dark:bg-indigo-400';
@@ -122,7 +122,7 @@ const PRRiskBars = () => (
   </div>
 );
 
-// ─── GitHub-style Mini Bar Chart (replaces wavy line for "QA Pipeline") ─────
+// â”€â”€â”€ GitHub-style Mini Bar Chart (replaces wavy line for "QA Pipeline") â”€â”€â”€â”€â”€
 const qaData = [94, 97, 95, 100, 98, 92, 96, 100, 99, 95, 98, 100, 97, 100, 96, 98, 97, 100, 95, 99, 100, 96, 97, 98, 100, 99, 97, 100];
 
 const QABarChart = () => {
@@ -156,7 +156,7 @@ const QABarChart = () => {
   );
 };
 
-// ─── AWS Resource Key-Value List (replaces donut chart for "Infrastructure") ─
+// â”€â”€â”€ AWS Resource Key-Value List (replaces donut chart for "Infrastructure") â”€
 const awsResources = [
   { name: 'Lambda', count: 42, ok: true },
   { name: 'DynamoDB', count: 3, ok: true },
@@ -183,7 +183,7 @@ const AWSResourceList = () => (
   </div>
 );
 
-// ─── Canonical card class helper ─────────────────────────────────────────────
+// â”€â”€â”€ Canonical card class helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const cardCls = [
   "bg-white dark:bg-zinc-900",
   "border border-[rgba(16,24,40,0.06)] dark:border-zinc-800",
@@ -194,17 +194,67 @@ const cardCls = [
 export function RepositoryPage() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
-  const [repo] = useState<RepoDetail>(MOCK_REPO);
-  const [repoActivity] = useState<ActivityEvent[]>(MOCK_ACTIVITY);
-  const [isLoading] = useState(false);
+  const [repo, setRepo] = useState<RepoDetail>(FALLBACK_REPO);
+  const [repoActivity, setRepoActivity] = useState<ActivityEvent[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const [isDarkMode, setIsDarkMode] = useState(false);
   const themeClass = isDarkMode ? 'dark' : '';
 
+  // Fetch repo details and activity from the backend
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setIsLoading(true);
+      setError(null);
+      try {
+        // Fetch repo detail
+        const repoRes = await fetch(`${BACKEND_URL}/api/repos/${id}`, { credentials: 'include' });
+        if (repoRes.status === 401) { navigate('/auth'); return; }
+        if (!repoRes.ok) throw new Error(`Failed to load repository (${repoRes.status})`);
+        const repoData: RepoDetail = await repoRes.json();
+        if (!cancelled) setRepo(repoData);
+
+        // Fetch activity for this repo
+        try {
+          const actRes = await fetch(`${BACKEND_URL}/api/activity?repo_id=${encodeURIComponent(id)}&limit=10`, { credentials: 'include' });
+          if (actRes.ok) {
+            const actData = await actRes.json();
+            if (!cancelled) setRepoActivity(actData.events ?? []);
+          }
+        } catch (_) { /* activity is non-fatal */ }
+      } catch (err: any) {
+        console.error('Error loading repo:', err);
+        if (!cancelled) setError(err.message ?? 'Failed to load repository');
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [id, navigate]);
+
   if (isLoading || !repo) {
     return (
-      <div className="w-full min-h-screen flex items-center justify-center bg-[#f6f7fb] dark:bg-[#0A0A0E]">
+      <div className="w-full min-h-screen flex flex-col items-center justify-center bg-[#f6f7fb] dark:bg-[#0A0A0E] gap-3">
         <Loader2 className="w-7 h-7 animate-spin text-indigo-500" />
+        <span className="text-sm text-zinc-400">Loading repositoryâ€¦</span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="w-full min-h-screen flex flex-col items-center justify-center bg-[#f6f7fb] dark:bg-[#0A0A0E] gap-3">
+        <AlertCircle className="w-7 h-7 text-rose-500" />
+        <span className="text-sm text-zinc-600 dark:text-zinc-400">{error}</span>
+        <button
+          onClick={() => navigate('/dashboard')}
+          className="mt-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
+        >
+          Back to Dashboard
+        </button>
       </div>
     );
   }
@@ -313,7 +363,7 @@ export function RepositoryPage() {
           </div>
         </div>
 
-        {/* MAIN CONTENT — two-column layout */}
+        {/* MAIN CONTENT â€” two-column layout */}
         <div className="w-full flex-1 flex flex-col min-h-0">
           <div className="relative z-10 w-full flex-1">
 
@@ -329,11 +379,11 @@ export function RepositoryPage() {
               <div className="flex items-center gap-3 mb-8 text-xs font-medium text-zinc-500 dark:text-slate-400 flex-wrap">
                 {[repo.visibility, repo.language, repo.size_loc].map((txt, i) => (
                   <React.Fragment key={i}>
-                    {i > 0 && <span className="text-zinc-300 dark:text-slate-600 text-[10px]">•</span>}
+                    {i > 0 && <span className="text-zinc-300 dark:text-slate-600 text-[10px]">â€¢</span>}
                     <div className="px-2.5 py-1 rounded-md bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-slate-300">{txt}</div>
                   </React.Fragment>
                 ))}
-                <span className="text-zinc-300 dark:text-slate-600 text-[10px]">•</span>
+                <span className="text-zinc-300 dark:text-slate-600 text-[10px]">â€¢</span>
                 <span className="text-zinc-400 dark:text-slate-500 text-xs">Scanned {repo.last_scanned_ago}</span>
               </div>
             </div>
@@ -341,7 +391,7 @@ export function RepositoryPage() {
             {/* Two-column body */}
             <div className="grid grid-cols-1 xl:grid-cols-[1fr_340px] items-start px-6 md:px-10 pb-10 gap-6">
 
-              {/* ── LEFT COLUMN ─────────────────────────────────────────────── */}
+              {/* â”€â”€ LEFT COLUMN â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
               <div className="flex flex-col gap-6 min-w-0">
 
                 {/* KPI STRIP */}
@@ -401,39 +451,142 @@ export function RepositoryPage() {
                 {/* REPOSITORY ACTIVITY / RISK OVERVIEW */}
                 <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-4">
                   <div className={`${cardCls} rounded-2xl p-6 flex flex-col`}>
-                    <div className="flex justify-between items-center mb-5">
+                    <div className="flex justify-between items-center mb-4">
                       <div className="text-[15px] font-bold text-zinc-900 dark:text-white tracking-tight">Repository Activity</div>
-                      <div className="text-[11px] font-medium text-zinc-400 dark:text-zinc-500">30 Days</div>
+                      <div className="text-[11px] font-medium text-zinc-400 dark:text-zinc-500">All Time</div>
                     </div>
-                    <div className="flex-1 relative">
-                      <svg viewBox="0 0 100 40" preserveAspectRatio="none" className="w-full h-[140px] overflow-visible">
-                        <defs>
-                          <linearGradient id="blueGlow" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="rgba(96,165,250,0.15)" />
-                            <stop offset="100%" stopColor="transparent" />
-                          </linearGradient>
-                        </defs>
-                        <path d="M 0,40 L 0,35 Q 10,25 20,30 T 40,10 T 60,20 T 80,5 T 100,15 L 100,40 Z" fill="url(#blueGlow)" />
-                        <motion.path
-                          d="M 0,35 Q 10,25 20,30 T 40,10 T 60,20 T 80,5 T 100,15"
-                          fill="none" stroke="#60A5FA" strokeWidth="1.5"
-                          strokeLinecap="round" strokeLinejoin="round"
-                          initial={{ pathLength: 0 }} animate={{ pathLength: 1 }}
-                          transition={{ duration: 2.5, ease: "easeOut" }}
-                        />
-                        {[{ x: 0, y: 35 }, { x: 20, y: 30 }, { x: 40, y: 10 }, { x: 60, y: 20 }, { x: 80, y: 5 }, { x: 100, y: 15 }].map((pt, i) => (
-                          <motion.circle
-                            key={i} cx={pt.x} cy={pt.y} r="2" className="fill-blue-400 stroke-white dark:stroke-zinc-900 stroke-[0.8px]"
-                            initial={{ opacity: 0, scale: 0 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 1 + i * 0.2 }}
-                          />
-                        ))}
-                      </svg>
-                      <div className="absolute -bottom-2.5 left-0 right-0 flex justify-between text-[10px] font-semibold text-zinc-400 dark:text-zinc-500">
-                        <span>JUN</span><span>JUL</span><span>AUG</span><span>SEP</span>
-                      </div>
+                    <div className="flex-1 flex flex-col">
+                      {(repo.commit_by_month?.length ?? 0) > 0 ? (() => {
+                        const months = repo.commit_by_month!;
+                        // Flatten all days into a single array for the continuous line chart
+                        const allDays = months.flatMap(m => m.days);
+                        const maxVal = Math.max(...allDays, 1);
+                        const W = 100, H = 60;
+                        const pts = allDays.map((v, i) => {
+                          const x = (i / (allDays.length - 1)) * W;
+                          const y = H - (v / maxVal) * (H - 6);
+                          return `${x.toFixed(2)},${y.toFixed(2)}`;
+                        });
+                        const lineColor = repo.status === 'critical' ? '#ef4444' : repo.status === 'warning' ? '#f59e0b' : '#60A5FA';
+                        const fillId = `fill-${repo.id}`;
+                        // Month boundary positions (x%)
+                        const monthBounds: { label: string; x: number; count: number }[] = [];
+                        let dayIdx = 0;
+                        for (const m of months) {
+                          const x = (dayIdx / allDays.length) * 100;
+                          monthBounds.push({ label: m.month, x, count: m.count });
+                          dayIdx += m.days.length;
+                        }
+                        return (
+                          <>
+                            {/* SVG line chart */}
+                            <div className="relative w-full" style={{ paddingTop: '28%' }}>
+                              <svg
+                                viewBox={`0 0 ${W} ${H}`}
+                                preserveAspectRatio="none"
+                                className="absolute inset-0 w-full h-full overflow-visible"
+                              >
+                                <defs>
+                                  <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stopColor={lineColor} stopOpacity="0.18" />
+                                    <stop offset="100%" stopColor={lineColor} stopOpacity="0" />
+                                  </linearGradient>
+                                  {/* Month boundary lines */}
+                                  {monthBounds.slice(1).map((mb) => (
+                                    <line
+                                      key={mb.label + '-div'}
+                                      x1={mb.x} y1="0"
+                                      x2={mb.x} y2={H}
+                                      stroke="currentColor"
+                                      strokeWidth="0.4"
+                                      strokeDasharray="2 2"
+                                      className="text-zinc-200 dark:text-zinc-700"
+                                    />
+                                  ))}
+                                </defs>
+                                {/* Fill under line */}
+                                <polyline
+                                  points={`0,${H} ${pts.join(' ')} ${W},${H}`}
+                                  fill={`url(#${fillId})`}
+                                  stroke="none"
+                                />
+                                {/* Line */}
+                                <polyline
+                                  points={pts.join(' ')}
+                                  fill="none"
+                                  stroke={lineColor}
+                                  strokeWidth="1.5"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                />
+                                {/* Dots only on days with commits */}
+                                {allDays.map((v, i) => {
+                                  if (v === 0) return null;
+                                  const x = (i / (allDays.length - 1)) * W;
+                                  const y = H - (v / maxVal) * (H - 6);
+                                  return (
+                                    <circle key={i} cx={x} cy={y} r="1.5"
+                                      fill={lineColor} stroke="white" strokeWidth="0.5" />
+                                  );
+                                })}
+                              </svg>
+                            </div>
+
+                            {/* Month labels + commit counts below */}
+                            <div className="flex gap-0.5 w-full mt-3">
+                              {months.map((m, mi) => (
+                                <div
+                                  key={m.month}
+                                  className="flex-1 flex flex-col items-center gap-0.5 group relative cursor-default"
+                                  style={{ flexBasis: `${(m.days.length / allDays.length) * 100}%` }}
+                                >
+                                  <div className="absolute -top-7 left-1/2 -translate-x-1/2 bg-zinc-800 dark:bg-zinc-700 text-white text-[9px] font-semibold px-2 py-1 rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 shadow-lg">
+                                    {m.count} commit{m.count !== 1 ? 's' : ''}
+                                  </div>
+                                  {/* Mini bar showing relative count */}
+                                  <div className="w-full h-[18px] flex items-end">
+                                    <div
+                                      className="w-full rounded-t-sm"
+                                      style={{
+                                        height: `${Math.max(15, (m.count / Math.max(...months.map(x => x.count), 1)) * 100)}%`,
+                                        backgroundColor: lineColor,
+                                        opacity: 0.25 + (mi / months.length) * 0.55,
+                                      }}
+                                    />
+                                  </div>
+                                  {/* Month name */}
+                                  <div className="text-[8px] font-semibold text-zinc-400 dark:text-zinc-500 truncate w-full text-center">
+                                    {m.month.split(' ')[0]}
+                                  </div>
+                                  {/* Year â€” only when it changes */}
+                                  <div className="text-[7px] font-medium text-zinc-300 dark:text-zinc-600 h-[9px]">
+                                    {mi === 0 || m.month.split(' ')[1] !== months[mi - 1].month.split(' ')[1]
+                                      ? m.month.split(' ')[1] : ''}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* Footer */}
+                            <div className="flex justify-between items-center mt-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
+                              <div className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">commit history</div>
+                              {repo.commit_trend_label && (
+                                <div className={`text-xs font-bold ${repo.commit_trend_direction === 'up' ? 'text-emerald-600 dark:text-emerald-400' :
+                                  repo.commit_trend_direction === 'down' ? 'text-rose-600 dark:text-rose-400' :
+                                    'text-amber-600 dark:text-amber-400'
+                                  }`}>{repo.commit_trend_label}</div>
+                              )}
+                            </div>
+                          </>
+                        );
+                      })() : (
+                        <div className="flex flex-col items-center justify-center h-[200px] text-sm text-zinc-400 dark:text-zinc-500">
+                          <div className="text-2xl mb-2">ðŸ“Š</div>
+                          <div>No commit history available yet</div>
+                        </div>
+                      )}
                     </div>
                   </div>
-
                   <div className={`${cardCls} rounded-2xl p-6`}>
                     <div className="text-[15px] font-bold text-zinc-900 dark:text-white tracking-tight mb-5">Risk Overview</div>
                     <div className="flex items-center gap-6 py-2">
@@ -466,78 +619,77 @@ export function RepositoryPage() {
                 </div>
 
               </div>
-              {/* ── END LEFT COLUMN ─────────────────────────────────────────── */}
-
-              {/* ── RIGHT SIDEBAR ────────────────────────────────────────────── */}
-              <div className="flex flex-col gap-5 xl:sticky xl:top-[72px] self-start">
-
-                {/* RECENT AUTONOMOUS ACTIVITY */}
-                <div className={`${cardCls} rounded-2xl overflow-hidden`}>
-                  <div className="px-5 py-4 border-b border-[rgba(16,24,40,0.06)] dark:border-zinc-800 text-[15px] font-bold text-zinc-900 dark:text-white tracking-tight">
-                    Recent Activity
-                  </div>
-                  {activityItems.length === 0 ? (
-                    <div className="px-5 py-8 text-center text-[13px] text-zinc-400 dark:text-zinc-500">No activity yet</div>
-                  ) : activityItems.map((item, i) => (
-                    <div
-                      key={i}
-                      className={`flex items-start gap-3 px-5 py-3.5 transition-colors duration-150 hover:bg-zinc-50 dark:hover:bg-zinc-800/40 ${i === activityItems.length - 1 ? '' : 'border-b border-[rgba(16,24,40,0.04)] dark:border-zinc-800/60'}`}
-                    >
-                      <div className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center mt-0.5" style={{ backgroundColor: `${item.color}15`, border: `1px solid ${item.color}25` }}>
-                        <item.icon className="w-3 h-3" style={{ color: item.color }} />
-                      </div>
-                      <div className="flex flex-col flex-1 gap-0.5 min-w-0">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-[9px] font-bold uppercase tracking-widest text-zinc-400 dark:text-zinc-500">{item.agent}</span>
-                          <span className="text-[10px] font-medium text-zinc-400 dark:text-zinc-500 shrink-0">{item.time}</span>
-                        </div>
-                        <div className="text-[12px] leading-snug text-zinc-600 dark:text-slate-300 font-medium">{item.text}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* TOOL CARDS */}
-                <div className={`${cardCls} rounded-2xl overflow-hidden`}>
-                  <div className="px-5 py-4 border-b border-[rgba(16,24,40,0.06)] dark:border-zinc-800 text-[10px] font-semibold tracking-widest text-zinc-400 dark:text-zinc-500 uppercase">
-                    Settings
-                  </div>
-                  {[
-                    { icon: Settings, label: 'Repository Settings', sub: 'Manage integrations & tokens' },
-                    { icon: Webhook, label: 'Webhook Status', sub: '3 active endpoints' },
-                    { icon: Sliders, label: 'Agent Configuration', sub: 'Rules & thresholds' },
-                  ].map((tool, i) => (
-                    <div
-                      key={i}
-                      className={`flex items-center gap-3 px-5 py-3.5 cursor-pointer transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/40 group ${i < 2 ? 'border-b border-[rgba(16,24,40,0.04)] dark:border-zinc-800/60' : ''}`}
-                    >
-                      <div className="w-8 h-8 rounded-lg bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 flex shrink-0 items-center justify-center transition-colors group-hover:bg-zinc-100 dark:group-hover:bg-zinc-700">
-                        <tool.icon className="w-3.5 h-3.5 text-zinc-500 dark:text-zinc-400" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[13px] font-semibold text-zinc-900 dark:text-white truncate">{tool.label}</div>
-                        <div className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">{tool.sub}</div>
-                      </div>
-                      <ChevronRight className="w-3.5 h-3.5 text-zinc-400 dark:text-zinc-500 shrink-0 transition-transform group-hover:translate-x-0.5" />
-                    </div>
-                  ))}
-                </div>
-
-              </div>
-              {/* ── END RIGHT SIDEBAR ────────────────────────────────────────── */}
-
             </div>
+            {/* â”€â”€ END LEFT COLUMN â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
 
-            {/* FOOTER — full width */}
-            <div className="px-6 md:px-10 py-5 border-t border-zinc-200 dark:border-zinc-800 flex flex-col sm:flex-row justify-between items-center gap-4">
-              <div className="text-xs text-zinc-400 dark:text-zinc-500">© 2026 Velocis Technologies</div>
-              <div className="flex gap-5">
-                {['Docs', 'Security', 'System Status'].map(link => (
-                  <span key={link} className="text-xs text-zinc-500 dark:text-zinc-400 cursor-pointer transition-colors hover:text-zinc-800 dark:hover:text-white">{link}</span>
+            {/* â”€â”€ RIGHT SIDEBAR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+            <div className="flex flex-col gap-5 xl:sticky xl:top-[72px] self-start">
+
+              {/* RECENT AUTONOMOUS ACTIVITY */}
+              <div className={`${cardCls} rounded-2xl overflow-hidden`}>
+                <div className="px-5 py-4 border-b border-[rgba(16,24,40,0.06)] dark:border-zinc-800 text-[15px] font-bold text-zinc-900 dark:text-white tracking-tight">
+                  Recent Activity
+                </div>
+                {activityItems.length === 0 ? (
+                  <div className="px-5 py-8 text-center text-[13px] text-zinc-400 dark:text-zinc-500">No activity yet</div>
+                ) : activityItems.map((item, i) => (
+                  <div
+                    key={i}
+                    className={`flex items-start gap-3 px-5 py-3.5 transition-colors duration-150 hover:bg-zinc-50 dark:hover:bg-zinc-800/40 ${i === activityItems.length - 1 ? '' : 'border-b border-[rgba(16,24,40,0.04)] dark:border-zinc-800/60'}`}
+                  >
+                    <div className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center mt-0.5" style={{ backgroundColor: `${item.color}15`, border: `1px solid ${item.color}25` }}>
+                      <item.icon className="w-3 h-3" style={{ color: item.color }} />
+                    </div>
+                    <div className="flex flex-col flex-1 gap-0.5 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[9px] font-bold uppercase tracking-widest text-zinc-400 dark:text-zinc-500">{item.agent}</span>
+                        <span className="text-[10px] font-medium text-zinc-400 dark:text-zinc-500 shrink-0">{item.time}</span>
+                      </div>
+                      <div className="text-[12px] leading-snug text-zinc-600 dark:text-slate-300 font-medium">{item.text}</div>
+                    </div>
+                  </div>
                 ))}
               </div>
-            </div>
 
+              {/* TOOL CARDS */}
+              <div className={`${cardCls} rounded-2xl overflow-hidden`}>
+                <div className="px-5 py-4 border-b border-[rgba(16,24,40,0.06)] dark:border-zinc-800 text-[10px] font-semibold tracking-widest text-zinc-400 dark:text-zinc-500 uppercase">
+                  Settings
+                </div>
+                {[
+                  { icon: Settings, label: 'Repository Settings', sub: 'Manage integrations & tokens' },
+                  { icon: Webhook, label: 'Webhook Status', sub: '3 active endpoints' },
+                  { icon: Sliders, label: 'Agent Configuration', sub: 'Rules & thresholds' },
+                ].map((tool, i) => (
+                  <div
+                    key={i}
+                    className={`flex items-center gap-3 px-5 py-3.5 cursor-pointer transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/40 group ${i < 2 ? 'border-b border-[rgba(16,24,40,0.04)] dark:border-zinc-800/60' : ''}`}
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 flex shrink-0 items-center justify-center transition-colors group-hover:bg-zinc-100 dark:group-hover:bg-zinc-700">
+                      <tool.icon className="w-3.5 h-3.5 text-zinc-500 dark:text-zinc-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] font-semibold text-zinc-900 dark:text-white truncate">{tool.label}</div>
+                      <div className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">{tool.sub}</div>
+                    </div>
+                    <ChevronRight className="w-3.5 h-3.5 text-zinc-400 dark:text-zinc-500 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                  </div>
+                ))}
+              </div>
+
+            </div>
+            {/* â”€â”€ END RIGHT SIDEBAR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+
+          </div>
+
+          {/* FOOTER â€” full width */}
+          <div className="px-6 md:px-10 py-5 border-t border-zinc-200 dark:border-zinc-800 flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div className="text-xs text-zinc-400 dark:text-zinc-500">Â© 2026 Velocis Technologies</div>
+            <div className="flex gap-5">
+              {['Docs', 'Security', 'System Status'].map(link => (
+                <span key={link} className="text-xs text-zinc-500 dark:text-zinc-400 cursor-pointer transition-colors hover:text-zinc-800 dark:hover:text-white">{link}</span>
+              ))}
+            </div>
           </div>
         </div>
       </div>
