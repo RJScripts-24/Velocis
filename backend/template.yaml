@@ -439,6 +439,21 @@ Resources:
             Path:   /repos/{repoId}/workspace/chat
             Method: POST
 
+  WorkspaceReviewCodebaseFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler:     src/handlers/api/getWorkspaceData.reviewCodebase
+      Description: POST /repos/:repoId/workspace/review
+      Timeout:     60
+      MemorySize:  512
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref VelocisApi
+            Path:   /repos/{repoId}/workspace/review
+            Method: POST
+
   WorkspaceChatHistoryFunction:
     Type: AWS::Serverless::Function
     Properties:

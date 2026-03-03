@@ -406,6 +406,29 @@ export interface CodeAnnotation {
   suggestions: string[];
 }
 
+export interface WorkspaceReviewFinding {
+  severity: 'critical' | 'warning' | 'info';
+  file_path: string;
+  line?: number;
+  title: string;
+  description: string;
+  fix_suggestion: string;
+}
+
+export interface WorkspaceAutoFix {
+  file_path: string;
+  reason: string;
+  fixed_code: string;
+}
+
+export interface WorkspaceReviewResult {
+  summary: string;
+  risk_level: 'low' | 'medium' | 'high' | 'critical';
+  files_reviewed: number;
+  findings: WorkspaceReviewFinding[];
+  auto_fix: WorkspaceAutoFix | null;
+}
+
 export interface ChatMessage {
   message_id: string;
   role: MessageRole;
@@ -418,6 +441,8 @@ export interface ChatMessage {
     description: string;
     suggestions: string[];
   };
+  review?: WorkspaceReviewResult;
+  auto_fix?: WorkspaceAutoFix | null;
   timestamp: string;
   timestamp_ago: string;
 }
@@ -454,6 +479,15 @@ export const postChatMessage = (
   request(`/api/repos/${repoId}/workspace/chat`, {
     method: 'POST',
     body: JSON.stringify(payload),
+  });
+
+export const reviewWorkspaceCode = (
+  repoId: string,
+  payload?: { language?: Language; ref?: string },
+): Promise<ChatMessage> =>
+  request(`/api/repos/${repoId}/workspace/review`, {
+    method: 'POST',
+    body: JSON.stringify(payload ?? {}),
   });
 
 export const getChatHistory = (

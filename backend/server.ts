@@ -262,6 +262,7 @@ app.get("/api/repos/:repoId/workspace/files", wrap(getWorkspaceData.listFiles as
 app.get("/api/repos/:repoId/workspace/files/content", wrap(getWorkspaceData.getFileContent as LambdaHandler));
 app.get("/api/repos/:repoId/workspace/annotations", wrap(getWorkspaceData.getAnnotations as LambdaHandler));
 app.post("/api/repos/:repoId/workspace/chat", wrap(getWorkspaceData.sendChatMessage as LambdaHandler));
+app.post("/api/repos/:repoId/workspace/review", wrap(getWorkspaceData.reviewCodebase as LambdaHandler));
 app.get("/api/repos/:repoId/workspace/chat/history", wrap(getWorkspaceData.getChatHistory as LambdaHandler));
 
 // § 11 — Infrastructure / IaC
