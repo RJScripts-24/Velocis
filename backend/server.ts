@@ -66,16 +66,33 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 // ── Lambda adapter ───────────────────────────────────────────────────────────
 
-/** Convert an Express request + resolved path params to an APIGatewayProxyEvent */
+// ... existing ...
 function toEvent(req: Request, pathParams: Record<string, string> = {}): APIGatewayProxyEvent {
   const qs: Record<string, string> = {};
   for (const [k, v] of Object.entries(req.query)) {
-    if (typeof v === "string") qs[k] = v;
+    if (typeof v === "string") {
+      qs[k] = v;
+    } else if (Array.isArray(v)) {
+      qs[k] = String(v[0]);
+    }
   }
 
   const headers: Record<string, string> = {};
   for (const [k, v] of Object.entries(req.headers)) {
-    if (typeof v === "string") headers[k] = v;
+    if (typeof v === "string") {
+      headers[k] = v;
+    } else if (Array.isArray(v)) {
+      headers[k] = String(v[0]);
+    }
+  }
+
+  const multiValueHeaders: Record<string, string[]> = {};
+  for (const [k, v] of Object.entries(req.headers)) {
+    if (Array.isArray(v)) {
+      multiValueHeaders[k] = v.map(String);
+    } else if (typeof v === "string") {
+      multiValueHeaders[k] = [v];
+    }
   }
 
   return {
@@ -133,12 +150,14 @@ function wrap(handler: LambdaHandler, paramMap?: Record<string, string>) {
     const params: Record<string, string> = {};
     if (paramMap) {
       for (const [expressKey, agwKey] of Object.entries(paramMap)) {
-        if (req.params[expressKey]) params[agwKey] = req.params[expressKey];
+        if (req.params[expressKey]) {
+          params[agwKey] = String(req.params[expressKey]);
+        }
       }
     } else {
       // Auto-map: Express param name == AGW param name
       for (const [k, v] of Object.entries(req.params)) {
-        params[k] = v;
+        params[k] = String(v);
       }
     }
 
@@ -151,7 +170,12 @@ function wrap(handler: LambdaHandler, paramMap?: Record<string, string>) {
         for (const [k, v] of Object.entries(result.headers)) {
           // Skip CORS headers — already set by our middleware
           if (k.toLowerCase().startsWith("access-control-")) continue;
-          res.setHeader(k, String(v));
+
+          if (Array.isArray(v)) {
+            res.setHeader(k, (v as unknown as any[]).map(String));
+          } else {
+            res.setHeader(k, String(v));
+          }
         }
       }
 

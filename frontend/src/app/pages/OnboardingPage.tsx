@@ -33,10 +33,6 @@ export function OnboardingPage() {
   useEffect(() => {
     async function fetchRepos() {
       try {
-        const response = await fetch(`${BACKEND_URL}/api/repos`, {
-          credentials: 'omit', // We use cookies if configured, but let's just send the request. The backend expects the velocis_session cookie to be sent automatically.
-        });
-
         // Use credentials: 'include' to ensure the session cookie is sent
         const authResponse = await fetch(`${BACKEND_URL}/api/repos`, {
           credentials: 'include'
@@ -69,24 +65,100 @@ export function OnboardingPage() {
   const [installComplete, setInstallComplete] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
 
+  const [installJobId, setInstallJobId] = useState<string | null>(null);
+
   const installSteps = [
-    { label: 'Redirecting to GitHub...', icon: GitBranch }
+    { id: 'webhook', label: 'Registering GitHub webhook', icon: GitBranch },
+    { id: 'sentinel', label: 'Initializing Sentinel', icon: Shield },
+    { id: 'fortress', label: 'Provisioning Fortress QA loop', icon: CheckCircle },
+    { id: 'cortex', label: 'Activating Visual Cortex', icon: Eye }
   ];
+
+  // Poll for installation status
+  useEffect(() => {
+    if (!installJobId || installComplete) return;
+
+    let pollInterval: NodeJS.Timeout;
+
+    const checkStatus = async () => {
+      try {
+        const response = await fetch(`${BACKEND_URL}/api/repos/${selectedRepo}/install/status`, {
+          credentials: 'include'
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch status');
+        }
+
+        const data = await response.json();
+
+        // Count how many steps are complete
+        let completedSteps = 0;
+        for (let i = 0; i < installSteps.length; i++) {
+          const stepStatus = data.steps.find((s: any) => s.id === installSteps[i].id)?.status;
+          if (stepStatus === 'complete') {
+            completedSteps = i + 1;
+          }
+        }
+
+        setCurrentStep(completedSteps);
+
+        if (data.overall_status === 'complete') {
+          setInstallComplete(true);
+          setInstallJobId(null);
+        } else if (data.overall_status === 'failed') {
+          // Handle failure if needed, for now just stop polling
+          setInstallJobId(null);
+          setIsInstalling(false);
+          setError('Installation failed. Please try again.');
+        }
+
+      } catch (err) {
+        console.error('Error polling status:', err);
+      }
+    };
+
+    pollInterval = setInterval(checkStatus, 2000);
+    return () => clearInterval(pollInterval);
+  }, [installJobId, selectedRepo, installComplete]);
 
   const filteredRepos = repositories.filter(repo =>
     repo.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const handleInstall = (repo: Repository) => {
+  const handleInstall = async (repo: Repository) => {
     setSelectedRepo(repo.name);
     setIsInstalling(true);
+    setInstallComplete(false);
     setCurrentStep(0);
+    setError(null);
 
-    // Redirect to GitHub App installation flow for this specific repo
-    // The target_id is the user/org ID that owns the repo
-    setTimeout(() => {
-      window.location.href = `https://github.com/apps/velocis/installations/new?suggested_target_id=${repo.ownerId}`;
-    }, 1500);
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/repos/${repo.name}/install`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          repoName: repo.name,
+          language: repo.language
+        })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || 'Installation request failed');
+      }
+
+      const data = await response.json();
+      setInstallJobId(data.job_id);
+
+    } catch (err) {
+      console.error('Install error:', err);
+      setIsInstalling(false);
+      setError(err instanceof Error ? err.message : 'Failed to start installation');
+    }
   };
 
   // Helper function for language colors

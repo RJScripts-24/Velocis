@@ -4,45 +4,27 @@ import { Search, Home, Star, Sun, Moon, Loader2, LogOut } from 'lucide-react';
 import type { DashboardResponse, ActivityEvent, SystemHealth } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 
-// Mock data — replace with API calls once backend auth is live
-const MOCK_ACTIVITY: ActivityEvent[] = [
-  { id: '1', agent: 'sentinel', message: 'Security scan complete — no critical issues', repo_id: 'velocis-commerce', repo_name: 'velocis-commerce', timestamp_ago: '2m ago', severity: 'healthy', timestamp: new Date().toISOString() },
-  { id: '2', agent: 'fortress', message: '42 unit tests passing', repo_id: 'velocis-commerce', repo_name: 'velocis-commerce', timestamp_ago: '5m ago', severity: 'healthy', timestamp: new Date().toISOString() },
-  { id: '3', agent: 'cortex', message: 'Dependency graph updated', repo_id: 'velocis-commerce', repo_name: 'velocis-commerce', timestamp_ago: '12m ago', severity: 'info', timestamp: new Date().toISOString() },
-  { id: '4', agent: 'sentinel', message: 'PR #7 reviewed — 2 suggestions', repo_id: 'velocis-commerce', repo_name: 'velocis-commerce', timestamp_ago: '28m ago', severity: 'info', timestamp: new Date().toISOString() },
-];
+// Default initial values for data while loading or on failure
+const MOCK_ACTIVITY: ActivityEvent[] = [];
 
 const MOCK_HEALTH: SystemHealth = {
   api_latency_ms: 48,
   queue_depth: 0,
   agent_uptime_pct: 99.9,
   storage_used_pct: 14,
+  agents: [],
 };
 
-const MOCK_DASHBOARD: DashboardResponse = {
+const INITIAL_DASHBOARD: DashboardResponse = {
   user: { name: 'Developer', avatar_url: '' },
-  summary: { healthy: 1, warning: 0, critical: 0, open_risks: 2, agents_running: 3 },
-  repos: [
-    {
-      id: 'velocis-commerce',
-      name: 'velocis-commerce',
-      status: 'healthy',
-      language: 'TypeScript',
-      last_activity: [
-        { agent: 'sentinel', message: 'Security scan complete — no critical issues', severity: 'healthy', timestamp_ago: '2m ago' },
-        { agent: 'fortress', message: '42 tests passing, 0 failing', severity: 'healthy', timestamp_ago: '5m ago' },
-      ],
-      commit_sparkline: [2, 4, 3, 5, 6, 4, 7, 5, 8, 9, 6, 7],
-      commit_trend_label: '+12% this week',
-      commit_trend_direction: 'up',
-    },
-  ],
-  activity_feed: MOCK_ACTIVITY,
-  recent_deployments: [
-    { repo_id: 'velocis-commerce', environment: 'production', status: 'success', deployed_at: new Date().toISOString() },
-  ],
+  summary: { healthy: 0, warning: 0, critical: 0, open_risks: 0, agents_running: 0 },
+  repos: [],
+  activity_feed: [],
+  recent_deployments: [],
   system: MOCK_HEALTH,
 };
+
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
 const CommitBarChart = ({
   data,
@@ -76,11 +58,50 @@ export function DashboardPage() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
 
-  // Mock state — replace with API calls once backend auth is live
-  const [dashboardData] = useState<DashboardResponse>(MOCK_DASHBOARD);
-  const [activityData] = useState<ActivityEvent[]>(MOCK_ACTIVITY);
-  const [systemHealth] = useState<SystemHealth>(MOCK_HEALTH);
-  const [isLoading] = useState(false);
+  const [dashboardData, setDashboardData] = useState<DashboardResponse>(INITIAL_DASHBOARD);
+  const [activityData, setActivityData] = useState<ActivityEvent[]>(MOCK_ACTIVITY);
+  const [systemHealth, setSystemHealth] = useState<SystemHealth>(MOCK_HEALTH);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadDashboard() {
+      try {
+        setIsLoading(true);
+        const res = await fetch(`${BACKEND_URL}/api/dashboard`, {
+          credentials: 'include'
+        });
+
+        if (res.status === 401) {
+          navigate('/auth');
+          return;
+        }
+
+        if (!res.ok) {
+          throw new Error('Failed to fetch dashboard');
+        }
+
+        const data: DashboardResponse = await res.json();
+        setDashboardData(data);
+        setActivityData(data.activity_feed || []);
+
+        // The backend's DashboardResponse.system might not include 'agents' 
+        // while the SystemHealth type used by the standalone endpoint does.
+        // We ensure the shape satisfies SystemHealth for the state.
+        const healthData = data.system || MOCK_HEALTH;
+        setSystemHealth({
+          ...healthData,
+          agents: (healthData as any).agents || []
+        });
+
+      } catch (err) {
+        console.error('Error fetching dashboard:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    loadDashboard();
+  }, [navigate]);
 
   const themeClass = isDarkMode ? 'dark' : '';
 
@@ -264,7 +285,7 @@ export function DashboardPage() {
                 </span>
                 <span className="flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />
-                  {dashboardData?.summary.warning ?? 1} warning active
+                  {dashboardData?.summary.warning ?? 0} warning active
                 </span>
               </div>
 
@@ -304,6 +325,17 @@ export function DashboardPage() {
                 <div className="col-span-2 flex items-center justify-center py-20 gap-3 text-zinc-400 dark:text-slate-500">
                   <Loader2 className="w-5 h-5 animate-spin" />
                   <span className="text-sm font-medium">Loading dashboard…</span>
+                </div>
+              )}
+              {!isLoading && dashboardData?.repos?.length === 0 && (
+                <div className="col-span-2 flex flex-col items-center justify-center py-20 gap-3 text-zinc-400 dark:text-slate-500">
+                  <span className="text-sm font-medium">No repositories installed yet.</span>
+                  <button
+                    onClick={() => navigate('/onboarding')}
+                    className="mt-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
+                  >
+                    Install a Repository
+                  </button>
                 </div>
               )}
               {!isLoading && (dashboardData?.repos ?? []).map((repo) => {
