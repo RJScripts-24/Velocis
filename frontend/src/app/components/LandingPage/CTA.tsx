@@ -5,6 +5,41 @@ export default function CTA() {
     const navigate = useNavigate();
     return (
         <footer className="bg-dark text-textInverse pt-[160px] pb-[80px] relative overflow-hidden">
+            <style>{`
+                /* ── CTA Button – lift + ripple-after animation ── */
+                .cta-btn {
+                  position: relative;
+                  transition: transform 0.2s, box-shadow 0.2s;
+                  overflow: visible;
+                }
+                .cta-btn:disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+                .cta-btn:hover {
+                  transform: translateY(-3px);
+                  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+                }
+                .cta-btn:active {
+                  transform: translateY(-1px);
+                  box-shadow: 0 5px 10px rgba(0, 0, 0, 0.2);
+                }
+                .cta-btn::after {
+                  content: '';
+                  display: inline-block;
+                  height: 100%;
+                  width: 100%;
+                  border-radius: inherit;
+                  position: absolute;
+                  top: 0; left: 0;
+                  z-index: -1;
+                  background-color: var(--cta-primary, #6366f1);
+                  transition: transform 0.4s, opacity 0.4s;
+                }
+                .cta-btn:hover::after {
+                  transform: scaleX(1.4) scaleY(1.6);
+                  opacity: 0;
+                }
+                .cta-btn--blue::after  { background-color: var(--cta-primary, #6366f1); }
+                .cta-btn--violet::after { background-color: var(--cta-primary, #6366f1); }
+            `}</style>
 
             {/* Massive radial glow typical of dark mode CTA sections */}
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[800px] bg-primary/20 blur-[120px] rounded-full pointer-events-none -translate-y-1/2"></div>
@@ -25,7 +60,7 @@ export default function CTA() {
 
                 <TextGenerate delay={0.8}>
                     <div className="flex flex-col sm:flex-row gap-4">
-                        <button onClick={() => navigate('/auth')} className="bg-primary text-dark px-10 py-5 rounded-button font-bold text-lg hover:bg-primary/90 transition-colors">
+                        <button onClick={() => navigate('/auth')} className="cta-btn px-10 py-5 rounded-button font-bold text-lg" style={{ backgroundColor: 'var(--cta-primary)', color: 'var(--cta-text)' }}>
                             Connect Repository Free
                         </button>
                         <button className="bg-transparent text-textInverse border border-borderInv px-10 py-5 rounded-button font-bold text-lg hover:bg-white/5 transition-colors">

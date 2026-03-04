@@ -452,7 +452,41 @@ export function WorkspacePage() {
 
   return (
     <div className={`${themeClass} w-full h-full`}>
-      <div className="h-screen flex flex-col bg-zinc-50 dark:bg-[#010308] font-['Geist_Sans',_'Inter',_sans-serif] overflow-hidden transition-colors duration-300 relative">
+      <style>{`
+        /* ── CTA Button – lift + ripple-after animation ── */
+        .cta-btn {
+          position: relative;
+          transition: transform 0.2s, box-shadow 0.2s;
+          overflow: visible;
+        }
+        .cta-btn:disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+        .cta-btn:hover {
+          transform: translateY(-3px);
+          box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+        }
+        .cta-btn:active {
+          transform: translateY(-1px);
+          box-shadow: 0 5px 10px rgba(0, 0, 0, 0.2);
+        }
+        .cta-btn::after {
+          content: '';
+          display: inline-block;
+          height: 100%;
+          width: 100%;
+          border-radius: inherit;
+          position: absolute;
+          top: 0; left: 0;
+          z-index: -1;
+          transition: transform 0.4s, opacity 0.4s;
+        }
+        .cta-btn:hover::after {
+          transform: scaleX(1.4) scaleY(1.6);
+          opacity: 0;
+        }
+        .cta-btn--blue::after  { background-color: var(--cta-primary, #6366f1); }
+        .cta-btn--violet::after { background-color: var(--cta-primary, #6366f1); }
+      `}</style>
+      <div className="h-screen flex flex-col bg-zinc-50 dark:bg-[#010308] font-['JetBrains_Mono',_monospace] overflow-hidden transition-colors duration-300 relative">
 
         {/* Dark Mode Radial & Noise Overlays */}
         {isDarkMode && (
@@ -707,7 +741,8 @@ export function WorkspacePage() {
                 <button
                   onClick={handleReviewCode}
                   disabled={isReviewing || !id}
-                  className="w-full min-w-[110px] px-3 py-1.5 rounded-lg bg-zinc-900 dark:bg-slate-100 text-white dark:text-slate-900 text-[11px] font-semibold disabled:opacity-50 hover:bg-zinc-800 dark:hover:bg-white transition-colors flex items-center justify-center gap-1.5"
+                  className="cta-btn w-full min-w-[110px] px-3 py-1.5 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1.5"
+                  style={{ backgroundColor: 'var(--cta-primary)', color: 'var(--cta-text)' }}
                 >
                   <Sparkles className="w-3.5 h-3.5" />
                   <span>{isReviewing ? 'Reviewing...' : 'Review Code'}</span>

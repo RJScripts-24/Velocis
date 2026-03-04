@@ -34,17 +34,29 @@ export const CommitBarChart = ({
   data: number[];
   color: string;
 }) => {
-  const max = Math.max(...data) || 1;
+  // Ensure we have 35-40 bars for high density
+  const targetCount = 35;
+  let displayData = [...data];
+
+  if (displayData.length < targetCount) {
+    const padding = new Array(targetCount - displayData.length).fill(0);
+    displayData = [...padding, ...displayData];
+  } else if (displayData.length > targetCount) {
+    displayData = displayData.slice(-targetCount);
+  }
+
+  const max = Math.max(...displayData) || 1;
+
   return (
-    <div className="flex items-end gap-px w-full h-[44px]">
-      {data.map((v, i) => (
+    <div className="flex items-end gap-1 w-full h-[40px]">
+      {displayData.map((v, i) => (
         <div
           key={i}
-          className="w-1 shrink-0 rounded-t-sm"
+          className="w-1.5 shrink-0 rounded-t-[1px]"
           style={{
-            height: `${Math.max(12, (v / max) * 100)}%`,
+            height: `${Math.max(4, (v / max) * 100)}%`,
             backgroundColor: color,
-            opacity: i === data.length - 1 ? 1 : 0.25 + (i / data.length) * 0.65,
+            opacity: i === displayData.length - 1 ? 1 : 0.3 + (i / displayData.length) * 0.6,
           }}
         />
       ))}
@@ -164,9 +176,9 @@ export function DashboardPage() {
 
   const getGreeting = () => {
     const hr = new Date().getHours();
-    if (hr < 12) return 'GOOD MORNING';
-    if (hr < 17) return 'GOOD AFTERNOON';
-    return 'GOOD EVENING';
+    if (hr < 12) return 'Good morning';
+    if (hr < 17) return 'Good afternoon';
+    return 'Good evening';
   };
 
   const currentDate = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
@@ -192,7 +204,7 @@ export function DashboardPage() {
         }
       `}</style>
 
-      <div className="min-h-screen flex flex-col font-['Geist_Sans',_'Inter',_sans-serif] bg-[#f6f7fb] dark:bg-[#0A0A0E] text-zinc-900 dark:text-slate-100 transition-colors duration-300 relative overflow-x-hidden">
+      <div className="min-h-screen flex flex-col font-['JetBrains_Mono',_monospace] bg-[#f6f7fb] dark:bg-[#0A0A0E] text-zinc-900 dark:text-slate-100 transition-colors duration-300 relative overflow-x-hidden">
 
         {/* Global Noise Texture Overlay */}
         <div
@@ -303,7 +315,7 @@ export function DashboardPage() {
 
             {/* HERO */}
             <div className="mb-8">
-              <div className="text-xl font-semibold tracking-tight text-zinc-900 dark:text-slate-100">
+              <div className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-slate-100">
                 {getGreeting()}, {dashboardData?.user.name ?? user?.name ?? 'there'}
               </div>
               <div className="flex items-center gap-3 mt-1 text-[13px] text-zinc-400 dark:text-slate-500 font-medium">
@@ -395,15 +407,17 @@ export function DashboardPage() {
                   return (
                     <div
                       key={repo.id}
-                      className={`group bg-white dark:bg-[#111114] border border-[rgba(16,24,40,0.06)] dark:border-zinc-800 border-t-2 ${sc.bar} rounded-2xl p-5 relative overflow-hidden shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_rgba(16,24,40,0.06)] ring-1 ring-inset ring-black/5 dark:ring-white/[0.06] hover:-translate-y-1 hover:shadow-lg transition-all duration-300`}
+                      className={`group bg-white dark:bg-[#111114] border border-[rgba(16,24,40,0.06)] dark:border-zinc-800 rounded-2xl p-5 relative overflow-hidden shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_rgba(16,24,40,0.06)] ring-1 ring-inset ring-black/5 dark:ring-white/[0.06] hover:-translate-y-1 hover:shadow-lg transition-all duration-300`}
                     >
-                      <div className="flex justify-between items-center">
-                        <div
-                          className="text-lg font-semibold tracking-tight text-zinc-900 dark:text-slate-100 cursor-pointer"
-                          style={{ fontFamily: 'Inter, system-ui, sans-serif' }}
-                          onClick={() => navigate(`/repo/${repo.id}`)}
-                        >
-                          {repo.name}
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <div
+                            className="text-lg font-semibold tracking-tight text-zinc-900 dark:text-slate-100 cursor-pointer"
+                            style={{ fontFamily: 'Inter, system-ui, sans-serif' }}
+                            onClick={() => navigate(`/repo/${repo.id}`)}
+                          >
+                            {repo.name}
+                          </div>
                         </div>
                         <div className="flex items-center gap-2">
                           <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${sc.badgeBg} ${sc.badge} border ${sc.badgeBorder}`}>
@@ -430,10 +444,19 @@ export function DashboardPage() {
                           </div>
                         ))}
                       </div>
-                      <div className="mt-4 pt-3 border-t border-zinc-100 dark:border-zinc-800 cursor-pointer" onClick={() => navigate(`/repo/${repo.id}`)}>
-                        <div className="text-[10px] uppercase font-bold text-zinc-400 dark:text-slate-500 mb-1.5 tracking-wider">commit activity · 7d</div>
+                      <div className="mt-4 pt-4 border-t border-zinc-100 dark:border-zinc-800 cursor-pointer" onClick={() => navigate(`/repo/${repo.id}`)}>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="text-[10px] uppercase font-bold text-zinc-400 dark:text-slate-500 tracking-wider">commit activity · 7d</div>
+                          <div className="text-[10px] font-medium text-zinc-400 dark:text-slate-500">
+                            {repo.installed_at
+                              ? `Installed ${new Date(repo.installed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} at ${new Date(repo.installed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                              : 'Just installed'}
+                          </div>
+                        </div>
                         <CommitBarChart data={repo.commit_sparkline} color={barColor} />
-                        <div className={`flex justify-end mt-1 text-xs font-bold ${trendColor}`}>{repo.commit_trend_label}</div>
+                        <div className={`flex justify-end mt-1 text-xs font-bold ${trendColor}`}>
+                          {repo.commit_trend_label === "Just installed" ? "" : repo.commit_trend_label}
+                        </div>
                       </div>
                     </div>
                   );
@@ -448,7 +471,7 @@ export function DashboardPage() {
             <div className="flex-1 flex flex-col gap-5">
 
               {/* ACTIVITY PANEL */}
-              <div className="flex flex-col bg-white dark:bg-[#111114] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.05),0_1px_2px_rgba(0,0,0,0.025)] ring-1 ring-inset ring-black/5 dark:ring-white/[0.06] overflow-hidden shrink-0">
+              <div className="flex flex-col bg-white dark:bg-[#111114] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_rgba(16,24,40,0.06)] ring-1 ring-inset ring-black/5 dark:ring-white/[0.06] overflow-hidden shrink-0">
                 <div className="p-4 pb-0 shrink-0">
                   <div className="flex justify-between items-center mb-3">
                     <div className="font-semibold tracking-tight text-[15px] text-zinc-900 dark:text-white">Activity</div>
@@ -519,7 +542,7 @@ export function DashboardPage() {
               </div>
 
               {/* SYSTEM PANEL */}
-              <div className="bg-white dark:bg-[#111114] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.05),0_1px_2px_rgba(0,0,0,0.025)] ring-1 ring-inset ring-black/5 dark:ring-white/[0.06] p-5 shrink-0">
+              <div className="bg-white dark:bg-[#111114] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_rgba(16,24,40,0.06)] ring-1 ring-inset ring-black/5 dark:ring-white/[0.06] p-5 shrink-0">
                 <div className="text-[10px] font-bold tracking-widest uppercase text-zinc-400 dark:text-slate-500 mb-4 font-['JetBrains_Mono',_monospace]">System</div>
                 <div className="space-y-3">
                   {[
@@ -537,7 +560,7 @@ export function DashboardPage() {
               </div>
 
               {/* RECENT DEPLOYMENTS PANEL */}
-              <div className="bg-white dark:bg-[#111114] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.05),0_1px_2px_rgba(0,0,0,0.025)] ring-1 ring-inset ring-black/5 dark:ring-white/[0.06] p-5 shrink-0">
+              <div className="bg-white dark:bg-[#111114] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_rgba(16,24,40,0.06)] ring-1 ring-inset ring-black/5 dark:ring-white/[0.06] p-5 shrink-0">
                 <div className="text-[10px] font-bold tracking-widest uppercase text-zinc-400 dark:text-slate-500 mb-4 font-['JetBrains_Mono',_monospace]">Recent Deployments</div>
                 <div className="space-y-0.5">
                   {(dashboardData?.recent_deployments ?? []).map((dep, i) => (

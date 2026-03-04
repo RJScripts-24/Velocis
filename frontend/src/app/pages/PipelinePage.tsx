@@ -232,7 +232,41 @@ export function PipelinePage() {
 
   return (
     <div className={`${themeClass} w-full h-screen`}>
-      <div className="h-screen flex flex-col bg-slate-50 dark:bg-[#080d18] text-gray-900 dark:text-gray-100 transition-colors duration-300">
+      <style>{`
+        /* ── CTA Button – lift + ripple-after animation ── */
+        .cta-btn {
+          position: relative;
+          transition: transform 0.2s, box-shadow 0.2s;
+          overflow: visible;
+        }
+        .cta-btn:disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+        .cta-btn:hover {
+          transform: translateY(-3px);
+          box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+        }
+        .cta-btn:active {
+          transform: translateY(-1px);
+          box-shadow: 0 5px 10px rgba(0, 0, 0, 0.2);
+        }
+        .cta-btn::after {
+          content: '';
+          display: inline-block;
+          height: 100%;
+          width: 100%;
+          border-radius: inherit;
+          position: absolute;
+          top: 0; left: 0;
+          z-index: -1;
+          transition: transform 0.4s, opacity 0.4s;
+        }
+        .cta-btn:hover::after {
+          transform: scaleX(1.4) scaleY(1.6);
+          opacity: 0;
+        }
+        .cta-btn--blue::after  { background-color: var(--cta-primary, #6366f1); }
+        .cta-btn--violet::after { background-color: var(--cta-primary, #6366f1); }
+      `}</style>
+      <div className="h-screen flex flex-col bg-slate-50 dark:bg-[#080d18] text-gray-900 dark:text-gray-100 transition-colors duration-300 font-['JetBrains_Mono',_monospace]">
 
         {/* ── Top Bar ── */}
         <div className="border-b h-[60px] flex items-center justify-between px-6 bg-white dark:bg-slate-900/80 border-gray-200 dark:border-slate-800 backdrop-blur-md shadow-sm z-20 shrink-0">
@@ -324,7 +358,8 @@ export function PipelinePage() {
                 <button
                   onClick={fetchQAPlan}
                   disabled={isFortressLoading}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 text-blue-400 text-[11px] font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="cta-btn cta-btn--blue flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{ backgroundColor: 'var(--cta-primary)', color: 'var(--cta-text)' }}
                 >
                   {isFortressLoading
                     ? <RefreshCw className="w-3 h-3 animate-spin" />
@@ -427,7 +462,8 @@ export function PipelinePage() {
                 <button
                   onClick={fetchApiDocs}
                   disabled={isDocsLoading}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-500/10 hover:bg-violet-500/20 border border-violet-500/30 text-violet-400 text-[11px] font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="cta-btn cta-btn--violet flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{ backgroundColor: 'var(--cta-primary)', color: 'var(--cta-text)' }}
                 >
                   {isDocsLoading
                     ? <RefreshCw className="w-3 h-3 animate-spin" />

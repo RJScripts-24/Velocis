@@ -71,6 +71,41 @@ export function HomePage() {
 
   return (
     <div className="bg-background min-h-screen font-body flex flex-col text-textMain relative" style={{ backgroundColor: 'var(--color-background)' }}>
+      <style>{`
+        /* ── CTA Button – lift + ripple-after animation ── */
+        .cta-btn {
+          position: relative;
+          transition: transform 0.2s, box-shadow 0.2s;
+          overflow: visible;
+        }
+        .cta-btn:disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+        .cta-btn:hover {
+          transform: translateY(-3px);
+          box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+        }
+        .cta-btn:active {
+          transform: translateY(-1px);
+          box-shadow: 0 5px 10px rgba(0, 0, 0, 0.2);
+        }
+        .cta-btn::after {
+          content: '';
+          display: inline-block;
+          height: 100%;
+          width: 100%;
+          border-radius: inherit;
+          position: absolute;
+          top: 0; left: 0;
+          z-index: -1;
+          background-color: var(--cta-primary, #6366f1);
+          transition: transform 0.4s, opacity 0.4s;
+        }
+        .cta-btn:hover::after {
+          transform: scaleX(1.4) scaleY(1.6);
+          opacity: 0;
+        }
+        .cta-btn--blue::after  { background-color: var(--cta-primary, #6366f1); }
+        .cta-btn--violet::after { background-color: var(--cta-primary, #6366f1); }
+      `}</style>
       {/* Aurora Background glow */}
       <div
         className="absolute top-0 left-0 w-full h-[350px] z-0 pointer-events-none opacity-70"
@@ -95,7 +130,7 @@ export function HomePage() {
         }`}>
         <div className="w-full px-8 h-20 flex items-center justify-between">
           <div className="font-display font-bold text-xl tracking-tight">Velocis.</div>
-          <button className="bg-dark text-textInverse px-5 py-2.5 rounded-button font-medium hover:bg-dark/90 transition-colors">
+          <button onClick={() => navigate('/auth')} className="cta-btn px-5 py-2.5 rounded-button font-medium" style={{ backgroundColor: 'var(--cta-primary)', color: 'var(--cta-text)' }}>
             Connect Repository
           </button>
         </div>

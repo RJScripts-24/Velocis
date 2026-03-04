@@ -9,6 +9,7 @@ import { PipelinePage } from "./pages/PipelinePage";
 import { InfrastructurePage } from "./pages/InfrastructurePage";
 import { RepositorySettingsPage } from "./pages/RepositorySettingsPage";
 import { AuthPage } from "./pages/AuthPage";
+import { AutomationReportPage } from "./pages/AutomationReportPage";
 
 export const routeConfig = [
   {
@@ -50,6 +51,10 @@ export const routeConfig = [
   {
     path: "/repo/:id/infrastructure",
     element: <InfrastructurePage />,
+  },
+  {
+    path: "/repo/:id/automation-report",
+    element: <AutomationReportPage />,
   },
 ];
 

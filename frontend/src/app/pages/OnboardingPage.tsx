@@ -224,7 +224,41 @@ export function OnboardingPage() {
 
   return (
     <div className={`${themeClass} w-full min-h-screen`}>
-      <div className="min-h-screen font-['Geist_Sans',_'Inter',_sans-serif] bg-[#f6f7fb] dark:bg-[#0A0A0E] text-zinc-900 dark:text-slate-100 transition-colors duration-300">
+      <style>{`
+        /* ─── CTA Button – lift + ripple-after animation ─── */
+        .cta-btn {
+          position: relative;
+          transition: transform 0.2s, box-shadow 0.2s;
+          overflow: visible;
+        }
+        .cta-btn:disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+        .cta-btn:hover {
+          transform: translateY(-3px);
+          box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+        }
+        .cta-btn:active {
+          transform: translateY(-1px);
+          box-shadow: 0 5px 10px rgba(0, 0, 0, 0.2);
+        }
+        .cta-btn::after {
+          content: '';
+          display: inline-block;
+          height: 100%;
+          width: 100%;
+          border-radius: inherit;
+          position: absolute;
+          top: 0; left: 0;
+          z-index: -1;
+          transition: transform 0.4s, opacity 0.4s;
+        }
+        .cta-btn:hover::after {
+          transform: scaleX(1.4) scaleY(1.6);
+          opacity: 0;
+        }
+        .cta-btn--blue::after  { background-color: var(--cta-primary, #6366f1); }
+        .cta-btn--violet::after { background-color: var(--cta-primary, #6366f1); }
+      `}</style>
+      <div className="min-h-screen font-['JetBrains_Mono',_monospace] bg-[#f6f7fb] dark:bg-[#0A0A0E] text-zinc-900 dark:text-slate-100 transition-colors duration-300">
 
         {/* Premium Navbar — matches Dashboard */}
         <div className="flex-none z-50 border-b border-zinc-200 dark:border-slate-800/80 bg-white/80 dark:bg-slate-900/60 backdrop-blur-xl transition-colors duration-300 sticky top-0">
@@ -329,27 +363,27 @@ export function OnboardingPage() {
               </h2>
 
               {/* Search input + Open Dashboard button */}
-                <div className="flex items-center gap-3">
-                  <div className="relative">
-                    <Search
-                      className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 dark:text-slate-500"
-                    />
-                    <input
-                      type="text"
-                      placeholder="Search repositories…"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-10 pr-4 py-2 rounded-[10px] border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-slate-800/50 text-zinc-900 dark:text-slate-100 placeholder:text-zinc-400 dark:placeholder:text-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all"
-                    />
-                  </div>
-                  <button
-                    onClick={() => navigate('/dashboard')}
-                    className="px-6 py-2.5 rounded-[10px] font-medium text-[14px] transition-all hover:shadow-lg"
-                    style={{ backgroundColor: 'var(--cta-primary)', color: 'var(--cta-text)' }}
-                  >
-                    Open Dashboard
-                  </button>
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <Search
+                    className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 dark:text-slate-500"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Search repositories…"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10 pr-4 py-2 rounded-[10px] border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-slate-800/50 text-zinc-900 dark:text-slate-100 placeholder:text-zinc-400 dark:placeholder:text-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all"
+                  />
                 </div>
+                <button
+                  onClick={() => navigate('/dashboard')}
+                  className="cta-btn px-6 py-2.5 rounded-[10px] font-medium text-[14px] transition-all hover:shadow-lg"
+                  style={{ backgroundColor: 'var(--cta-primary)', color: 'var(--cta-text)' }}
+                >
+                  Open Dashboard
+                </button>
+              </div>
             </div>
 
             {/* Repo list */}
@@ -413,7 +447,7 @@ export function OnboardingPage() {
                         whileHover={{ y: -1 }}
                         whileTap={{ scale: 0.98 }}
                         onClick={() => navigate(`/repo/${repo.github_id}`)}
-                        className="px-6 py-2.5 rounded-[10px] font-medium text-[14px] transition-all hover:shadow-lg"
+                        className="cta-btn px-6 py-2.5 rounded-[10px] font-medium text-[14px] transition-all hover:shadow-lg"
                         style={{ backgroundColor: 'var(--cta-primary)', color: 'var(--cta-text)' }}
                       >
                         Open
@@ -423,7 +457,7 @@ export function OnboardingPage() {
                         whileHover={{ y: -1 }}
                         whileTap={{ scale: 0.98 }}
                         onClick={() => handleInstall(repo)}
-                        className="px-6 py-2.5 rounded-[10px] font-medium text-[14px] transition-all hover:shadow-lg"
+                        className="cta-btn px-6 py-2.5 rounded-[10px] font-medium text-[14px] transition-all hover:shadow-lg"
                         style={{ backgroundColor: 'var(--cta-primary)', color: 'var(--cta-text)' }}
                       >
                         Install Velocis
@@ -625,7 +659,7 @@ export function OnboardingPage() {
                       onClick={() => {
                         navigate('/dashboard');
                       }}
-                      className="px-8 py-3 rounded-[12px] font-medium transition-all hover:shadow-lg"
+                      className="cta-btn px-8 py-3 rounded-[12px] font-medium transition-all hover:shadow-lg"
                       style={{
                         backgroundColor: 'var(--cta-primary)',
                         color: 'var(--cta-text)'

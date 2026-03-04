@@ -764,11 +764,11 @@ export const postQAPlan = async (
       severity: "info",
     });
 
-    logger.info("[Fortress] postQAPlan — plan generated", {
+    logger.info({
       fullName,
       fileCount: fetchedPaths.length,
       outputLength: qaPlanMarkdown.length,
-    });
+    }, "[Fortress] postQAPlan — plan generated");
     return ok({ status: "success", qaPlanMarkdown, filesAnalyzed: fetchedPaths });
   } catch (err: any) {
     logger.error({ error: err?.message }, "[Fortress] postQAPlan — Bedrock call failed");
@@ -932,10 +932,10 @@ export const postApiDocs = async (
       severity: "info",
     });
 
-    logger.info("[Fortress] postApiDocs — docs generated", {
+    logger.info({
       inputLength: codeContent.length,
       outputLength: apiDocsMarkdown.length,
-    });
+    }, "[Fortress] postApiDocs — docs generated");
     return ok({ status: "success", apiDocsMarkdown });
   } catch (err: any) {
     logger.error({ error: err?.message }, "[Fortress] postApiDocs — Bedrock call failed");

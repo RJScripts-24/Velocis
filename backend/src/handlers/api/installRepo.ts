@@ -190,7 +190,7 @@ async function runInstallJob(
         status: "healthy",
         lastActivity: [],
         commitSparkline: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-        commitTrendLabel: "Just installed",
+        commitTrendLabel: "",
         commitTrendDirection: "flat",
         openRisks: 0,
         agentsRunning: 3,
@@ -225,10 +225,14 @@ export const installRepo = async (
     return errors.alreadyInstalled(repoId);
   }
   try {
-    const existingRepo = await dynamoClient.get<{ repoId: string }>({      tableName: DYNAMO_TABLES.REPOSITORIES,
+    const existingRepo = await dynamoClient.get<{ repoId: string; userId?: string }>({
+      tableName: DYNAMO_TABLES.REPOSITORIES,
       key: { repoId },
     });
-    if (existingRepo) {
+    // Only block re-install if the record is healthy and owned by this user.
+    // A corrupt record (missing userId, caused by a PutCommand overwrite) should
+    // be transparently overwritten by a fresh install rather than blocking the user.
+    if (existingRepo && existingRepo.userId === user.userId) {
       return errors.alreadyInstalled(repoId);
     }
   } catch (_) {

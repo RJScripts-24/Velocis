@@ -1,13 +1,21 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
-  Bell, CheckCircle, Shield, TestTube2, Eye, GitBranch,
+  CheckCircle, Shield, TestTube2, Eye, GitBranch,
   ChevronRight, Home, Activity, Settings, Webhook, Sliders,
   TrendingUp, AlertCircle, Cloud, Folder, FileText, Bot,
   Sun, Moon, Loader2
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router';
 import type { RepoDetail, ActivityEvent } from '../../lib/api';
+import { getToken } from '../../lib/api';
+
+function authFetch(url: string): Promise<Response> {
+  const token = getToken();
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  return fetch(url, { credentials: 'include', headers });
+}
 import { CommitBarChart } from './DashboardPage';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
@@ -234,7 +242,7 @@ export function RepositoryPage() {
       setError(null);
       try {
         // Fetch repo detail
-        const repoRes = await fetch(`${BACKEND_URL}/api/repos/${id}`, { credentials: 'include' });
+        const repoRes = await authFetch(`${BACKEND_URL}/api/repos/${id}`);
         if (repoRes.status === 401) { navigate('/auth'); return; }
         if (!repoRes.ok) throw new Error(`Failed to load repository (${repoRes.status})`);
         const repoData: RepoDetail = await repoRes.json();
@@ -242,7 +250,7 @@ export function RepositoryPage() {
 
         // Fetch activity for this repo
         try {
-          const actRes = await fetch(`${BACKEND_URL}/api/activity?repo_id=${encodeURIComponent(id)}&limit=10`, { credentials: 'include' });
+          const actRes = await authFetch(`${BACKEND_URL}/api/activity?repo_id=${encodeURIComponent(id)}&limit=10`);
           if (actRes.ok) {
             const actData = await actRes.json();
             if (!cancelled) setRepoActivity(actData.events ?? []);
@@ -251,7 +259,7 @@ export function RepositoryPage() {
 
         // Fetch PRS for Sentinel preview
         try {
-          const prsRes = await fetch(`${BACKEND_URL}/api/repos/${id}/sentinel/prs`, { credentials: 'include' });
+          const prsRes = await authFetch(`${BACKEND_URL}/api/repos/${id}/sentinel/prs`);
           if (prsRes.ok) {
             const prsData = await prsRes.json();
             if (!cancelled) setPrs(prsData.prs ?? []);
@@ -260,7 +268,7 @@ export function RepositoryPage() {
 
         // Fetch Pipeline Runs for Fortress preview
         try {
-          const runsRes = await fetch(`${BACKEND_URL}/api/repos/${id}/pipeline/runs?limit=15`, { credentials: 'include' });
+          const runsRes = await authFetch(`${BACKEND_URL}/api/repos/${id}/pipeline/runs?limit=15`);
           if (runsRes.ok) {
             const runsData = await runsRes.json();
             if (!cancelled) setPipelineRuns(runsData.runs ?? []);
@@ -269,7 +277,7 @@ export function RepositoryPage() {
 
         // Fetch Infrastructure for preview
         try {
-          const infraRes = await fetch(`${BACKEND_URL}/api/repos/${id}/infrastructure`, { credentials: 'include' });
+          const infraRes = await authFetch(`${BACKEND_URL}/api/repos/${id}/infrastructure`);
           if (infraRes.ok) {
             const iData = await infraRes.json();
             if (!cancelled) setInfraData(iData.cost_breakdown ?? []);
@@ -368,17 +376,47 @@ export function RepositoryPage() {
     color: agentColorMap[e.agent] ?? '#94a3b8',
   }));
 
-  // Shared CTA button style (secondary, no neon)
-  const ctaBtnCls = "px-3 py-1.5 text-sm font-semibold rounded-md bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 dark:bg-zinc-800 dark:border-zinc-700 dark:hover:bg-zinc-700 dark:text-zinc-200 flex items-center gap-2 w-fit transition-all duration-150";
-
   return (
     <div className={`${themeClass} w-full min-h-screen`}>
       <style>{`
         @keyframes custom-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
         @keyframes ping-slow { 0% { transform: scale(1); opacity: 0.8; } 100% { transform: scale(2.4); opacity: 0; } }
+        /* ── CTA Button – lift + ripple-after animation ── */
+        .cta-btn {
+          position: relative;
+          transition: transform 0.2s, box-shadow 0.2s;
+          overflow: visible;
+        }
+        .cta-btn:disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+        .cta-btn:hover {
+          transform: translateY(-3px);
+          box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+        }
+        .cta-btn:active {
+          transform: translateY(-1px);
+          box-shadow: 0 5px 10px rgba(0, 0, 0, 0.2);
+        }
+        .cta-btn::after {
+          content: '';
+          display: inline-block;
+          height: 100%;
+          width: 100%;
+          border-radius: inherit;
+          position: absolute;
+          top: 0; left: 0;
+          z-index: -1;
+          background-color: var(--cta-primary, #6366f1);
+          transition: transform 0.4s, opacity 0.4s;
+        }
+        .cta-btn:hover::after {
+          transform: scaleX(1.4) scaleY(1.6);
+          opacity: 0;
+        }
+        .cta-btn--blue::after  { background-color: var(--cta-primary, #6366f1); }
+        .cta-btn--violet::after { background-color: var(--cta-primary, #6366f1); }
       `}</style>
 
-      <div className="min-h-screen flex flex-col font-['Geist_Sans',_'Inter',_sans-serif] bg-[#f6f7fb] dark:bg-[#0A0A0E] text-zinc-900 dark:text-slate-100 transition-colors duration-300 relative overflow-x-hidden">
+      <div className="min-h-screen flex flex-col font-['JetBrains_Mono',_monospace] bg-[#f6f7fb] dark:bg-[#0A0A0E] text-zinc-900 dark:text-slate-100 transition-colors duration-300 relative overflow-x-hidden">
 
         {/* NAVBAR */}
         <div className="flex-none z-50 border-b border-zinc-200 dark:border-slate-800/80 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-xl transition-colors duration-300 sticky top-0 px-6 h-[60px] flex items-center justify-between">
@@ -398,10 +436,7 @@ export function RepositoryPage() {
 
           {/* Right */}
           <div className="flex items-center gap-3 ml-auto">
-            <button className="w-8 h-8 rounded-lg bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 shadow-sm flex items-center justify-center relative cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors">
-              <Bell size={16} className="text-zinc-400 dark:text-slate-500" />
-              <div className="absolute -top-1 -right-1 w-[8px] h-[8px] bg-red-500 rounded-full border-2 border-white dark:border-zinc-950" />
-            </button>
+
             <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-100/50 dark:border-emerald-800/30">
               <div className="w-[7px] h-[7px] rounded-full bg-emerald-500 animate-[custom-pulse_2s_infinite]" />
               <div className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">GitHub Sync</div>
@@ -499,7 +534,7 @@ export function RepositoryPage() {
                           </div>
                           <div className="text-lg font-bold text-zinc-900 dark:text-white mb-2 tracking-tight">{card.title}</div>
                           <div className="text-[13px] leading-relaxed text-zinc-500 dark:text-zinc-400 mb-6 flex-1">{card.description}</div>
-                          <button className={ctaBtnCls} onClick={(e) => { e.stopPropagation(); card.action(); }}>
+                          <button className="cta-btn px-3 py-1.5 text-sm font-semibold rounded-md flex items-center gap-2 w-fit" style={{ backgroundColor: 'var(--cta-primary)', color: 'var(--cta-text)' }} onClick={(e) => { e.stopPropagation(); card.action(); }}>
                             {card.cta} <ChevronRight className="w-3.5 h-3.5" />
                           </button>
                         </div>
@@ -644,32 +679,33 @@ export function RepositoryPage() {
                       )}
                     </div>
                   </div>
-                  <div className={`${cardCls} rounded-2xl p-6`}>
-                    <div className="text-[15px] font-bold text-zinc-900 dark:text-white tracking-tight mb-5">Risk Overview</div>
-                    <div className="flex items-center gap-6 py-2">
-                      <div
-                        className="relative w-24 h-24 rounded-full flex items-center justify-center shrink-0"
-                        style={{ background: `conic-gradient(#EF4444 0% ${criticalPct}%, #EAB308 ${criticalPct}% ${criticalPct + mediumPct}%, rgba(156,163,175,0.2) ${criticalPct + mediumPct}% 100%)` }}
-                      >
-                        <div className="absolute inset-2 bg-white dark:bg-zinc-900 rounded-full flex flex-col items-center justify-center shadow-sm">
-                          <div className="text-2xl font-black text-zinc-900 dark:text-white leading-none"><AnimatedCounter value={totalRisks} /></div>
-                          <div className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 mt-0.5">TOTAL</div>
+                  <div
+                    onClick={() => navigate(`/repo/${id}/automation-report`)}
+                    className={`${cardCls} rounded-2xl p-6 cursor-pointer hover:-translate-y-1 hover:shadow-lg transition-all duration-300 group`}
+                  >
+                    <div className="flex justify-between items-center mb-5">
+                      <div className="text-[15px] font-bold text-zinc-900 dark:text-white tracking-tight">Automation Report</div>
+                      <ChevronRight className="w-4 h-4 text-zinc-400 group-hover:text-indigo-500 transition-colors" />
+                    </div>
+
+                    <div className="flex flex-col gap-4">
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
+                        View the complete autonomous pipeline results, including Sentinel code reviews, Fortress QA test plans, and AI-predicted infrastructure changes.
+                      </p>
+
+                      <div className="grid grid-cols-3 gap-2 mt-2">
+                        <div className="flex flex-col items-center justify-center bg-indigo-50/50 dark:bg-indigo-950/20 rounded-lg p-2 border border-indigo-100 dark:border-indigo-900/30">
+                          <Shield className="w-4 h-4 text-indigo-500 mb-1" />
+                          <span className="text-[10px] font-bold text-zinc-600 dark:text-zinc-400">Review</span>
                         </div>
-                      </div>
-                      <div className="flex flex-col gap-3.5 flex-1">
-                        {[
-                          { label: 'Critical', dot: 'bg-red-500', val: repo.risks.critical },
-                          { label: 'Medium', dot: 'bg-yellow-500', val: repo.risks.medium },
-                          { label: 'Low', dot: 'bg-zinc-300 dark:bg-zinc-600', val: repo.risks.low },
-                        ].map((r, i) => (
-                          <div key={i} className="flex items-center justify-between">
-                            <div className="flex items-center gap-1.5">
-                              <div className={`w-2 h-2 rounded-full ${r.dot}`} />
-                              <div className="text-[11px] text-zinc-500 dark:text-zinc-400 font-medium">{r.label}</div>
-                            </div>
-                            <div className="text-[22px] font-black text-zinc-900 dark:text-white leading-none"><AnimatedCounter value={r.val} /></div>
-                          </div>
-                        ))}
+                        <div className="flex flex-col items-center justify-center bg-blue-50/50 dark:bg-blue-950/20 rounded-lg p-2 border border-blue-100 dark:border-blue-900/30">
+                          <TestTube2 className="w-4 h-4 text-blue-500 mb-1" />
+                          <span className="text-[10px] font-bold text-zinc-600 dark:text-zinc-400">Testing</span>
+                        </div>
+                        <div className="flex flex-col items-center justify-center bg-amber-50/50 dark:bg-amber-950/20 rounded-lg p-2 border border-amber-100 dark:border-amber-900/30">
+                          <Cloud className="w-4 h-4 text-amber-500 mb-1" />
+                          <span className="text-[10px] font-bold text-zinc-600 dark:text-zinc-400">Infra</span>
+                        </div>
                       </div>
                     </div>
                   </div>

@@ -69,6 +69,39 @@ export default function Hero() {
                     width: 100%;
                     height: auto;
                 }
+                /* ── CTA Button – lift + ripple-after animation ── */
+                .cta-btn {
+                  position: relative;
+                  transition: transform 0.2s, box-shadow 0.2s;
+                  overflow: visible;
+                }
+                .cta-btn:disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+                .cta-btn:hover {
+                  transform: translateY(-3px);
+                  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+                }
+                .cta-btn:active {
+                  transform: translateY(-1px);
+                  box-shadow: 0 5px 10px rgba(0, 0, 0, 0.2);
+                }
+                .cta-btn::after {
+                  content: '';
+                  display: inline-block;
+                  height: 100%;
+                  width: 100%;
+                  border-radius: inherit;
+                  position: absolute;
+                  top: 0; left: 0;
+                  z-index: -1;
+                  background-color: var(--cta-primary, #6366f1);
+                  transition: transform 0.4s, opacity 0.4s;
+                }
+                .cta-btn:hover::after {
+                  transform: scaleX(1.4) scaleY(1.6);
+                  opacity: 0;
+                }
+                .cta-btn--blue::after  { background-color: var(--cta-primary, #6366f1); }
+                .cta-btn--violet::after { background-color: var(--cta-primary, #6366f1); }
             `}</style>
 
             {/* Abstract Floating Hero Graphics */}
@@ -103,7 +136,7 @@ export default function Hero() {
 
                 {/* CTA Row */}
                 <div className="hero-anim flex flex-col sm:flex-row gap-4 mb-24">
-                    <button onClick={() => navigate('/auth')} className="flex items-center gap-2 bg-dark text-textInverse px-8 py-4 rounded-button font-medium hover:bg-dark/80 transition-opacity duration-300">
+                    <button onClick={() => navigate('/auth')} className="cta-btn flex items-center gap-2 px-8 py-4 rounded-button font-medium" style={{ backgroundColor: 'var(--cta-primary)', color: 'var(--cta-text)' }}>
                         <Github size={20} />
                         Connect Repository
                     </button>

@@ -232,6 +232,7 @@ export const handler = async (
     commit_sparkline: r.commitSparkline ?? [],
     commit_trend_label: r.commitTrendLabel ?? "",
     commit_trend_direction: r.commitTrendDirection ?? "flat",
+    installed_at: r.createdAt || r.updatedAt || r.lastProcessedAt || r.lastPushAt || r.lastScannedAt,
   }));
 
   logger.info({ userId, msg: "GET /dashboard", range });
