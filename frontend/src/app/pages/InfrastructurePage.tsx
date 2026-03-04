@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { ChevronDown, Download, RefreshCw, Shield, Lock, Zap, RotateCcw, DollarSign, TrendingDown, Server, Database, Activity, CloudCog, Home, Folder, Sun, Moon, Copy, Maximize2, Terminal } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router';
-import { getInfrastructure, getTerraformCode, generateIac, predictInfrastructure, getWorkspaceFiles, getFileContent, type CostBreakdownItem, type InfraPredictionData } from '../../lib/api';
+import { predictInfrastructure, getWorkspaceFiles, getFileContent, type InfraPredictionData } from '../../lib/api';
 
 const INFRA_TF_PLACEHOLDER = '# No analysis yet.\n# Click "Analyse Infrastructure" in the toolbar to generate\n# real Terraform IaC from your repository code.';
 
@@ -14,8 +14,7 @@ export function InfrastructurePage() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const [environment, setEnvironment] = useState<'production' | 'staging' | 'preview'>('production');
-  const [monthlyCost, setMonthlyCost] = useState(0);
-  const [costBreakdown, setCostBreakdown] = useState<CostBreakdownItem[]>([]);
+  // Cost data is derived entirely from infraData (AI prediction) — no initial mock values
   const [tfCode, setTfCode] = useState<string>(INFRA_TF_PLACEHOLDER);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -177,7 +176,8 @@ export function InfrastructurePage() {
 
   // ── Confidence badge color helper ────────────────────────────────────
   const getConfidenceBadge = () => {
-    const score = infraData?.confidenceScore ?? 92;
+    if (!infraData) return null;
+    const score = infraData.confidenceScore;
     const label = score > 80 ? 'High' : score > 50 ? 'Medium' : 'Low';
     const colorClass = score > 80
       ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100/50 dark:border-emerald-800/30'
@@ -187,30 +187,43 @@ export function InfrastructurePage() {
     return { label, score, colorClass };
   };
 
-  const loadData = (env: 'production' | 'staging' | 'preview' = environment) => {
-    if (!id) return;
-    Promise.all([getInfrastructure(id, env), getTerraformCode(id, env)])
-      .then(([infraRes, tfRes]) => {
-        setMonthlyCost(infraRes.monthly_cost_usd);
-        setCostBreakdown(infraRes.cost_breakdown);
-        setTfCode(tfRes.terraform_code);
-      })
-      .catch(console.error);
-  };
+  // ── Parse a cost number from the AI's costProjection string ─────────────
+  // e.g. "$12.50/month" → 12.50, "$0.00/month (Free Tier)" → 0
+  const parsedCost: number | null = (() => {
+    if (!infraData?.costProjection) return null;
+    const match = infraData.costProjection.match(/\$([\d,]+\.?\d*)/);
+    if (!match) return null;
+    return parseFloat(match[1].replace(/,/g, ''));
+  })();
 
-  useEffect(() => { loadData(environment); }, [id, environment]);
+  // ── Build a simple cost breakdown list from the AI impact summary ────────
+  // Extract service names from lines like "+ 1 Lambda Function", "+ 2 DynamoDB Tables"
+  const SERVICE_COLORS = [
+    '#6366f1', '#8b5cf6', '#ec4899', '#14b8a6', '#f59e0b',
+    '#3b82f6', '#10b981', '#f97316', '#ef4444', '#06b6d4',
+  ];
+  const aiCostBreakdown: { service: string; cost_usd: number; percentage: number; color: string }[] = (() => {
+    if (!infraData?.impactSummary || parsedCost === null) return [];
+    // Filter only added/modified resources (+ or ~)
+    const services = infraData.impactSummary
+      .filter(s => s.trim().startsWith('+') || s.trim().startsWith('~'))
+      .map(s => s.replace(/^[+~-]\s*\d*\s*/, '').trim())
+      .filter(Boolean);
+    if (services.length === 0) return [];
+    const perService = parsedCost / services.length;
+    return services.map((service, i) => ({
+      service,
+      cost_usd: perService,
+      percentage: 100 / services.length,
+      color: SERVICE_COLORS[i % SERVICE_COLORS.length],
+    }));
+  })();
 
+  // ── Placeholder: no regenerate needed (analysis replaces it) ─────────────
   const handleRegenerate = async () => {
-    if (!id) return;
-    setIsRegenerating(true);
-    try {
-      await generateIac(id, environment);
-      setTimeout(() => loadData(environment), 3000);
-    } catch (e) { console.error(e); }
-    finally { setIsRegenerating(false); }
+    await analyseInfrastructure();
   };
 
-  // costBreakdown from API
 
   return (
     <div className={`${themeClass} w-full h-full`}>
@@ -309,7 +322,8 @@ export function InfrastructurePage() {
             {/* Right ΓÇô Actions */}
             <div className="flex items-center gap-2">
               <button
-                className="hidden sm:flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white shadow-md shadow-indigo-500/20 hover:shadow-indigo-500/30 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="hidden sm:flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg"
+                style={{ backgroundColor: 'var(--cta-primary)', color: 'var(--cta-text)' }}
                 title="Analyse real code files to predict AWS infrastructure"
                 onClick={analyseInfrastructure}
                 disabled={isInfraLoading}
@@ -399,6 +413,7 @@ export function InfrastructurePage() {
                     </span>
                     {(() => {
                       const conf = getConfidenceBadge();
+                      if (!conf) return null;
                       return (
                         <span className={`px-2 py-0.5 rounded text-[10px] font-medium border transition-colors ${conf.colorClass}`}>
                           {conf.label} ({conf.score}%)
@@ -644,21 +659,37 @@ export function InfrastructurePage() {
                   </div>
                 )}
 
-                {/* Primary Cost */}
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ duration: 0.5, delay: 0.2 }}
-                  className="mb-3"
-                >
-                  <div className="text-4xl font-semibold tracking-tight text-emerald-500 dark:text-emerald-400 transition-colors flex items-baseline gap-1">
-                    <span className="text-2xl font-medium">$</span>
-                    {monthlyCost.toFixed(2)}
-                    <span className="text-lg font-medium text-zinc-400 dark:text-slate-500 ml-1">/ mo</span>
+                {/* Primary Cost — only shown after AI analysis */}
+                {infraData ? (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ duration: 0.5, delay: 0.2 }}
+                    className="mb-3"
+                  >
+                    <div className="text-4xl font-semibold tracking-tight text-emerald-500 dark:text-emerald-400 transition-colors flex items-baseline gap-1">
+                      {parsedCost !== null ? (
+                        <>
+                          <span className="text-2xl font-medium">$</span>
+                          {parsedCost.toFixed(2)}
+                          <span className="text-lg font-medium text-zinc-400 dark:text-slate-500 ml-1">/ mo</span>
+                        </>
+                      ) : (
+                        <span className="text-2xl font-semibold text-indigo-600 dark:text-indigo-400">
+                          {infraData.costProjection}
+                        </span>
+                      )}
+                    </div>
+                  </motion.div>
+                ) : (
+                  /* No analysis yet — show pending placeholder */
+                  <div className="mb-3 flex items-center gap-2 text-zinc-400 dark:text-slate-500">
+                    <DollarSign className="w-5 h-5" />
+                    <span className="text-[14px] font-medium italic">Run analysis to see cost</span>
                   </div>
-                </motion.div>
+                )}
 
-                {/* Cost Trend — only if data is available */}
+                {/* Cost Trend — only if AI data is available */}
                 {infraData?.costProjection && (
                   <div className="flex items-center gap-2 mb-6 px-2.5 py-1.5 rounded-md bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/30 w-fit transition-colors">
                     <TrendingDown className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
@@ -668,50 +699,60 @@ export function InfrastructurePage() {
                   </div>
                 )}
 
-                {/* Divider between cost data and breakdown */}
-                <div className="border-b border-gray-200 dark:border-slate-800 pb-6 mb-6">
-                  <h4 className="text-[13px] font-semibold mb-3 text-zinc-900 dark:text-slate-100 transition-colors">
-                    Cost Breakdown
-                  </h4>
+                {/* Cost Breakdown — only shown after AI analysis */}
+                {infraData && (
+                  <div className="border-b border-gray-200 dark:border-slate-800 pb-6 mb-6">
+                    <h4 className="text-[13px] font-semibold mb-3 text-zinc-900 dark:text-slate-100 transition-colors">
+                      Cost Breakdown
+                    </h4>
 
-                  {/* Stacked Bar */}
-                  <div className="h-5 rounded overflow-hidden flex gap-[1px] mb-4 shadow-inner">
-                    {costBreakdown.map((item, index) => (
-                      <div
-                        key={index}
-                        className="group relative transition-all hover:brightness-110 hover:scale-y-105 origin-bottom cursor-pointer"
-                        style={{
-                          width: `${item.percentage}%`,
-                          backgroundColor: item.color
-                        }}
-                      >
-                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 px-3 py-2 rounded-md opacity-0 group-hover:opacity-100 transition-all pointer-events-none whitespace-nowrap bg-zinc-900 dark:bg-slate-100 shadow-xl z-50 transform group-hover:-translate-y-1">
-                          <div className="text-[10px] font-bold text-zinc-400 dark:text-slate-500 uppercase tracking-widest mb-0.5">{item.service}</div>
-                          <div className="text-sm font-semibold text-white dark:text-zinc-900">${item.cost_usd.toFixed(2)}</div>
-                          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-zinc-900 dark:border-t-slate-100" />
+                    {aiCostBreakdown.length > 0 ? (
+                      <>
+                        {/* Stacked Bar */}
+                        <div className="h-5 rounded overflow-hidden flex gap-[1px] mb-4 shadow-inner">
+                          {aiCostBreakdown.map((item, index) => (
+                            <div
+                              key={index}
+                              className="group relative transition-all hover:brightness-110 hover:scale-y-105 origin-bottom cursor-pointer"
+                              style={{
+                                width: `${item.percentage}%`,
+                                backgroundColor: item.color
+                              }}
+                            >
+                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 px-3 py-2 rounded-md opacity-0 group-hover:opacity-100 transition-all pointer-events-none whitespace-nowrap bg-zinc-900 dark:bg-slate-100 shadow-xl z-50 transform group-hover:-translate-y-1">
+                                <div className="text-[10px] font-bold text-zinc-400 dark:text-slate-500 uppercase tracking-widest mb-0.5">{item.service}</div>
+                                <div className="text-sm font-semibold text-white dark:text-zinc-900">${item.cost_usd.toFixed(2)}</div>
+                                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-zinc-900 dark:border-t-slate-100" />
+                              </div>
+                            </div>
+                          ))}
                         </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Legend */}
-                  <div className="space-y-2.5">
-                    {costBreakdown.map((item, index) => (
-                      <div key={index} className="flex items-center justify-between text-[13px] group/item">
-                        <div className="flex items-center gap-2.5">
-                          <div
-                            className="w-2 h-2 rounded-full group-hover/item:scale-125 transition-transform"
-                            style={{ backgroundColor: item.color }}
-                          />
-                          <span className="text-zinc-600 dark:text-slate-400 font-medium transition-colors">{item.service}</span>
+                        {/* Legend */}
+                        <div className="space-y-2.5">
+                          {aiCostBreakdown.map((item, index) => (
+                            <div key={index} className="flex items-center justify-between text-[13px] group/item">
+                              <div className="flex items-center gap-2.5">
+                                <div
+                                  className="w-2 h-2 rounded-full group-hover/item:scale-125 transition-transform"
+                                  style={{ backgroundColor: item.color }}
+                                />
+                                <span className="text-zinc-600 dark:text-slate-400 font-medium transition-colors">{item.service}</span>
+                              </div>
+                              <span className="font-semibold text-zinc-900 dark:text-slate-200 transition-colors">
+                                ${item.cost_usd.toFixed(2)}
+                              </span>
+                            </div>
+                          ))}
                         </div>
-                        <span className="font-semibold text-zinc-900 dark:text-slate-200 transition-colors">
-                          ${item.cost_usd.toFixed(2)}
-                        </span>
-                      </div>
-                    ))}
+                      </>
+                    ) : (
+                      /* AI returned no +/~ services — show the raw costProjection text */
+                      <p className="text-[12px] text-zinc-500 dark:text-slate-400 italic">
+                        {infraData.costProjection}
+                      </p>
+                    )}
                   </div>
-                </div>
+                )}
               </div>
 
               {/* Insights — only shown after AI analysis */}
@@ -824,7 +865,8 @@ export function InfrastructurePage() {
                   <button
                     onClick={analyseInfrastructure}
                     disabled={isInfraLoading}
-                    className="mt-2 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-[12px] font-semibold bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white shadow-md transition-all disabled:opacity-50"
+                    className="mt-2 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-[12px] font-semibold transition-all hover:shadow-lg disabled:opacity-50"
+                    style={{ backgroundColor: 'var(--cta-primary)', color: 'var(--cta-text)' }}
                   >
                     <CloudCog className="w-4 h-4" />
                     Analyse Infrastructure

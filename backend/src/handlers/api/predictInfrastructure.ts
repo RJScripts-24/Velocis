@@ -97,7 +97,7 @@ export const handler = async (
         },
       ],
       inferenceConfig: {
-        maxTokens: 3000,
+        maxTokens: 8000,
         temperature: 0.1,
       },
     });
