@@ -51,6 +51,10 @@ export interface CortexNode {
   };
   /** AI-generated summary of this file's responsibility */
   aiSummary?: string;
+  /** Functions defined in this file */
+  functions?: string[];
+  /** Map of function name to array of functions it calls */
+  functionCalls?: Record<string, string[]>;
 }
 
 export interface CortexEdge {
@@ -89,39 +93,138 @@ const IGNORED_PATTERNS = [
   "node_modules",
   ".git",
   "dist",
+  "build",
+  "out",
   ".next",
+  ".nuxt",
   "coverage",
   ".env",
   "yarn.lock",
   "package-lock.json",
+  "composer.lock",
+  "Gemfile.lock",
+  "Cargo.lock",
+  "go.sum",
+  "poetry.lock",
+  "__pycache__",
+  ".pyc",
+  ".pyo",
+  ".pyd",
+  ".class",
+  ".o",
+  ".so",
+  ".dll",
+  ".dylib",
+  ".exe",
+  ".bin",
 ];
+
+/** Binary / media file extensions that produce no architectural value as nodes */
+const BINARY_EXTENSIONS = new Set([
+  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".bmp", ".tiff",
+  ".svg",
+  ".woff", ".woff2", ".ttf", ".eot", ".otf",
+  ".mp3", ".mp4", ".wav", ".ogg", ".webm", ".mov", ".avi",
+  ".zip", ".tar", ".gz", ".bz2", ".7z", ".rar",
+  ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+]);
 
 /** Maps directory segments to layer numbers for 3D Z-axis grouping */
 const LAYER_MAP: Record<string, number> = {
-  infrastructure: 0,
-  services: 1,
-  utils: 1,
-  models: 1,
-  prompts: 1,
-  functions: 2,
-  handlers: 3,
-  mocks: 0,
-  tests: 2,
+  // Layer 0 — data / infrastructure
+  infrastructure: 0, infra: 0,
+  database: 0, databases: 0, db: 0,
+  migrations: 0, migration: 0, seeds: 0, seeders: 0,
+  storage: 0, store: 0, cache: 0,
+  repositories: 0, repository: 0, repo: 0,
+  mocks: 0, fixtures: 0, stubs: 0,
+  // Layer 1 — core services / domain
+  services: 1, service: 1,
+  utils: 1, util: 1, helpers: 1, helper: 1,
+  models: 1, model: 1, entities: 1, entity: 1,
+  schemas: 1, schema: 1,
+  lib: 1, libs: 1, shared: 1, common: 1,
+  config: 1, configs: 1, settings: 1, configuration: 1, constants: 1,
+  prompts: 1, templates: 1,
+  // Layer 2 — compute / workers
+  functions: 2, function: 2,
+  lambdas: 2, lambda: 2,
+  workers: 2, worker: 2,
+  jobs: 2, job: 2,
+  tasks: 2, task: 2,
+  tests: 2, test: 2, specs: 2, spec: 2,
+  middlewares: 2, middleware: 2,
+  hooks: 2, hook: 2,
+  // Layer 3 — edge / API / UI
+  handlers: 3, handler: 3,
+  controllers: 3, controller: 3,
+  routes: 3, route: 3, router: 3, routers: 3,
+  endpoints: 3, endpoint: 3,
+  api: 3, apis: 3,
+  graphql: 3, rest: 3, grpc: 3,
+  components: 3, component: 3,
+  pages: 3, page: 3,
+  views: 3, view: 3,
+  screens: 3, screen: 3,
+  layouts: 3, layout: 3,
+  ui: 3,
 };
 
 /** Maps file extensions to language labels */
 const LANGUAGE_MAP: Record<string, string> = {
-  ".ts": "typescript",
-  ".tsx": "typescript",
-  ".js": "javascript",
-  ".jsx": "javascript",
-  ".py": "python",
-  ".json": "json",
-  ".yaml": "yaml",
-  ".yml": "yaml",
-  ".md": "markdown",
-  ".tf": "terraform",
+  // Web / Node
+  ".ts": "typescript",  ".tsx": "typescript",
+  ".js": "javascript",  ".jsx": "javascript",  ".mjs": "javascript",  ".cjs": "javascript",
+  // Python
+  ".py": "python",  ".pyi": "python",
+  // Go
+  ".go": "go",
+  // Ruby
+  ".rb": "ruby",  ".rake": "ruby",  ".gemspec": "ruby",
+  // Rust
+  ".rs": "rust",
+  // Java / JVM
+  ".java": "java",  ".kt": "kotlin",  ".kts": "kotlin",
+  ".scala": "scala",  ".groovy": "groovy",
+  // C-family
+  ".cs": "csharp",  ".cpp": "cpp",  ".cc": "cpp",  ".cxx": "cpp",
+  ".c": "c",  ".h": "c",  ".hpp": "cpp",
+  // PHP
+  ".php": "php",
+  // Swift / Dart
+  ".swift": "swift",  ".dart": "dart",
+  // Mobile
+  ".m": "objc",  ".mm": "objc",
+  // Styles
+  ".css": "css",  ".scss": "scss",  ".sass": "sass",  ".less": "less",
+  // Markup / Templates
+  ".html": "html",  ".htm": "html",
+  ".vue": "vue",  ".svelte": "svelte",  ".astro": "astro",
+  ".erb": "erb",  ".haml": "haml",  ".jinja": "jinja",  ".jinja2": "jinja",
+  // Data / Config
+  ".json": "json",  ".jsonc": "json",
+  ".yaml": "yaml",  ".yml": "yaml",
+  ".toml": "toml",  ".ini": "ini",  ".cfg": "ini",
+  ".csv": "csv",  ".tsv": "csv",
+  ".xml": "xml",  ".xsd": "xml",
+  ".env": "env",
+  // Database
+  ".sql": "sql",  ".prisma": "prisma",
+  // API / Infra
+  ".graphql": "graphql",  ".gql": "graphql",
+  ".proto": "protobuf",
+  ".tf": "terraform",  ".tfvars": "terraform",  ".hcl": "hcl",
+  ".bicep": "bicep",
   ".asl.json": "step-functions",
+  // Shell
+  ".sh": "shell",  ".bash": "shell",  ".zsh": "shell",  ".fish": "shell",
+  ".ps1": "powershell",  ".psm1": "powershell",
+  // Docs
+  ".md": "markdown",  ".mdx": "markdown",
+  ".rst": "rst",  ".txt": "plaintext",
+  // Docker / CI
+  ".dockerfile": "dockerfile",
+  ".Dockerfile": "dockerfile",
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -141,23 +244,61 @@ function hashPath(filePath: string): string {
 }
 
 /**
- * Determines if a file should be ignored based on IGNORED_PATTERNS.
+ * Determines if a file should be ignored based on IGNORED_PATTERNS or binary extension.
  */
 function shouldIgnore(filePath: string): boolean {
-  return IGNORED_PATTERNS.some((pattern) => filePath.includes(pattern));
+  if (IGNORED_PATTERNS.some((pattern) => filePath.includes(pattern))) return true;
+  // Skip binary / media assets — they carry no architectural signal
+  const rawExt = "." + (filePath.split(".").pop() ?? "").toLowerCase();
+  return BINARY_EXTENSIONS.has(rawExt);
 }
 
 /**
  * Infers the NodeType from the file path.
+ * Extended to handle all major framework conventions.
  */
 function inferNodeType(filePath: string): NodeType {
-  if (filePath.includes("/tests/") || filePath.includes(".test.")) return "test";
-  if (filePath.includes("/infrastructure/")) return "infrastructure";
-  if (filePath.includes("/handlers/")) return "service";
-  if (filePath.includes("/services/")) return "service";
-  if (filePath.includes("/functions/")) return "module";
-  if (filePath.includes("/utils/")) return "util";
-  if (filePath.includes("/models/") || filePath.includes("/prompts/")) return "config";
+  const lower = filePath.toLowerCase();
+  // Tests first
+  if (lower.includes("/tests/") || lower.includes("/__tests__/") || lower.includes("/specs/") ||
+      lower.includes(".test.") || lower.includes(".spec.")) return "test";
+  // IaC / infra
+  if (lower.includes("/infrastructure/") || lower.includes("/infra/") ||
+      lower.endsWith(".tf") || lower.endsWith(".tfvars") || lower.endsWith(".hcl") ||
+      lower.endsWith(".bicep") || lower.endsWith(".asl.json")) return "infrastructure";
+  // Data layer
+  if (lower.includes("/database/") || lower.includes("/databases/") || lower.includes("/db/") ||
+      lower.includes("/migrations/") || lower.includes("/migration/") ||
+      lower.includes("/repositories/") || lower.includes("/repository/") ||
+      lower.includes("/seeders/") || lower.includes("/seeds/") ||
+      lower.endsWith(".sql") || lower.endsWith(".prisma")) return "infrastructure";
+  // Edge / request handlers (service type)
+  if (lower.includes("/handlers/") || lower.includes("/controllers/") ||
+      lower.includes("/routes/") || lower.includes("/router/") ||
+      lower.includes("/endpoints/") || lower.includes("/api/") ||
+      lower.includes("/graphql/") || lower.includes("/grpc/") || lower.includes("/rest/")) return "service";
+  // Business services
+  if (lower.includes("/services/") || lower.includes("/service/")) return "service";
+  // Compute functions / workers
+  if (lower.includes("/functions/") || lower.includes("/lambdas/") ||
+      lower.includes("/workers/") || lower.includes("/jobs/") || lower.includes("/tasks/")) return "module";
+  // Utilities
+  if (lower.includes("/utils/") || lower.includes("/util/") || lower.includes("/helpers/") ||
+      lower.includes("/lib/") || lower.includes("/shared/") || lower.includes("/common/")) return "util";
+  // Domain models
+  if (lower.includes("/models/") || lower.includes("/entities/") ||
+      lower.includes("/schemas/")) return "config";
+  // Config / constants
+  if (lower.includes("/config/") || lower.includes("/configs/") ||
+      lower.includes("/settings/") || lower.includes("/constants/") ||
+      lower.includes("/prompts/")) return "config";
+  // UI layer
+  if (lower.includes("/components/") || lower.includes("/pages/") ||
+      lower.includes("/views/") || lower.includes("/ui/") ||
+      lower.includes("/screens/") || lower.includes("/layouts/")) return "module";
+  // Middleware / hooks
+  if (lower.includes("/middlewares/") || lower.includes("/middleware/") ||
+      lower.includes("/hooks/") || lower.includes("/hook/")) return "module";
   return "module";
 }
 
@@ -178,33 +319,204 @@ function inferLayer(filePath: string): number {
 function inferLanguage(filePath: string): string {
   // Handle double extensions like .asl.json
   if (filePath.endsWith(".asl.json")) return LANGUAGE_MAP[".asl.json"];
+  // Dockerfile has no extension
+  const basename = filePath.split("/").pop() ?? "";
+  if (basename === "Dockerfile" || basename.toLowerCase() === "dockerfile" || /^dockerfile\./i.test(basename)) return "dockerfile";
+  // Extension lookup — try lowercase first for cross-platform consistency
   const ext = path.extname(filePath);
-  return LANGUAGE_MAP[ext] ?? "plaintext";
+  return LANGUAGE_MAP[ext.toLowerCase()] ?? LANGUAGE_MAP[ext] ?? "plaintext";
 }
 
 /**
- * Parses static import/require statements from TypeScript/JavaScript source.
- * Returns a list of relative paths that this file imports.
+ * Parses static import statements from source code.
+ * Returns a list of resolved paths that this file imports.
  * This is intentionally static (no AST) to stay Lambda-lightweight.
  */
 function extractImports(sourceCode: string, currentFilePath: string): string[] {
-  const importRegex =
-    /(?:import\s+.*?\s+from\s+['"](.+?)['"]|require\s*\(\s*['"](.+?)['"]\s*\))/g;
+  const fwdFilePath = currentFilePath.replace(/\\/g, "/");
+  const dir = fwdFilePath.includes("/") ? fwdFilePath.substring(0, fwdFilePath.lastIndexOf("/")) : "";
+  const ext = (fwdFilePath.split(".").pop() ?? "").toLowerCase();
 
-  const imports: string[] = [];
-  let match: RegExpExecArray | null;
+  /**
+   * Stack-based path normalizer — correctly resolves ANY number of `..` levels.
+   * Single-pass regex can only resolve one level at a time, causing edges to
+   * point at wrong paths (e.g. `src/handlers/utils/x` instead of `src/utils/x`).
+   */
+  const norm = (raw: string): string => {
+    const parts = raw.replace(/\\/g, "/").split("/");
+    const stack: string[] = [];
+    for (const part of parts) {
+      if (part === "..") {
+        if (stack.length > 0) stack.pop();
+      } else if (part !== "" && part !== ".") {
+        stack.push(part);
+      }
+    }
+    return stack.join("/");
+  };
 
-  while ((match = importRegex.exec(sourceCode)) !== null) {
-    const importPath = match[1] ?? match[2];
-    // Only track relative imports — skip npm packages & AWS SDK
-    if (importPath.startsWith(".")) {
-      const dir = path.dirname(currentFilePath);
-      const resolved = path.normalize(path.join(dir, importPath));
-      imports.push(resolved);
+  const seen = new Set<string>();
+  const results: string[] = [];
+  const push = (resolved: string) => {
+    const r = norm(resolved);
+    if (r && !seen.has(r)) { seen.add(r); results.push(r); }
+  };
+
+  // ── Python ────────────────────────────────────────────────────────────────
+  if (ext === "py" || ext === "pyi") {
+    let m: RegExpExecArray | null;
+    // Relative: from . import x, from .utils import y, from ..config import z
+    const relRe = /from\s+(\.+)([a-zA-Z0-9_.]*)[\s,]+import/g;
+    while ((m = relRe.exec(sourceCode)) !== null) {
+      const dots = m[1]; const mod = m[2];
+      let base = dir;
+      for (let i = 1; i < dots.length; i++) {
+        const sl = base.lastIndexOf("/");
+        base = sl > 0 ? base.substring(0, sl) : "";
+      }
+      if (mod) push((base ? base + "/" : "") + mod.replace(/\./g, "/") + ".py");
+    }
+    // Absolute: import foo, from foo.bar import baz
+    const absRe = /^(?:import|from)\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)/gm;
+    while ((m = absRe.exec(sourceCode)) !== null) {
+      push((dir ? dir + "/" : "") + m[1].replace(/\./g, "/") + ".py");
+    }
+
+  // ── Go ────────────────────────────────────────────────────────────────────
+  } else if (ext === "go") {
+    const sections: string[] = [];
+    let block: RegExpExecArray | null;
+    const blockRe = /import\s*\(([^)]+)\)/gs;
+    while ((block = blockRe.exec(sourceCode)) !== null) sections.push(block[1]);
+    const singleRe = /^import\s+"([^"]+)"/gm;
+    let single: RegExpExecArray | null;
+    while ((single = singleRe.exec(sourceCode)) !== null) sections.push(`"${single[1]}"`);
+    const pathRe = /"([^"]+)"/g;
+    for (const section of sections) {
+      let m: RegExpExecArray | null;
+      while ((m = pathRe.exec(section)) !== null) {
+        const pkg = m[1];
+        const first = pkg.split("/")[0];
+        if (pkg.includes("/") && first.includes(".")) {
+          push(pkg.split("/").pop()! + "/" + pkg.split("/").pop()! + ".go");
+        } else if (!pkg.includes(".") && pkg.includes("/")) {
+          push((dir ? dir + "/" : "") + (pkg.split("/").pop() ?? pkg) + ".go");
+        }
+      }
+    }
+
+  // ── Ruby ─────────────────────────────────────────────────────────────────
+  } else if (ext === "rb" || ext === "rake") {
+    let m: RegExpExecArray | null;
+    const relRe = /require_relative\s+['"]([^'"]+)['"]/g;
+    while ((m = relRe.exec(sourceCode)) !== null) {
+      let p = norm((dir ? dir + "/" : "") + m[1]);
+      if (!p.endsWith(".rb")) p += ".rb";
+      push(p);
+    }
+    const reqRe = /require\s+['"](\.[^'"]+)['"]/g;
+    while ((m = reqRe.exec(sourceCode)) !== null) {
+      let p = norm((dir ? dir + "/" : "") + m[1]);
+      if (!p.endsWith(".rb")) p += ".rb";
+      push(p);
+    }
+
+  // ── Rust ─────────────────────────────────────────────────────────────────
+  } else if (ext === "rs") {
+    let m: RegExpExecArray | null;
+    const modRe = /^(?:pub\s+)?mod\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*;/gm;
+    while ((m = modRe.exec(sourceCode)) !== null) {
+      push((dir ? dir + "/" : "") + m[1] + ".rs");
+    }
+    const useRe = /use\s+(?:crate|self|super)::([a-zA-Z0-9_:]+)/g;
+    while ((m = useRe.exec(sourceCode)) !== null) {
+      const parts = m[1].split("::");
+      const srcIdx = dir.indexOf("/src/");
+      const base = srcIdx !== -1 ? dir.substring(0, srcIdx + 4) : dir;
+      push((base ? base + "/" : "") + parts.join("/") + ".rs");
+    }
+
+  // ── PHP ───────────────────────────────────────────────────────────────────
+  } else if (ext === "php") {
+    let m: RegExpExecArray | null;
+    const reqRe = /(?:require|include)(?:_once)?\s*(?:\(\s*)?['"]([^'"]+)['"]/g;
+    while ((m = reqRe.exec(sourceCode)) !== null) {
+      if (m[1].startsWith(".")) push(norm((dir ? dir + "/" : "") + m[1]));
+    }
+    const dirConstRe = /(?:require|include)(?:_once)?\s*\(\s*__DIR__\s*\.\s*['"]([^'"]+)['"]/g;
+    while ((m = dirConstRe.exec(sourceCode)) !== null) {
+      push(norm(dir + m[1]));
+    }
+
+  // ── Java / Kotlin ─────────────────────────────────────────────────────────
+  } else if (ext === "java" || ext === "kt" || ext === "kts") {
+    let m: RegExpExecArray | null;
+    const fileExt = (ext === "kt" || ext === "kts") ? ".kt" : ".java";
+    const importRe = /^import\s+(?:static\s+)?([a-zA-Z][a-zA-Z0-9_.]+);?$/gm;
+    while ((m = importRe.exec(sourceCode)) !== null) {
+      const parts = m[1].split(".");
+      if (parts.length >= 3 && !parts[0].match(/^(java|javax|kotlin|android|com\.google|org\.springframework)$/)) {
+        push(parts.join("/") + fileExt);
+      }
+    }
+
+  // ── C# ────────────────────────────────────────────────────────────────────
+  } else if (ext === "cs") {
+    let m: RegExpExecArray | null;
+    const usingRe = /^using\s+(?:static\s+)?([a-zA-Z][a-zA-Z0-9_.]+)\s*;/gm;
+    while ((m = usingRe.exec(sourceCode)) !== null) {
+      const parts = m[1].split(".");
+      if (parts.length >= 2) push(parts.join("/") + ".cs");
+    }
+
+  // ── Swift ─────────────────────────────────────────────────────────────────
+  } else if (ext === "swift") {
+    let m: RegExpExecArray | null;
+    const importRe = /^import\s+([a-zA-Z_][a-zA-Z0-9_.]+)/gm;
+    while ((m = importRe.exec(sourceCode)) !== null) {
+      if (!m[1].match(/^(Foundation|UIKit|SwiftUI|AppKit|Combine|CoreData|XCTest)$/)) {
+        push((dir ? dir + "/" : "") + m[1] + ".swift");
+      }
+    }
+
+  // ── JavaScript / TypeScript (default) ────────────────────────────────────
+  } else {
+    let m: RegExpExecArray | null;
+
+    // Static imports: import X from './y', import { X } from '../y', import './y'
+    const staticRe = /import\s+(?:[\s\S]*?\s+from\s+)?['"]([^'"]+)['"]/g;
+    while ((m = staticRe.exec(sourceCode)) !== null) {
+      const importPath = m[1];
+      if (importPath.startsWith(".")) {
+        let resolved = norm((dir ? dir + "/" : "") + importPath);
+        if (!path.extname(resolved)) {
+          resolved += (ext === "js" || ext === "jsx" || ext === "mjs" || ext === "cjs") ? ".js" : ".ts";
+        }
+        push(resolved);
+      }
+    }
+
+    // require('./path')
+    const requireRe = /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+    while ((m = requireRe.exec(sourceCode)) !== null) {
+      const importPath = m[1];
+      if (importPath.startsWith(".")) {
+        let resolved = norm((dir ? dir + "/" : "") + importPath);
+        if (!path.extname(resolved)) resolved += ".js";
+        push(resolved);
+      }
+    }
+
+    // Dynamic: import('./path')
+    const dynRe = /import\s*\(\s*['"](\.[^'"]+)['"]\s*\)/g;
+    while ((m = dynRe.exec(sourceCode)) !== null) {
+      let resolved = norm((dir ? dir + "/" : "") + m[1]);
+      if (!path.extname(resolved)) resolved += ".ts";
+      push(resolved);
     }
   }
 
-  return imports;
+  return results;
 }
 
 /**
@@ -217,6 +529,101 @@ function countLinesOfCode(source: string): number {
       const trimmed = line.trim();
       return trimmed.length > 0 && !trimmed.startsWith("//") && !trimmed.startsWith("*");
     }).length;
+}
+
+/**
+ * Extracts function/method names from source code.
+ * Supports: TypeScript, JavaScript, Python, Go, Ruby, Rust, Java, Kotlin, C#, PHP.
+ */
+function extractFunctions(sourceCode: string, language: string): string[] {
+  const functions: string[] = [];
+  const push = (name: string) => { if (name && !functions.includes(name)) functions.push(name); };
+  try {
+    if (language === "typescript" || language === "javascript") {
+      [
+        /(?:export\s+)?(?:async\s+)?function\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/g,
+        /(?:export\s+)?const\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*(?:async\s*)?\(/g,
+        /([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\([^)]*\)\s*:\s*[^{]+\s*{/g,
+      ].forEach(p => { let m; while ((m = p.exec(sourceCode)) !== null) push(m[1]); });
+    } else if (language === "python") {
+      let m; const p = /def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g;
+      while ((m = p.exec(sourceCode)) !== null) push(m[1]);
+    } else if (language === "go") {
+      let m; const p = /func\s+(?:\([^)]+\)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\(/g;
+      while ((m = p.exec(sourceCode)) !== null) push(m[1]);
+    } else if (language === "ruby") {
+      let m; const p = /def\s+(?:self\.)?([a-zA-Z_][a-zA-Z0-9_?!]*)/g;
+      while ((m = p.exec(sourceCode)) !== null) push(m[1]);
+    } else if (language === "rust") {
+      let m; const p = /(?:pub\s+)?(?:async\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*[<(]/g;
+      while ((m = p.exec(sourceCode)) !== null) push(m[1]);
+    } else if (language === "java" || language === "kotlin" || language === "scala") {
+      let m; const p = /(?:fun|void|public|private|protected|override|suspend)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g;
+      const SKIP = new Set(["if","for","while","switch","catch","class","interface","object","fun"]);
+      while ((m = p.exec(sourceCode)) !== null) if (!SKIP.has(m[1])) push(m[1]);
+    } else if (language === "csharp") {
+      let m; const p = /(?:public|private|protected|internal|static|override|virtual|async)\s+(?:[\w<>[\],.\s]+\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\(/g;
+      const SKIP = new Set(["if","for","while","switch","catch","class","interface","return","new","void"]);
+      while ((m = p.exec(sourceCode)) !== null) if (!SKIP.has(m[1])) push(m[1]);
+    } else if (language === "php") {
+      let m; const p = /(?:public|private|protected|static)?\s*function\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g;
+      while ((m = p.exec(sourceCode)) !== null) push(m[1]);
+    } else if (language === "swift") {
+      let m; const p = /func\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*[(<]/g;
+      while ((m = p.exec(sourceCode)) !== null) push(m[1]);
+    }
+  } catch (err) { /* ignore */ }
+  return functions.slice(0, 20);
+}
+
+/**
+ * Extracts function call relationships from source code.
+ * Returns map of function name to array of functions it calls.
+ */
+function extractFunctionCalls(sourceCode: string, language: string, availableFunctions: string[]): Map<string, string[]> {
+  const calls = new Map<string, string[]>();
+  
+  try {
+    if (language === "typescript" || language === "javascript") {
+      // For each function, find calls to other known functions
+      availableFunctions.forEach(funcName => {
+        const funcPattern = new RegExp(`function\\s+${funcName}\\s*\\([^)]*\\)\\s*{([^}]*(?:{[^}]*}[^}]*)*)`, 'g');
+        const constPattern = new RegExp(`const\\s+${funcName}\\s*=\\s*(?:async\\s*)?\\([^)]*\\)\\s*=>\\s*{([^}]*(?:{[^}]*}[^}]*)*)`, 'g');
+        
+        let match;
+        const body: string[] = [];
+        
+        while ((match = funcPattern.exec(sourceCode)) !== null) {
+          if (match[1]) body.push(match[1]);
+        }
+        while ((match = constPattern.exec(sourceCode)) !== null) {
+          if (match[1]) body.push(match[1]);
+        }
+        
+        if (body.length > 0) {
+          const calledFunctions: string[] = [];
+          const combinedBody = body.join('\n');
+          
+          availableFunctions.forEach(targetFunc => {
+            if (targetFunc !== funcName) {
+              const callPattern = new RegExp(`\\b${targetFunc}\\s*\\(`, 'g');
+              if (callPattern.test(combinedBody)) {
+                calledFunctions.push(targetFunc);
+              }
+            }
+          });
+          
+          if (calledFunctions.length > 0) {
+            calls.set(funcName, calledFunctions);
+          }
+        }
+      });
+    }
+  } catch (err) {
+    // Ignore extraction errors
+  }
+  
+  return calls;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -336,15 +743,77 @@ async function buildNodes(
 ): Promise<{ nodes: CortexNode[]; importMap: Map<string, string[]> }> {
   logger.info({ repoId, repoName }, "Cortex: Fetching repo file tree");
 
-  const tree = await fetchRepoTree(repoOwner, repoName, accessToken);
   const importMap = new Map<string, string[]>(); // nodeId → [importedNodeIds]
   const nodes: CortexNode[] = [];
 
+  // Fetch the repo file tree — handle empty repos gracefully
+  let tree: Awaited<ReturnType<typeof fetchRepoTree>>;
+  try {
+    tree = await fetchRepoTree({ repoFullName: `${repoOwner}/${repoName}`, token: accessToken, recursive: true });
+  } catch (err: any) {
+    // GitHub returns 409 "Git Repository is empty" or 404 "Not Found" for repos with no commits
+    if (
+      err?.cause?.status === 409 || err?.status === 409 ||
+      err?.cause?.status === 404 || err?.status === 404
+    ) {
+      logger.warn({ repoId }, "Cortex: Repository is empty or not found — returning empty graph");
+      return { nodes: [], importMap: new Map() };
+    }
+    throw err;
+  }
+
+  // ── Import resolution map ────────────────────────────────────────────────
+  // GitHub gives us the exact file paths (e.g. src/utils/config.ts, src/components/Button.tsx,
+  // src/utils/index.ts).  extractImports returns *normalised* paths but can't know whether
+  // the import target is a .ts or .tsx file, or whether it resolves to a directory index.
+  // We pre-build a lookup table keyed by every *stripped* variant of each real file path so
+  // that we can map `src/utils/config` → `src/utils/config.ts` and
+  // `src/utils` → `src/utils/index.ts` before hashing.
+  const stripExt = (p: string): string => p.replace(/\.[^./\\]+$/, "");
+
+  /** real file paths that exist in the repo */
+  const filePathSet = new Set<string>(
+    tree.filter((f) => f.type === "blob").map((f) => f.path)
+  );
+
+  /**
+   * Map: normalised-key  →  canonical file path in repo.
+   * Keys added (first match wins):
+   *   1. exact path with extension          → src/utils/config.ts
+   *   2. path without extension             → src/utils/config
+   *   3. parent directory of an index file  → src/utils  (from src/utils/index.ts)
+   */
+  const importResolutionMap = new Map<string, string>();
+  for (const fp of filePathSet) {
+    if (!importResolutionMap.has(fp))            importResolutionMap.set(fp, fp);
+    const noExt = stripExt(fp);
+    if (!importResolutionMap.has(noExt))         importResolutionMap.set(noExt, fp);
+    if (path.basename(noExt) === "index") {
+      const dir = path.dirname(fp).replace(/\\/g, "/");
+      if (!importResolutionMap.has(dir))         importResolutionMap.set(dir, fp);
+      const dirNoExt = stripExt(dir);
+      if (!importResolutionMap.has(dirNoExt))    importResolutionMap.set(dirNoExt, fp);
+    }
+  }
+
+  /**
+   * Resolve a normalised import path to the node-ID of the target, taking into
+   * account missing extensions and directory-index fallbacks.
+   */
+  const resolveImportToNodeId = (importPath: string): string => {
+    if (importResolutionMap.has(importPath))       return hashPath(importResolutionMap.get(importPath)!);
+    const noExt = stripExt(importPath);
+    if (importResolutionMap.has(noExt))            return hashPath(importResolutionMap.get(noExt)!);
+    return hashPath(importPath); // unknown external — will be discarded by buildEdges
+  };
+  // ────────────────────────────────────────────────────────────────────────────
+
   // Determine which files get AI summaries (only key architectural files)
   const AI_SUMMARY_ELIGIBLE_PATHS = [
-    "/handlers/",
-    "/functions/",
-    "/services/",
+    "/handlers/", "/controllers/",
+    "/functions/", "/lambdas/",
+    "/services/", "/service/",
+    "/workers/", "/jobs/",
   ];
 
   for (const file of tree) {
@@ -359,9 +828,17 @@ async function buildNodes(
     let linesOfCode = 0;
     let imports: string[] = [];
     let aiSummary: string | undefined;
+    let functions: string[] = [];
+    let functionCalls: Map<string, string[]> = new Map();
 
     // Fetch source only for code files (skip binary/large files)
-    const isCodeFile = ["typescript", "javascript", "python"].includes(language);
+    const isCodeFile = [
+      "typescript", "javascript", "python",
+      "go", "ruby", "rust",
+      "java", "kotlin", "scala", "groovy",
+      "csharp", "cpp", "c",
+      "php", "swift", "dart",
+    ].includes(language);
 
     if (isCodeFile) {
       try {
@@ -373,6 +850,14 @@ async function buildNodes(
         );
         linesOfCode = countLinesOfCode(source);
         imports = extractImports(source, file.path);
+        
+        // Extract functions defined in this file
+        functions = extractFunctions(source, language);
+        
+        // Extract function call relationships
+        if (functions.length > 0) {
+          functionCalls = extractFunctionCalls(source, language, functions);
+        }
 
         const isEligibleForAi = AI_SUMMARY_ELIGIBLE_PATHS.some((p) =>
           file.path.includes(p)
@@ -402,16 +887,19 @@ async function buildNodes(
       dependencyCount: 0, // Calculated in step 2
       layer,
       aiSummary,
+      functions: functions.length > 0 ? functions : undefined,
+      functionCalls: functionCalls.size > 0 ? Object.fromEntries(functionCalls) : undefined,
     };
 
     nodes.push(node);
     importMap.set(
       nodeId,
-      imports.map((importPath) => hashPath(importPath))
+      imports.map((importPath) => resolveImportToNodeId(importPath))
     );
   }
 
-  logger.info({ repoId, nodeCount: nodes.length }, "Cortex: Nodes built");
+  const totalImports = Array.from(importMap.values()).reduce((sum, arr) => sum + arr.length, 0);
+  logger.info({ repoId, nodeCount: nodes.length, totalImports, sampleImports: Array.from(importMap.entries()).slice(0, 2) }, "Cortex: Nodes built");
   return { nodes, importMap };
 }
 
@@ -422,35 +910,51 @@ function buildEdges(
   nodes: CortexNode[],
   importMap: Map<string, string[]>
 ): CortexEdge[] {
-  const nodeIdSet = new Set(nodes.map((n) => n.id));
+  const nodeIdSet  = new Set(nodes.map((n) => n.id));
+  // O(1) node lookup — replaces repeated nodes.find() inside the hot loop
+  const nodeById   = new Map<string, CortexNode>(nodes.map((n) => [n.id, n]));
+  // O(1) duplicate detection — replaces edges.some() inside the hot loop
+  const seenEdges  = new Set<string>();
   const dependencyCounter = new Map<string, number>();
   const edges: CortexEdge[] = [];
 
+  let totalAttempts = 0;
+  let skippedNotInGraph = 0;
+  let skippedSelfLoop = 0;
+  let skippedDuplicate = 0;
+  let created = 0;
+
   for (const [sourceId, targetIds] of importMap.entries()) {
     for (const targetId of targetIds) {
+      totalAttempts++;
+
       // Only create edges between nodes that exist in our graph
-      if (!nodeIdSet.has(targetId)) continue;
-      if (sourceId === targetId) continue; // No self-loops
+      if (!nodeIdSet.has(targetId)) {
+        skippedNotInGraph++;
+        continue;
+      }
+      if (sourceId === targetId) {
+        skippedSelfLoop++;
+        continue;
+      }
 
       const edgeId = `${sourceId}→${targetId}`;
 
       // Avoid duplicate edges
-      if (edges.some((e) => e.id === edgeId)) continue;
+      if (seenEdges.has(edgeId)) {
+        skippedDuplicate++;
+        continue;
+      }
+      seenEdges.add(edgeId);
 
       // Determine edge type based on layer relationship
-      const sourceNode = nodes.find((n) => n.id === sourceId);
-      const targetNode = nodes.find((n) => n.id === targetId);
+      const sourceNode = nodeById.get(sourceId);
+      const targetNode = nodeById.get(targetId);
 
       let edgeType: CortexEdge["type"] = "import";
-      if (
-        sourceNode?.type === "service" &&
-        targetNode?.type === "module"
-      ) {
+      if (sourceNode?.type === "service" && targetNode?.type === "module") {
         edgeType = "calls";
-      } else if (
-        sourceNode?.type === "infrastructure" &&
-        targetNode?.type === "service"
-      ) {
+      } else if (sourceNode?.type === "infrastructure" && targetNode?.type === "service") {
         edgeType = "orchestrates";
       }
 
@@ -459,13 +963,8 @@ function buildEdges(
       const strength = Math.min(10, existingDeps + 1);
       dependencyCounter.set(targetId, existingDeps + 1);
 
-      edges.push({
-        id: edgeId,
-        source: sourceId,
-        target: targetId,
-        type: edgeType,
-        strength,
-      });
+      edges.push({ id: edgeId, source: sourceId, target: targetId, type: edgeType, strength });
+      created++;
     }
   }
 
@@ -473,6 +972,15 @@ function buildEdges(
   for (const node of nodes) {
     node.dependencyCount = dependencyCounter.get(node.id) ?? 0;
   }
+
+  logger.info({
+    totalAttempts,
+    created,
+    skippedNotInGraph,
+    skippedSelfLoop,
+    skippedDuplicate,
+    edgeCount: edges.length,
+  }, "Cortex: Edges built");
 
   return edges;
 }
@@ -557,8 +1065,8 @@ async function getCachedGraph(repoId: string): Promise<CortexGraph | null> {
     const docClient = DynamoDBDocumentClient.from(dynamoClient);
     const result = await docClient.send(
       new GetCommand({
-        TableName: config.DYNAMO_TABLE_REPOSITORIES,
-        Key: { PK: `REPO#${repoId}`, SK: "CORTEX_GRAPH" },
+        TableName: config.DYNAMO_REPOSITORIES_TABLE,
+        Key: { repoId: `${repoId}#CORTEX_GRAPH` }, // Use composite repoId to retrieve graph
       })
     );
 
@@ -589,8 +1097,8 @@ async function setCachedGraph(repoId: string, graph: CortexGraph): Promise<void>
       new PutCommand({
         TableName: config.DYNAMO_TABLE_REPOSITORIES,
         Item: {
-          PK: `REPO#${repoId}`,
-          SK: "CORTEX_GRAPH",
+          repoId: `${repoId}#CORTEX_GRAPH`, // Use composite repoId to store graph separately
+          recordType: "CORTEX_GRAPH_CACHE",
           graph,
           cachedAt: Date.now(),
         },

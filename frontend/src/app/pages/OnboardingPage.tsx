@@ -20,6 +20,7 @@ interface Repository {
   stars: number;
   ownerId: number;
   ownerLogin: string;
+  isInstalled?: boolean;
 }
 
 export function OnboardingPage() {
@@ -81,12 +82,35 @@ export function OnboardingPage() {
     setSelectedRepo(repo.name);
     setIsInstalling(true);
     setCurrentStep(0);
+    setError(null);
 
-    // Redirect to GitHub App installation flow for this specific repo
-    // The target_id is the user/org ID that owns the repo
-    setTimeout(() => {
-      window.location.href = `https://github.com/apps/velocis/installations/new?suggested_target_id=${repo.ownerId}`;
-    }, 1500);
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/repos/${repo.name}/install`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          repoName: repo.name,
+          repoFullName: (repo as any).full_name || repo.fullName,
+          language: repo.language
+        })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || 'Installation request failed');
+      }
+
+      const data = await response.json();
+      setInstallJobId(data.job_id);
+
+    } catch (err) {
+      console.error('Install error:', err);
+      setIsInstalling(false);
+      setError(err instanceof Error ? err.message : 'Failed to start installation');
+    }
   };
 
   // Helper function for language colors
@@ -354,19 +378,34 @@ export function OnboardingPage() {
                     </div>
                   </div>
 
-                  {/* Right side - Install button */}
-                  <motion.button
-                    whileHover={{ y: -1 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={() => handleInstall(repo)}
-                    className="px-6 py-2.5 rounded-[10px] font-medium text-[14px] transition-all hover:shadow-lg whitespace-nowrap"
-                    style={{
-                      backgroundColor: 'var(--cta-primary)',
-                      color: 'var(--cta-text)'
-                    }}
-                  >
-                    Install Velocis
-                  </motion.button>
+                  {/* Right side - Install or Go to Repo button */}
+                  {repo.isInstalled ? (
+                    <motion.button
+                      whileHover={{ y: -1 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => navigate(`/repo/${repo.name}`)}
+                      className="px-6 py-2.5 rounded-[10px] font-medium text-[14px] transition-all hover:shadow-lg whitespace-nowrap"
+                      style={{
+                        backgroundColor: 'var(--accent-blue)',
+                        color: 'white'
+                      }}
+                    >
+                      Go to Repo Page
+                    </motion.button>
+                  ) : (
+                    <motion.button
+                      whileHover={{ y: -1 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => handleInstall(repo)}
+                      className="px-6 py-2.5 rounded-[10px] font-medium text-[14px] transition-all hover:shadow-lg whitespace-nowrap"
+                      style={{
+                        backgroundColor: 'var(--cta-primary)',
+                        color: 'var(--cta-text)'
+                      }}
+                    >
+                      Install Velocis
+                    </motion.button>
+                  )}
                 </motion.div>
               ))}
             </div>

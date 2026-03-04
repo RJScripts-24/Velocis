@@ -4,14 +4,34 @@
 // Run with: npm run dev
 
 import express, { Request, Response, NextFunction } from "express";
-import * as path from "path";
-import * as dotenv from "dotenv";
+import { APIGatewayProxyEvent, APIGatewayProxyResult, Context } from "aws-lambda";
+import { randomUUID } from "crypto";
 
-// Load .env before importing any handler (handlers read config at import time)
-dotenv.config({ path: path.resolve(__dirname, ".env") });
+// ── Handler imports ──────────────────────────────────────────────────────────
+import * as auth from "./src/handlers/api/auth";
+import * as authGithub from "./src/handlers/api/authGithub";
+import * as authGithubCallback from "./src/handlers/api/authGithubCallback";
+import * as getMe from "./src/handlers/api/getMe";
+import * as getGithubRepos from "./src/handlers/api/getGithubRepos";
+import * as installRepo from "./src/handlers/api/installRepo";
+import * as getDashboard from "./src/handlers/api/getDashboard";
+import * as getRepoOverview from "./src/handlers/api/getRepoOverview";
+import * as getSentinelData from "./src/handlers/api/getSentinelData";
+import * as getPipelineData from "./src/handlers/api/getPipelineData";
+import * as getCortexServices from "./src/handlers/api/getCortexServices";
+import * as getCortexServiceFiles from "./src/handlers/api/getCortexServiceFiles";
+import * as rebuildCortex from "./src/handlers/api/rebuildCortex";
+import * as getCortexData from "./src/handlers/api/getCortexData";
+import * as getWorkspaceData from "./src/handlers/api/getWorkspaceData";
+import * as getInfrastructure from "./src/handlers/api/getInfrastructureData";
+import * as getCostForecast from "./src/handlers/api/getCostForecast";
+import * as getActivity from "./src/handlers/api/getActivity";
+import * as getSystemHealth from "./src/handlers/api/getSystemHealth";
+import * as postChatMessage from "./src/handlers/api/postChatMessage";
+import * as getRepos from "./src/handlers/api/getRepos";
+import * as githubPush from "./src/handlers/webhooks/githubPush";
 
-import { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
-
+// ── App setup ────────────────────────────────────────────────────────────────
 const app = express();
 const PORT = parseInt(process.env.PORT ?? "3001", 10);
 
@@ -168,60 +188,77 @@ function wrap(handler: LambdaHandler) {
 // Import handlers lazily so dotenv loads first
 // ─────────────────────────────────────────────
 
-async function registerRoutes(): Promise<void> {
-    // ── Auth ───────────────────────────────────────────────────────────────────
-    try {
-        const { handler: authGithub } = await import("./src/handlers/api/authGithub");
-        app.get("/api/auth/github", wrap(authGithub));
-        console.log("  ✅ GET  /api/auth/github");
-    } catch (err) {
-        console.error("  ❌ authGithub failed:", (err as Error).message);
-    }
+// § 1 — Authentication (session-cookie based OAuth)
+app.get("/api/auth/github", wrap(authGithub.handler as LambdaHandler));
+app.get("/api/auth/github/callback", wrap(authGithubCallback.handler as LambdaHandler));
+app.post("/api/auth/logout", wrap(auth.logout as LambdaHandler));
 
-    try {
-        const { handler: authGithubCallback } = await import("./src/handlers/api/authGithubCallback");
-        app.get("/api/auth/github/callback", wrap(authGithubCallback));
-        console.log("  ✅ GET  /api/auth/github/callback");
-    } catch (err) {
-        console.error("  ❌ authGithubCallback failed:", (err as Error).message);
-    }
+// § 2 — User
+app.get("/api/me", wrap(getMe.handler as LambdaHandler));
 
-    try {
-        const { handler: getRepos } = await import("./src/handlers/api/getRepos");
-        app.get("/api/repos", wrap(getRepos));
-        console.log("  ✅ GET  /api/repos");
-    } catch (err) {
-        console.error("  ❌ getRepos failed:", (err as Error).message);
-    }
+// § 3 — GitHub repositories
+// /api/repos  — session-cookie auth (new OAuth flow)
+// /api/github/repos — JWT Bearer auth (legacy, kept for backward compat)
+app.get("/api/repos", wrap(getRepos.handler as LambdaHandler));
+app.get("/api/github/repos", wrap(getGithubRepos.handler as LambdaHandler));
 
+// § 4 — Onboarding / Installation
+app.post("/api/repos/:repoId/install", wrap(installRepo.installRepo as LambdaHandler));
+app.get("/api/repos/:repoId/install/status", wrap(installRepo.getInstallStatus as LambdaHandler));
 
-    // ── Webhooks — NOTE: not available locally without real AWS credentials ─────
-    // githubPush imports Bedrock agent modules which make module-level AWS calls.
-    // To test webhooks, deploy to AWS or use 'sam local start-api' with real creds.
-    app.post("/webhooks/github/push", (_req: Request, res: Response) => {
-        res.status(503).json({
-            error: "Webhook handler not available in local dev mode",
-            hint: "Deploy to AWS or use: sam local start-api --env-vars env.json",
-        });
-        console.log("  ℹ️  POST /webhooks/github/push → 503 (requires real AWS)");
-    });
+// § 5 — Dashboard
+app.get("/api/dashboard", wrap(getDashboard.handler as LambdaHandler));
 
-    // ── Health check ───────────────────────────────────────────────────────────
-    app.use((_req: Request, res: Response) => {
-        res.status(404).json({ error: "Route not found" });
-    });
-}
+// § 6 — Repository overview
+app.get("/api/repos/:repoId", wrap(getRepoOverview.handler as LambdaHandler));
 
+// § 7 — Sentinel agent
+app.get("/api/repos/:repoId/sentinel/prs", wrap(getSentinelData.listPrs as LambdaHandler));
+app.get("/api/repos/:repoId/sentinel/prs/:prNumber", wrap(getSentinelData.getPrDetail as LambdaHandler));
+app.post("/api/repos/:repoId/sentinel/scan", wrap(getSentinelData.triggerScan as LambdaHandler));
+app.get("/api/repos/:repoId/sentinel/activity", wrap(getSentinelData.getSentinelActivity as LambdaHandler));
 
-// ─────────────────────────────────────────────
-// START — listen first, then register routes
-// This way the server always starts even if some handlers fail to load
-// ─────────────────────────────────────────────
+// § 8 — Fortress / Pipeline
+app.get("/api/repos/:repoId/pipeline", wrap(getPipelineData.getPipeline as LambdaHandler));
+app.get("/api/repos/:repoId/pipeline/runs", wrap(getPipelineData.getPipelineRuns as LambdaHandler));
+app.post("/api/repos/:repoId/pipeline/trigger", wrap(getPipelineData.triggerPipeline as LambdaHandler));
+app.get("/api/repos/:repoId/pipeline/runs/:runId", wrap(getPipelineData.getPipelineRunDetail as LambdaHandler));
 
-// Register the health check BEFORE handlers so it's always available
-app.get("/health", (_req: Request, res: Response) => {
-    res.json({ status: "ok", env: process.env.NODE_ENV ?? "development" });
-});
+// § 9 — Cortex agent (service map)
+app.get("/api/repos/:repoId/cortex/services", wrap(getCortexServices.listServices as LambdaHandler));
+app.get("/api/repos/:repoId/cortex/services/:serviceId", wrap(getCortexServices.getServiceDetail as LambdaHandler));
+app.get("/api/repos/:repoId/cortex/services/:serviceId/files", wrap(getCortexServiceFiles.handler as LambdaHandler));
+app.post("/api/repos/:repoId/cortex/rebuild", wrap(rebuildCortex.handler as LambdaHandler));
+app.get("/api/repos/:repoId/cortex/timeline", wrap(getCortexServices.getCortexTimeline as LambdaHandler));
+app.get("/api/repos/:repoId/cortex", wrap(getCortexData.handler as LambdaHandler));
+
+// § 10 — Workspace
+app.get("/api/repos/:repoId/workspace/files", wrap(getWorkspaceData.listFiles as LambdaHandler));
+app.get("/api/repos/:repoId/workspace/files/content", wrap(getWorkspaceData.getFileContent as LambdaHandler));
+app.get("/api/repos/:repoId/workspace/annotations", wrap(getWorkspaceData.getAnnotations as LambdaHandler));
+app.post("/api/repos/:repoId/workspace/chat", wrap(getWorkspaceData.sendChatMessage as LambdaHandler));
+app.get("/api/repos/:repoId/workspace/chat/history", wrap(getWorkspaceData.getChatHistory as LambdaHandler));
+
+// § 11 — Infrastructure / IaC
+app.get("/api/repos/:repoId/infrastructure", wrap(getInfrastructure.getInfrastructure as LambdaHandler));
+app.get("/api/repos/:repoId/infrastructure/terraform", wrap(getInfrastructure.getTerraform as LambdaHandler));
+app.post("/api/repos/:repoId/infrastructure/generate", wrap(getInfrastructure.generateInfrastructure as LambdaHandler));
+app.get("/api/repos/:repoId/infrastructure/forecast", wrap(getCostForecast.handler as LambdaHandler));
+
+// § 12 — Activity feed
+app.get("/api/activity", wrap(getActivity.handler as LambdaHandler));
+
+// § 13 — System health
+app.get("/api/system/health", wrap(getSystemHealth.handler as LambdaHandler));
+
+// Sentinel mentor chat
+app.post("/api/chat", wrap(postChatMessage.handler as LambdaHandler));
+
+// § 16 — GitHub webhook
+app.post("/api/webhooks/github", wrap(githubPush.handler as LambdaHandler));
+
+// Health check
+app.get("/health", (_req, res) => res.json({ status: "ok", ts: new Date().toISOString() }));
 
 // Start listening immediately so the server is available
 app.listen(PORT, async () => {

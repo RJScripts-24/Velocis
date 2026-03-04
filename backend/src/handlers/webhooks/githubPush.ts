@@ -8,7 +8,12 @@ import { validatePayload } from "../../middlewares/validatePayload";
 import { githubPushSchema } from "../../models/schemas/githubSchemas";
 import { analyzeLogic } from "../../functions/sentinel/analyzeLogic";
 import { writeTests } from "../../functions/fortress/writeTests";
+<<<<<<< Updated upstream
 import { graphBuilder } from "../../functions/cortex/graphBuilder";
+=======
+import { buildCortexGraph } from "../../functions/cortex/graphBuilder";
+import { syncCortexServices } from "../../functions/cortex/syncCortexServices";
+>>>>>>> Stashed changes
 import { dynamoClient } from "../../services/database/dynamoClient";
 import { repoOps } from "../../services/github/repoOps";
 import { logger } from "../../utils/logger";
@@ -21,6 +26,16 @@ import { Repository } from "../../models/interfaces/Repository";
 // ─────────────────────────────────────────────
 const AGENT_TIMEOUT_MS = 25000; // Lambda safe timeout buffer
 
+<<<<<<< Updated upstream
+=======
+const _rawDynamo = new DynamoDBClient({});
+const _docClient = DynamoDBDocumentClient.from(_rawDynamo);
+const SENTINEL_TABLE = process.env.SENTINEL_TABLE ?? "velocis-sentinel";
+const ACTIVITY_TABLE = process.env.ACTIVITY_TABLE ?? "velocis-activity";
+const TIMELINE_TABLE = process.env.TIMELINE_TABLE ?? "velocis-timeline";
+const PIPELINE_TABLE = process.env.PIPELINE_TABLE ?? "velocis-pipeline-runs";
+
+>>>>>>> Stashed changes
 // ─────────────────────────────────────────────
 // MAIN HANDLER
 // ─────────────────────────────────────────────
@@ -28,11 +43,17 @@ export const handler = async (
   event: APIGatewayProxyEvent
 ): Promise<APIGatewayProxyResult> => {
   const requestId = event.requestContext?.requestId ?? "unknown";
+<<<<<<< Updated upstream
   logger.info({ requestId, msg: "GitHub push webhook received" });
 
   // ── STEP 1: Verify the webhook actually came from GitHub ──────────────────
   const rawBody = event.body ?? "";
   const signature = event.headers["x-hub-signature-256"] ?? "";
+=======
+  const rawBody = event.body ?? "";
+  const signature = event.headers["x-hub-signature-256"] ?? "";
+  const githubEvent = event.headers["x-github-event"] ?? "push";
+>>>>>>> Stashed changes
 
   const isValid = verifySignature({
     rawBody,
@@ -54,7 +75,197 @@ export const handler = async (
     return response(400, { error: "Bad Request: Invalid JSON body" });
   }
 
+<<<<<<< Updated upstream
   const validationResult = validatePayload(githubPushSchema, parsedBody);
+=======
+  logger.info({ requestId, githubEvent, msg: "GitHub webhook received" });
+
+  // ── Route by event type ───────────────────────────────────────────────────
+  switch (githubEvent) {
+    case "ping":
+      return response(200, { status: "ok", zen: body.zen });
+
+    case "push":
+      return handlePush(event, requestId, rawBody, body);
+
+    case "pull_request":
+      return handlePullRequest(requestId, body);
+
+    case "pull_request_review":
+      return handlePullRequestReview(requestId, body);
+
+    case "deployment":
+      return handleDeployment(requestId, body);
+
+    default:
+      logger.info({ requestId, githubEvent, msg: "Unhandled event type — ignoring" });
+      return response(200, { status: "ignored", event: githubEvent });
+  }
+};
+
+// ─────────────────────────────────────────────
+// PULL REQUEST HANDLER
+// ─────────────────────────────────────────────
+async function handlePullRequest(
+  requestId: string,
+  body: any
+): Promise<APIGatewayProxyResult> {
+  const { action, pull_request: pr, repository } = body;
+  const repoId = String(repository?.id ?? "");
+  const prNumber = pr?.number;
+  const now = new Date().toISOString();
+
+  logger.info({ requestId, action, prNumber, repoId, msg: "pull_request event" });
+
+  if (["opened", "synchronize", "reopened"].includes(action)) {
+    // Queue Sentinel PR analysis
+    const scanId = `pr_scan_${randomUUID().replace(/-/g, "").slice(0, 10)}`;
+
+    await _docClient.send(
+      new PutCommand({
+        TableName: SENTINEL_TABLE,
+        Item: {
+          id: scanId,
+          repoId,
+          recordType: "PR_REVIEW",
+          prNumber,
+          title: pr?.title ?? `PR #${prNumber}`,
+          author: pr?.user?.login ?? "unknown",
+          branch: pr?.head?.ref ?? "",
+          state: "open",
+          status: "queued",
+          riskScore: 0,
+          riskLevel: "low",
+          findings: [],
+          diffUrl: pr?.html_url ?? "",
+          createdAt: pr?.created_at ?? now,
+          updatedAt: now,
+        },
+      })
+    );
+
+    // Also create a Fortress pipeline run for the PR branch
+    const runId = `run_${randomUUID().replace(/-/g, "").toUpperCase().slice(0, 8)}`;
+    await _docClient.send(
+      new PutCommand({
+        TableName: PIPELINE_TABLE,
+        Item: {
+          runId,
+          repoId,
+          branch: pr?.head?.ref ?? "",
+          commitSha: pr?.head?.sha ?? "",
+          trigger: "pull_request",
+          status: "queued",
+          startedAt: now,
+          stepStates: {},
+        },
+      })
+    );
+
+    logger.info({ requestId, scanId, runId, prNumber, msg: "PR queued for Sentinel + Fortress" });
+
+  } else if (["closed"].includes(action)) {
+    // Update state to merged or closed
+    const newState = pr?.merged ? "merged" : "closed";
+    logger.info({ requestId, prNumber, newState, msg: "PR closed/merged — updating state" });
+
+    // In production: update the PR record in DynamoDB
+    // (scan for existing record then update — omitted for brevity)
+  }
+
+  return response(200, { status: "ok", action, prNumber });
+}
+
+// ─────────────────────────────────────────────
+// PULL REQUEST REVIEW HANDLER
+// Log a lightweight activity event
+// ─────────────────────────────────────────────
+async function handlePullRequestReview(
+  requestId: string,
+  body: any
+): Promise<APIGatewayProxyResult> {
+  const { review, pull_request: pr, repository } = body;
+  const repoId = String(repository?.id ?? "");
+  const now = new Date().toISOString();
+
+  await _docClient.send(
+    new PutCommand({
+      TableName: ACTIVITY_TABLE,
+      Item: {
+        id: `evt_${randomUUID().replace(/-/g, "").slice(0, 10)}`,
+        repoId,
+        repoName: repository?.name ?? "",
+        agent: "sentinel",
+        message: `PR #${pr?.number} review: ${review?.state ?? "submitted"}`,
+        severity: "info",
+        timestamp: now,
+        read: false,
+      },
+    })
+  );
+
+  logger.info({ requestId, msg: "pull_request_review logged to activity feed" });
+  return response(200, { status: "ok" });
+}
+
+// ─────────────────────────────────────────────
+// DEPLOYMENT HANDLER
+// Record in Cortex timeline and deployments table
+// ─────────────────────────────────────────────
+async function handleDeployment(
+  requestId: string,
+  body: any
+): Promise<APIGatewayProxyResult> {
+  const { deployment, repository } = body;
+  const repoId = String(repository?.id ?? "");
+  const now = new Date().toISOString();
+
+  await _docClient.send(
+    new PutCommand({
+      TableName: TIMELINE_TABLE,
+      Item: {
+        id: `deploy_${randomUUID().replace(/-/g, "").slice(0, 10)}`,
+        repoId,
+        positionPct: 100, // Latest event is at 100%; historical events scaled later
+        label: `Deploy ${deployment?.ref ?? ""}`,
+        color: "#22c55e",
+        environment: deployment?.environment ?? "production",
+        deployedAt: deployment?.created_at ?? now,
+        createdAt: now,
+      },
+    })
+  );
+
+  await _docClient.send(
+    new PutCommand({
+      TableName: process.env.DEPLOYS_TABLE ?? "velocis-deployments",
+      Item: {
+        id: `deploy_${randomUUID().replace(/-/g, "").slice(0, 10)}`,
+        repoId,
+        repoName: repository?.name ?? "",
+        environment: deployment?.environment ?? "production",
+        deployedAt: deployment?.created_at ?? now,
+        status: "success",
+      },
+    })
+  );
+
+  logger.info({ requestId, repoId, msg: "Deployment event recorded" });
+  return response(200, { status: "ok" });
+}
+
+// ─────────────────────────────────────────────
+// PUSH HANDLER (original logic extracted)
+// ─────────────────────────────────────────────
+async function handlePush(
+  event: APIGatewayProxyEvent,
+  requestId: string,
+  rawBody: string,
+  webhookBody: any
+): Promise<APIGatewayProxyResult> {
+  // ── Validate the push payload schema ─────────────────────────────────────
+  const validationResult = validatePayload(githubPushSchema, webhookBody);
+>>>>>>> Stashed changes
   if (!validationResult.success) {
     logger.warn({
       requestId,
@@ -229,9 +440,17 @@ async function runAgentPipeline(ctx: {
     withTimeout(
       analyzeLogic({
         repoId,
+<<<<<<< Updated upstream
         fileContents,
         repoFullName,
         installationToken,
+=======
+        repoOwner: repoFullName.split("/")[0] ?? "",
+        repoName: repoFullName.split("/")[1] ?? "",
+        filePaths: uniqueChangedFiles,
+        commitSha: String(repoId),
+        accessToken: installationToken,
+>>>>>>> Stashed changes
       }),
       AGENT_TIMEOUT_MS,
       "Sentinel"
@@ -241,8 +460,15 @@ async function runAgentPipeline(ctx: {
     withTimeout(
       graphBuilder({
         repoId,
+<<<<<<< Updated upstream
         filePaths: uniqueChangedFiles,
         fileContents,
+=======
+        repoOwner: repoFullName.split("/")[0] ?? "",
+        repoName: repoFullName.split("/")[1] ?? "",
+        accessToken: installationToken,
+        forceRebuild: true,
+>>>>>>> Stashed changes
       }),
       AGENT_TIMEOUT_MS,
       "Cortex"
@@ -259,6 +485,21 @@ async function runAgentPipeline(ctx: {
     cortexStatus: cortex.status,
   });
 
+  // ── Sync cortex graph → service-level table for the 3D frontend canvas ───
+  if (cortex.status === "success" && cortex.data) {
+    try {
+      await withTimeout(
+        syncCortexServices(repoId, cortex.data as any),
+        10_000,
+        "CortexSync"
+      );
+      logger.info({ requestId, msg: "Cortex service sync completed" });
+    } catch (syncErr) {
+      logger.error({ requestId, syncErr }, "Cortex service sync failed — non-fatal");
+      // Non-fatal: the file-level graph is still cached; service map just won't update this push
+    }
+  }
+
   // ── Phase B: Fortress TDD — runs after Sentinel ───────────────────────────
   // We pass Sentinel's review output to Fortress so test generation is
   // context-aware of flagged issues.
@@ -269,10 +510,19 @@ async function runAgentPipeline(ctx: {
     const fortressOutput = await withTimeout(
       writeTests({
         repoId,
+<<<<<<< Updated upstream
         fileContents,
         sentinelReview: sentinel.data ?? null,
         repoFullName,
         installationToken,
+=======
+        repoOwner: repoFullName.split("/")[0] ?? "",
+        repoName: repoFullName.split("/")[1] ?? "",
+        filePath: uniqueChangedFiles[0] ?? "",
+        commitSha: String(repoId),
+        accessToken: installationToken,
+        maxAttempts: 3,
+>>>>>>> Stashed changes
       }),
       AGENT_TIMEOUT_MS,
       "Fortress"
@@ -292,8 +542,8 @@ async function runAgentPipeline(ctx: {
   // ── Determine overall pipeline health ────────────────────────────────────
   const overallStatus =
     sentinel.status === "success" &&
-    fortress.status === "success" &&
-    cortex.status === "success"
+      fortress.status === "success" &&
+      cortex.status === "success"
       ? "healthy"
       : "degraded";
 
