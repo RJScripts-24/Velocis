@@ -28,15 +28,16 @@ import { ok, errors, preflight, extractBearerToken } from "../../utils/apiRespon
 import { timeAgo } from "./getDashboard";
 import { logger } from "../../utils/logger";
 import { config } from "../../utils/config";
+import { logActivity } from "../../utils/activityLogger";
 import { generateQATestPlan, generateApiDocs } from "../../functions/fortress/analyzeFortress";
 import { repoOps, getInstallationToken, fetchFileContent } from "../../services/github/repoOps";
 import { getUserToken } from "../../services/github/auth";
 
-const dynamo         = DynamoDBDocumentClient.from(new DynamoDBClient({}));
-const JWT_SECRET     = process.env.JWT_SECRET      ?? "changeme-in-production";
-const PIPELINE_TABLE = process.env.PIPELINE_TABLE  ?? "velocis-pipeline-runs";
-const REPOS_TABLE    = config.DYNAMO_REPOSITORIES_TABLE;
-const USERS_TABLE    = process.env.USERS_TABLE ?? "velocis-users";
+const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+const JWT_SECRET = process.env.JWT_SECRET ?? "changeme-in-production";
+const PIPELINE_TABLE = process.env.PIPELINE_TABLE ?? "velocis-pipeline-runs";
+const REPOS_TABLE = config.DYNAMO_REPOSITORIES_TABLE;
+const USERS_TABLE = process.env.USERS_TABLE ?? "velocis-users";
 
 // ── Cookie parser (mirrors authGithubCallback.ts) ────────────────────────────
 function parseCookieValue(cookieHeader: string, name: string): string | null {
@@ -83,10 +84,10 @@ async function requireAuth(
 
 // Standard pipeline step template (mirrors the API contract)
 const PIPELINE_STEP_DEFS = [
-  { id: "push",     label: "Code Pushed",     icon: "Code",         description: "GitHub push webhook received — resolving repo and fetching source files" },
-  { id: "qa_plan",  label: "QA Strategist",   icon: "Target",       description: "Nova Pro generating BDD test scenarios (Given / When / Then)" },
-  { id: "api_docs", label: "API Documenter",  icon: "FileSearch",   description: "Nova Pro producing README-ready API documentation" },
-  { id: "complete", label: "Results Stored",  icon: "CheckCircle",  description: "QA plan & API docs written to DynamoDB — analysis complete" },
+  { id: "push", label: "Code Pushed", icon: "Code", description: "GitHub push webhook received — resolving repo and fetching source files" },
+  { id: "qa_plan", label: "QA Strategist", icon: "Target", description: "Nova Pro generating BDD test scenarios (Given / When / Then)" },
+  { id: "api_docs", label: "API Documenter", icon: "FileSearch", description: "Nova Pro producing README-ready API documentation" },
+  { id: "complete", label: "Results Stored", icon: "CheckCircle", description: "QA plan & API docs written to DynamoDB — analysis complete" },
 ];
 
 function hydrateSteps(stepStates: Record<string, any> = {}) {
@@ -96,9 +97,9 @@ function hydrateSteps(stepStates: Record<string, any> = {}) {
     const { state: _s, duration_s: _d, ...extra } = s ?? {};
     return {
       ...def,
-      state:      s?.state      ?? "idle",
+      state: s?.state ?? "idle",
       duration_s: s?.duration_s ?? null,
-      stepData:   Object.keys(extra).length > 0 ? extra : undefined,
+      stepData: Object.keys(extra).length > 0 ? extra : undefined,
     };
   });
 }
@@ -122,14 +123,14 @@ export const getPipeline = async (
   if (!repoId) return errors.badRequest("Missing repoId.");
 
   const idleResponse = {
-    repo_id:    repoId,
-    run_id:     null,
-    trigger:    null,
-    branch:     "main",
+    repo_id: repoId,
+    run_id: null,
+    trigger: null,
+    branch: "main",
     commit_sha: null,
-    status:     "idle",
+    status: "idle",
     started_at: null,
-    steps:      hydrateSteps(),
+    steps: hydrateSteps(),
   };
 
   let res;
@@ -157,14 +158,14 @@ export const getPipeline = async (
   }
 
   return ok({
-    repo_id:    repoId,
-    run_id:     run.runId,
-    trigger:    run.trigger    ?? "push",
-    branch:     run.branch     ?? "main",
-    commit_sha: run.commitSha  ?? null,
-    status:     run.status     ?? "queued",
-    started_at: run.startedAt  ?? null,
-    steps:      hydrateSteps(run.stepStates ?? {}),
+    repo_id: repoId,
+    run_id: run.runId,
+    trigger: run.trigger ?? "push",
+    branch: run.branch ?? "main",
+    commit_sha: run.commitSha ?? null,
+    status: run.status ?? "queued",
+    started_at: run.startedAt ?? null,
+    steps: hydrateSteps(run.stepStates ?? {}),
   });
 };
 
@@ -186,9 +187,9 @@ export const getPipelineRuns = async (
   const repoId = event.pathParameters?.repoId;
   if (!repoId) return errors.badRequest("Missing repoId.");
 
-  const qs    = event.queryStringParameters ?? {};
+  const qs = event.queryStringParameters ?? {};
   const limit = Math.min(100, parseInt(qs.limit ?? "20", 10));
-  const page  = Math.max(1, parseInt(qs.page   ?? "1",  10));
+  const page = Math.max(1, parseInt(qs.page ?? "1", 10));
 
   let scanRes;
   try {
@@ -209,13 +210,13 @@ export const getPipelineRuns = async (
   );
 
   const start = (page - 1) * limit;
-  const runs  = all.slice(start, start + limit).map((r: any) => ({
-    run_id:        r.runId,
-    status:        r.status      ?? "queued",
-    branch:        r.branch      ?? "main",
-    commit_sha:    r.commitSha   ?? null,
-    started_at:    r.startedAt,
-    duration_s:    r.durationS   ?? null,
+  const runs = all.slice(start, start + limit).map((r: any) => ({
+    run_id: r.runId,
+    status: r.status ?? "queued",
+    branch: r.branch ?? "main",
+    commit_sha: r.commitSha ?? null,
+    started_at: r.startedAt,
+    duration_s: r.durationS ?? null,
     timestamp_ago: timeAgo(r.startedAt ?? new Date().toISOString()),
   }));
 
@@ -451,7 +452,7 @@ async function executeFortressPipeline(args: {
     logger.info({ runId, repoId, filePath: firstFile, msg: "Fortress analysis complete — QA plan + API docs ready" });
   } catch (err) {
     logger.error({ runId, repoId, err, msg: "executeFortressPipeline threw an error" });
-    await finishRun("failed").catch(() => {});
+    await finishRun("failed").catch(() => { });
   }
 }
 
@@ -481,8 +482,8 @@ export const triggerPipeline = async (
   }
 
   const branch = body.branch ?? "main";
-  const runId  = `run_${randomUUID().replace(/-/g, "").toUpperCase().slice(0, 8)}`;
-  const now    = new Date().toISOString();
+  const runId = `run_${randomUUID().replace(/-/g, "").toUpperCase().slice(0, 8)}`;
+  const now = new Date().toISOString();
 
   // Persist the run record synchronously so the frontend can start polling
   try {
@@ -494,9 +495,9 @@ export const triggerPipeline = async (
           repoId,
           userId,
           branch,
-          trigger:    "manual",
-          status:     "running",
-          startedAt:  now,
+          trigger: "manual",
+          status: "running",
+          startedAt: now,
           stepStates: {},
         },
       })
@@ -512,6 +513,15 @@ export const triggerPipeline = async (
   );
 
   logger.info({ runId, repoId, branch, userId, msg: "Pipeline triggered — Fortress chain started" });
+
+  // Log activity for the dashboard
+  logActivity({
+    userId,
+    repoId,
+    agent: "fortress",
+    message: `Fortress QA pipeline triggered on branch ${branch}`,
+    severity: "info",
+  });
 
   return ok({ run_id: runId, status: "running" }, 202);
 };
@@ -544,23 +554,23 @@ export const getPipelineRunDetail = async (
   }
 
   return ok({
-    run_id:      run.runId,
-    status:      run.status,
-    branch:      run.branch      ?? "main",
-    commit_sha:  run.commitSha   ?? null,
-    started_at:  run.startedAt,
-    finished_at: run.finishedAt  ?? null,
-    duration_s:  run.durationS   ?? null,
-    steps:       hydrateSteps(run.stepStates ?? {}),
+    run_id: run.runId,
+    status: run.status,
+    branch: run.branch ?? "main",
+    commit_sha: run.commitSha ?? null,
+    started_at: run.startedAt,
+    finished_at: run.finishedAt ?? null,
+    duration_s: run.durationS ?? null,
+    steps: hydrateSteps(run.stepStates ?? {}),
     test_results: {
-      total:         run.testTotal       ?? 0,
-      passed:        run.testPassed      ?? 0,
-      failed:        run.testFailed      ?? 0,
-      flaky:         run.testFlaky       ?? 0,
+      total: run.testTotal ?? 0,
+      passed: run.testPassed ?? 0,
+      failed: run.testFailed ?? 0,
+      flaky: run.testFlaky ?? 0,
       stability_pct: run.testStabilityPct ?? 100,
     },
     fixes_applied: run.fixesApplied ?? 0,
-    logs_url:      run.logsUrl      ?? null,
+    logs_url: run.logsUrl ?? null,
   });
 };
 
@@ -744,7 +754,21 @@ export const postQAPlan = async (
   // ── Invoke DeepSeek V3 via Bedrock ────────────────────────────────────────
   try {
     const qaPlanMarkdown = await generateQATestPlan(prompt);
-    logger.info({ fullName, fileCount: fetchedPaths.length, outputLength: qaPlanMarkdown.length }, "[Fortress] postQAPlan — plan generated");
+    // Log activity for the dashboard
+    logActivity({
+      userId,
+      repoId,
+      repoName,
+      agent: "fortress",
+      message: `QA test plan generated for ${fetchedPaths.length} files`,
+      severity: "info",
+    });
+
+    logger.info("[Fortress] postQAPlan — plan generated", {
+      fullName,
+      fileCount: fetchedPaths.length,
+      outputLength: qaPlanMarkdown.length,
+    });
     return ok({ status: "success", qaPlanMarkdown, filesAnalyzed: fetchedPaths });
   } catch (err: any) {
     logger.error({ error: err?.message }, "[Fortress] postQAPlan — Bedrock call failed");
@@ -899,7 +923,19 @@ export const postApiDocs = async (
   // ── Invoke DeepSeek V3 via Bedrock ────────────────────────────────────────
   try {
     const apiDocsMarkdown = await generateApiDocs(codeContent);
-    logger.info({ inputLength: codeContent.length, outputLength: apiDocsMarkdown.length }, "[Fortress] postApiDocs — docs generated");
+    // Log activity for the dashboard
+    logActivity({
+      userId,
+      repoId: repoId ?? "unknown",
+      agent: "fortress",
+      message: `API documentation generated (${apiDocsMarkdown.length} chars)`,
+      severity: "info",
+    });
+
+    logger.info("[Fortress] postApiDocs — docs generated", {
+      inputLength: codeContent.length,
+      outputLength: apiDocsMarkdown.length,
+    });
     return ok({ status: "success", apiDocsMarkdown });
   } catch (err: any) {
     logger.error({ error: err?.message }, "[Fortress] postApiDocs — Bedrock call failed");

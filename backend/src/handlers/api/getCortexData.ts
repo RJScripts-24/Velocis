@@ -81,6 +81,7 @@ import {
 } from "../../functions/cortex/graphBuilder";
 import { logger } from "../../utils/logger";
 import { config } from "../../utils/config";
+import { logActivity } from "../../utils/activityLogger";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES & INTERFACES
@@ -939,6 +940,18 @@ export const handler = async (
       { repoId, requestId, cached, buildDuration, nodeCount: graph.nodeCount },
       "getCortexData: Graph retrieved"
     );
+
+    // Log activity for the dashboard (only for fresh builds, not cache hits)
+    if (!cached) {
+      logActivity({
+        userId: "system",
+        repoId,
+        repoName: authorizedRepo.repoName,
+        agent: "cortex",
+        message: `Generated 3D architecture map (${graph.nodeCount} nodes, ${graph.edgeCount} edges)`,
+        severity: "info",
+      });
+    }
   } catch (err: any) {
     logger.error({ repoId, requestId, err }, "getCortexData: Graph build failed");
     return errorResponse(
@@ -972,8 +985,8 @@ export const handler = async (
   const duration = Date.now() - t0;
   const nodeCount =
     responseData.format === "full" ? (responseData as CortexFullResponse).nodes.length
-    : responseData.format === "nodes" ? (responseData as CortexNodesResponse).nodes.length
-    : graph.nodeCount;
+      : responseData.format === "nodes" ? (responseData as CortexNodesResponse).nodes.length
+        : graph.nodeCount;
 
   recordMetrics(repoId, params.format, duration, cached, nodeCount, 200);
 

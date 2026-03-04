@@ -184,6 +184,72 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
 
   const lastScannedAt = repo.lastScannedAt ?? new Date().toISOString();
 
+  // 1. Fetch real metrics from various tables
+  let prRiskScore = repo.riskScore ?? "Low";
+  let testStabilityPct = repo.testStabilityPct ?? 100;
+  let architectureDrift = repo.architectureDrift ?? "None detected";
+  let lastActionAt = repo.lastActionAt ?? lastScannedAt;
+
+  // Risk counts
+  let risksCritical = repo.risksCritical ?? 0;
+  let risksMedium = repo.risksMedium ?? 0;
+  let risksLow = repo.risksLow ?? 0;
+
+  const SENTINEL_TABLE = process.env.SENTINEL_TABLE ?? "velocis-sentinel";
+  const PIPELINE_TABLE = process.env.PIPELINE_TABLE ?? "velocis-pipeline-runs";
+
+  try {
+    // Latest PR Risk from Sentinel
+    const sentinelRes = await docClient.send(new ScanCommand({
+      TableName: SENTINEL_TABLE,
+      FilterExpression: "repoId = :r AND recordType = :t",
+      ExpressionAttributeValues: { ":r": repoId, ":t": "PR_REVIEW" },
+    }));
+    const latestPr = (sentinelRes.Items ?? []).sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""))[0];
+    if (latestPr) {
+      prRiskScore = `${latestPr.riskScore}%`;
+
+      // Calculate risk counts from findings if available
+      if (latestPr.findings && Array.isArray(latestPr.findings)) {
+        risksCritical = latestPr.findings.filter((f: any) => f.severity === "high" || f.severity === "critical").length;
+        risksMedium = latestPr.findings.filter((f: any) => f.severity === "medium").length;
+        risksLow = latestPr.findings.filter((f: any) => f.severity === "low").length;
+      }
+    }
+
+    // Latest Test Stability from Fortress
+    const pipelineRes = await docClient.send(new ScanCommand({
+      TableName: PIPELINE_TABLE,
+      FilterExpression: "repoId = :r",
+      ExpressionAttributeValues: { ":r": repoId },
+    }));
+    const latestRun = (pipelineRes.Items ?? []).sort((a, b) => (b.startedAt ?? "").localeCompare(a.startedAt ?? ""))[0];
+    if (latestRun) {
+      testStabilityPct = latestRun.testStabilityPct ?? latestRun.test_results?.stability_pct ?? 100;
+    }
+
+    // Latest Activity for "last auto action"
+    const activityRes = await docClient.send(new ScanCommand({
+      TableName: DYNAMO_TABLES.AI_ACTIVITY,
+      FilterExpression: "repoId = :r",
+      ExpressionAttributeValues: { ":r": repoId },
+    }));
+    const latestActivity = (activityRes.Items ?? []).sort((a, b) => (b.timestamp ?? b.createdAt ?? "").localeCompare(a.timestamp ?? a.createdAt ?? ""))[0];
+    if (latestActivity) {
+      lastActionAt = latestActivity.timestamp ?? latestActivity.createdAt;
+    }
+
+    // Architecture Drift from repo record or dedicated SK if we had one
+    // For now, if we have many nodes failing in cortex, we could derive it.
+    // Let's stick to the repo field for architectue drift but maybe clean up the label
+    if (repo.architectureDrift === "None" || !repo.architectureDrift) {
+      architectureDrift = "Minimal";
+    }
+  } catch (e) {
+    logger.warn({ msg: "Failed to fetch real-time metrics", repoId, error: String(e) });
+  }
+
+
   let commitByMonth: CommitMonth[] = [];
   if (githubToken) {
     const owner = await getGitHubLogin(githubToken);
@@ -216,18 +282,20 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     last_scanned_at: lastScannedAt,
     size_loc: repo.sizeLoc ?? "–",
     metrics: {
-      risk_score: repo.riskScore ?? "Low",
-      test_stability_pct: repo.testStabilityPct ?? 100,
-      architecture_drift: repo.architectureDrift ?? "None detected",
-      last_action_ago: timeAgo(repo.lastActionAt ?? lastScannedAt),
+      risk_score: prRiskScore,
+      test_stability_pct: testStabilityPct,
+      architecture_drift: architectureDrift,
+      last_action_ago: timeAgo(lastActionAt),
     },
     sentinel: { active_prs: repo.sentinelActivePrs ?? 0, last_update_ago: timeAgo(repo.sentinelLastUpdated ?? lastScannedAt) },
     fortress: { status_message: repo.fortressStatusMessage ?? "Pipeline idle", last_run_ago: timeAgo(repo.fortressLastRun ?? lastScannedAt) },
     cortex: { last_update_ago: timeAgo(repo.cortexLastUpdated ?? lastScannedAt), service_count: repo.cortexServiceCount ?? 0 },
-    risks: { critical: repo.risksCritical ?? 0, medium: repo.risksMedium ?? 0, low: repo.risksLow ?? 0 },
+    risks: { critical: risksCritical, medium: risksMedium, low: risksLow },
     commit_by_month: commitByMonth,
     commit_sparkline: commitByMonth.map((m) => m.count),
     commit_trend_label: trendLabel || repo.commitTrendLabel || "",
     commit_trend_direction: trendDirection || repo.commitTrendDirection || "flat",
   });
 };
+
+

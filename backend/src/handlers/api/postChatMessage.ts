@@ -58,6 +58,7 @@ import {
   BedrockMessage,
 } from "../../services/aws/bedrockClient";
 import { translateText } from "../../services/aws/translate";
+import { logActivity } from "../../utils/activityLogger";
 import {
   dynamoClient as dynamo,
   DYNAMO_TABLES,
@@ -671,6 +672,15 @@ export const handler = async (
     ).catch((err) =>
       logger.error({ msg: "Failed to save conversation turn", error: String(err) })
     );
+
+    // Log activity for the dashboard
+    logActivity({
+      userId: "system",
+      repoId,
+      agent: "sentinel",
+      message: `Sentinel conversation — ${message.slice(0, 60)}${message.length > 60 ? "…" : ""}`,
+      severity: "info",
+    });
 
     logger.info({
       msg: "Sentinel responded successfully",

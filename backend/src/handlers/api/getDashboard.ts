@@ -159,28 +159,28 @@ export const handler = async (
     { healthy: 0, warning: 0, critical: 0, open_risks: 0, agents_running: 0 }
   );
 
-  // ── Activity feed ───────────────────────────────────────────────────────────
+  // ── Activity feed (reads from the AI_ACTIVITY table where handlers log events) ──
   let activityEvents: any[] = [];
   try {
     const actScan = await docClient.send(
       new ScanCommand({
-        TableName: ACTIVITY_TABLE,
-        FilterExpression: "userId = :uid AND #ts >= :since",
+        TableName: DYNAMO_TABLES.AI_ACTIVITY,
+        FilterExpression: "#ts >= :since",
         ExpressionAttributeNames: { "#ts": "timestamp" },
-        ExpressionAttributeValues: { ":uid": userId, ":since": since },
-        Limit: 30,
+        ExpressionAttributeValues: { ":since": since },
+        Limit: 50,
       })
     );
     activityEvents = (actScan.Items ?? [])
       .sort((a: any, b: any) => (b.timestamp ?? "").localeCompare(a.timestamp ?? ""))
-      .slice(0, 20)
+      .slice(0, 10)
       .map((e: any) => ({
-        id: e.id,
+        id: e.activityId ?? e.id,
         agent: e.agent,
         repo_id: e.repoId,
-        repo_name: e.repoName,
+        repo_name: e.repoName ?? e.repoId,
         message: e.message,
-        severity: e.severity,
+        severity: e.severity ?? "info",
         timestamp_ago: timeAgo(e.timestamp),
         timestamp: e.timestamp,
       }));

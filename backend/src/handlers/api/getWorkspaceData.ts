@@ -34,6 +34,7 @@ import { logger } from "../../utils/logger";
 import { fetchFileContent, fetchRepoTree } from "../../services/github/repoOps";
 import { translateText } from "../../services/aws/translate";
 import { config } from "../../utils/config";
+import { logActivity } from "../../utils/activityLogger";
 import * as crypto from "crypto";
 import axios from "axios";
 import { dynamoClient, DYNAMO_TABLES } from "../../services/database/dynamoClient";
@@ -492,116 +493,125 @@ export const sendChatMessage = async (
   event: APIGatewayProxyEvent
 ): Promise<APIGatewayProxyResult> => {
   try {
-  if (event.httpMethod === "OPTIONS") return preflight();
+    if (event.httpMethod === "OPTIONS") return preflight();
 
-  const user = await resolveUser(event);
-  if (!user) return errors.unauthorized();
+    const user = await resolveUser(event);
+    if (!user) return errors.unauthorized();
 
-  const repoId = event.pathParameters?.repoId;
-  if (!repoId) return errors.badRequest("Missing repoId.");
+    const repoId = event.pathParameters?.repoId;
+    if (!repoId) return errors.badRequest("Missing repoId.");
 
-  let body: any = {};
-  try {
-    if (event.body) body = JSON.parse(event.body);
-  } catch {
-    return errors.badRequest("Invalid JSON body.");
-  }
+    let body: any = {};
+    try {
+      if (event.body) body = JSON.parse(event.body);
+    } catch {
+      return errors.badRequest("Invalid JSON body.");
+    }
 
-  const { message, context, language = "en" } = body as {
-    message: string;
-    context?: { file_path?: string; line?: number; annotation_id?: string };
-    language?: Language;
-  };
-
-  if (!message) return errors.badRequest("message is required.");
-
-  const messageId = `msg_${randomUUID().replace(/-/g, "").slice(0, 8)}`;
-  const now = new Date().toISOString();
-
-  // Build the prompt — include file context if provided
-  let systemPrompt = "You are Sentinel, Velocis's AI code review and mentoring assistant. Provide concise, actionable guidance.";
-  let userPrompt = message;
-  if (context?.file_path) {
-    userPrompt = `[File: ${context.file_path}${context.line ? ` line ${context.line}` : ""}]\n\n${message}`;
-  }
-
-  let responseContent = "";
-  try {
-    // DeepSeek V3 uses OpenAI-compatible request format
-    const payload = {
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      max_tokens: 1024,
-      temperature: 0.3,
-      top_p: 0.9,
+    const { message, context, language = "en" } = body as {
+      message: string;
+      context?: { file_path?: string; line?: number; annotation_id?: string };
+      language?: Language;
     };
 
-    const cmd = new InvokeModelCommand({
-      modelId: DEEPSEEK_V3_MODEL_ID,
-      contentType: "application/json",
-      accept: "application/json",
-      body: JSON.stringify(payload),
-    });
+    if (!message) return errors.badRequest("message is required.");
 
-    const bedrockRes = await bedrock.send(cmd);
-    const parsed = JSON.parse(new TextDecoder().decode(bedrockRes.body));
-    // DeepSeek V3 response: OpenAI-compatible — choices[0].message.content
-    responseContent = parsed.choices?.[0]?.message?.content ?? "";
-  } catch (e: any) {
-    logger.error({
-      repoId,
-      msg: "Bedrock invocation failed",
-      error: e?.message,
-      stack: e?.stack,
-      region: BEDROCK_REGION,
-      model: DEEPSEEK_V3_MODEL_ID,
-    });
-    return errors.agentUnavailable("Sentinel");
-  }
+    const messageId = `msg_${randomUUID().replace(/-/g, "").slice(0, 8)}`;
+    const now = new Date().toISOString();
 
-  // Translate if requested
-  let finalContent = responseContent;
-  if (language !== "en") {
+    // Build the prompt — include file context if provided
+    let systemPrompt = "You are Sentinel, Velocis's AI code review and mentoring assistant. Provide concise, actionable guidance.";
+    let userPrompt = message;
+    if (context?.file_path) {
+      userPrompt = `[File: ${context.file_path}${context.line ? ` line ${context.line}` : ""}]\n\n${message}`;
+    }
+
+    let responseContent = "";
     try {
-      finalContent = (await translateText({ text: responseContent, sourceLanguage: "en", targetLanguage: language as any })).translatedText;
-    } catch (_) { /* fallback to English */ }
-  }
+      // DeepSeek V3 uses OpenAI-compatible request format
+      const payload = {
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        max_tokens: 1024,
+        temperature: 0.3,
+        top_p: 0.9,
+      };
 
-  // Persist to DynamoDB (non-fatal — don't fail the response if the table is missing)
-  try {
-    await dynamo.send(
-      new PutCommand({
-        TableName: CHAT_TABLE,
-        Item: {
-          messageId,
-          repoId,
-          userId: user.userId,
-          role: "sentinel",
-          content: finalContent,
-          language,
-          context: context ?? null,
-          timestamp: now,
-        },
-      })
-    );
-  } catch (dbErr: any) {
-    logger.warn({
+      const cmd = new InvokeModelCommand({
+        modelId: DEEPSEEK_V3_MODEL_ID,
+        contentType: "application/json",
+        accept: "application/json",
+        body: JSON.stringify(payload),
+      });
+
+      const bedrockRes = await bedrock.send(cmd);
+      const parsed = JSON.parse(new TextDecoder().decode(bedrockRes.body));
+      // DeepSeek V3 response: OpenAI-compatible — choices[0].message.content
+      responseContent = parsed.choices?.[0]?.message?.content ?? "";
+    } catch (e: any) {
+      logger.error({
+        repoId,
+        msg: "Bedrock invocation failed",
+        error: e?.message,
+        stack: e?.stack,
+        region: BEDROCK_REGION,
+        model: DEEPSEEK_V3_MODEL_ID,
+      });
+      return errors.agentUnavailable("Sentinel");
+    }
+
+    // Translate if requested
+    let finalContent = responseContent;
+    if (language !== "en") {
+      try {
+        finalContent = (await translateText({ text: responseContent, sourceLanguage: "en", targetLanguage: language as any })).translatedText;
+      } catch (_) { /* fallback to English */ }
+    }
+
+    // Persist to DynamoDB (non-fatal — don't fail the response if the table is missing)
+    try {
+      await dynamo.send(
+        new PutCommand({
+          TableName: CHAT_TABLE,
+          Item: {
+            messageId,
+            repoId,
+            userId: user.userId,
+            role: "sentinel",
+            content: finalContent,
+            language,
+            context: context ?? null,
+            timestamp: now,
+          },
+        })
+      );
+    } catch (dbErr: any) {
+      logger.warn({
+        repoId,
+        msg: "Failed to persist chat message to DynamoDB (non-fatal)",
+        table: CHAT_TABLE,
+        error: dbErr?.message,
+      });
+    }
+
+    // Log activity for the dashboard
+    logActivity({
+      userId: user.userId,
       repoId,
-      msg: "Failed to persist chat message to DynamoDB (non-fatal)",
-      table: CHAT_TABLE,
-      error: dbErr?.message,
+      agent: "sentinel",
+      message: `Workspace chat: ${message.slice(0, 60)}${message.length > 60 ? "…" : ""}`,
+      severity: "info",
     });
-  }
 
-  return ok({
-    message_id: messageId,
-    role: "sentinel",
-    content: finalContent,
-    timestamp: now,
-    timestamp_ago: "Just now",
-  });
+    return ok({
+      message_id: messageId,
+      role: "sentinel",
+      content: finalContent,
+      timestamp: now,
+      timestamp_ago: "Just now",
+    });
   } catch (err: any) {
     logger.error({
       msg: "sendChatMessage: unhandled error",
@@ -819,6 +829,15 @@ export const reviewCodebase = async (
         error: dbErr?.message,
       });
     }
+
+    // Log activity for the dashboard
+    logActivity({
+      userId: user.userId,
+      repoId,
+      agent: "fortress",
+      message: `Code review completed — ${reviewResult.risk_level} risk, ${reviewResult.files_reviewed} files reviewed`,
+      severity: reviewResult.risk_level === "critical" ? "critical" : reviewResult.risk_level === "high" ? "warning" : "info",
+    });
 
     return ok({
       message_id: messageId,

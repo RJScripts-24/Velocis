@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ChevronDown, Shield, Send, Paperclip, FileCode, Sun, Moon, AlertCircle, Lightbulb, Info, Home, Folder, Sparkles, Zap, CheckCircle2, Activity, Search } from 'lucide-react';
+import { ChevronDown, Shield, Send, Paperclip, FileCode, Sun, Moon, AlertCircle, Lightbulb, Info, Home, Folder, Sparkles, Zap, CheckCircle2, Activity, Search, History, Clock, MessageSquare, Plus } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router';
 import Editor from '@monaco-editor/react';
 import { getWorkspaceFiles, WorkspaceFile, getFileContent, getAnnotations, postChatMessage, getChatHistory, reviewWorkspaceCode } from '../../lib/api';
@@ -149,6 +149,8 @@ export function WorkspacePage() {
   const { id } = useParams<{ id: string }>();
   const [language, setLanguage] = useState<'en' | 'hi' | 'ta'>('en');
   const [messages, setMessages] = useState<Message[]>([]);
+  // Store the original English messages for toggling back
+  const [originalMessages, setOriginalMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [hoveredLine, setHoveredLine] = useState<number | null>(null);
   const [codeContent, setCodeContent] = useState<string>('');
@@ -160,6 +162,8 @@ export function WorkspacePage() {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [fileSearchQuery, setFileSearchQuery] = useState('');
   const [isLoadingFile, setIsLoadingFile] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [allHistoryMessages, setAllHistoryMessages] = useState<Message[]>([]);
 
   // Dark mode state
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -173,6 +177,15 @@ export function WorkspacePage() {
   useEffect(() => {
     if (!id) return;
 
+    // Immediately restore cached messages so history is visible before API returns
+    try {
+      const cached = localStorage.getItem(`velocis:workspace:chat:${id}`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed.messages)) setMessages(parsed.messages);
+      }
+    } catch { /* ignore corrupt cache */ }
+
     getWorkspaceFiles(id, '/', true)
       .then((wsRes) => {
         const files = wsRes.files.filter(f => f.type === 'file');
@@ -185,7 +198,7 @@ export function WorkspacePage() {
           Promise.all([
             getFileContent(id, targetFile).catch(() => null),
             getAnnotations(id, targetFile).catch(() => null),
-            getChatHistory(id, 20).catch(() => null),
+            getChatHistory(id, 200).catch(() => null),
           ]).then(([fileRes, annotRes, chatRes]) => {
             if (fileRes) setCodeContent(fileRes.content);
             else setCodeContent('// Failed to load file content');
@@ -197,7 +210,7 @@ export function WorkspacePage() {
                 message: `${a.title}: ${a.message}`,
               })));
             }
-            if (chatRes) {
+            if (chatRes && chatRes.messages.length > 0) {
               const mapped: Message[] = chatRes.messages.map(m => ({
                 role: (m.role === 'user' ? 'user' : 'sentinel') as 'sentinel' | 'user',
                 content: m.content,
@@ -229,6 +242,11 @@ export function WorkspacePage() {
                 timestamp: m.timestamp_ago,
               }));
               setMessages(mapped);
+              setAllHistoryMessages(mapped);
+              // Cache to localStorage
+              try {
+                localStorage.setItem(`velocis:workspace:chat:${id}`, JSON.stringify({ messages: mapped }));
+              } catch { /* storage full */ }
             }
           });
         }
@@ -267,7 +285,18 @@ export function WorkspacePage() {
   // Translate all chat messages to the selected language (Hindi/Telugu)
   const handleLanguageChange = async (newLang: 'en' | 'hi' | 'ta') => {
     setLanguage(newLang);
-    if (newLang === 'en') return;
+    if (newLang === language) return;
+    if (newLang === 'en') {
+      // Restore original English messages if available
+      if (originalMessages.length > 0) {
+        setMessages(originalMessages);
+      }
+      return;
+    }
+    // Save original messages before translating (only if switching from English)
+    if (language === 'en') {
+      setOriginalMessages(messages);
+    }
     // Translate all current messages (only user/sentinel text, not analysis/reviewData)
     const translatedMessages = await Promise.all(messages.map(async msg => {
       if (!msg.content) return msg;
@@ -287,6 +316,7 @@ export function WorkspacePage() {
     }
     const newMessage: Message = { role: 'user', content: translatedText, timestamp: 'Just now' };
     setMessages(prev => [...prev, newMessage]);
+    setAllHistoryMessages(prev => [...prev, newMessage]); // Update all history
     setInputValue('');
     setIsSending(true);
     try {
@@ -325,7 +355,12 @@ export function WorkspacePage() {
         } : undefined,
         timestamp: res.timestamp_ago,
       };
-      setMessages(prev => [...prev, reply]);
+      setMessages(prev => {
+        const updated = [...prev, reply];
+        try { localStorage.setItem(`velocis:workspace:chat:${id}`, JSON.stringify({ messages: updated })); } catch { }
+        return updated;
+      });
+      setAllHistoryMessages(prev => [...prev, reply]);
     } catch {
       setMessages(prev => [...prev, { role: 'sentinel', content: 'Failed to get response. Please try again.', timestamp: 'Just now' }]);
     } finally {
@@ -343,6 +378,7 @@ export function WorkspacePage() {
         timestamp: 'Just now',
       };
       setMessages(prev => [...prev, reviewPrompt]);
+      setAllHistoryMessages(prev => [...prev, reviewPrompt]); // Update all history
 
       const res = await reviewWorkspaceCode(id, { language });
       const reply: Message = {
@@ -368,7 +404,12 @@ export function WorkspacePage() {
         } : undefined,
         timestamp: res.timestamp_ago,
       };
-      setMessages(prev => [...prev, reply]);
+      setMessages(prev => {
+        const updated = [...prev, reply];
+        try { localStorage.setItem(`velocis:workspace:chat:${id}`, JSON.stringify({ messages: updated })); } catch { }
+        return updated;
+      });
+      setAllHistoryMessages(prev => [...prev, reply]);
     } catch {
       setMessages(prev => [...prev, { role: 'sentinel', content: 'Review failed. Please try again.', timestamp: 'Just now' }]);
     } finally {
@@ -402,6 +443,12 @@ export function WorkspacePage() {
   };
 
   // annotations come from API state (set in useEffect above)
+
+  const handleNewChat = () => {
+    setMessages([]);
+    setIsHistoryOpen(false);
+    try { localStorage.setItem(`velocis:workspace:chat:${id}`, JSON.stringify({ messages: [] })); } catch { }
+  };
 
   return (
     <div className={`${themeClass} w-full h-full`}>
@@ -625,17 +672,37 @@ export function WorkspacePage() {
               </div>
 
               <div className="flex flex-col items-end gap-2">
-                {/* Regional Mentorship Hub Toggle */}
-                <div className="bg-zinc-100/80 dark:bg-slate-800/80 p-0.5 rounded-lg flex items-center border border-zinc-200/50 dark:border-slate-700/50 shadow-inner transition-colors">
-                  {(['en', 'hi', 'ta'] as const).map((lang) => (
-                    <button
-                      key={lang}
-                      onClick={() => handleLanguageChange(lang)}
-                      className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all ${language === lang ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm border border-zinc-200/50 dark:border-slate-600/50' : 'text-zinc-500 dark:text-slate-400 hover:text-zinc-700 dark:hover:text-slate-200'}`}
-                    >
-                      {lang === 'en' ? 'EN' : lang === 'hi' ? 'HI' : 'TA'}
-                    </button>
-                  ))}
+                {/* History + New Chat + Language row */}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleNewChat}
+                    className="p-1.5 rounded-lg text-[11px] font-semibold transition-all flex items-center gap-1.5 text-zinc-500 dark:text-slate-400 hover:bg-zinc-100 dark:hover:bg-slate-800 border border-transparent"
+                    title="New Chat"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setIsHistoryOpen(!isHistoryOpen)}
+                    className={`p-1.5 rounded-lg text-[11px] font-semibold transition-all flex items-center gap-1.5 ${isHistoryOpen
+                      ? 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-200/50 dark:border-indigo-500/30'
+                      : 'text-zinc-500 dark:text-slate-400 hover:bg-zinc-100 dark:hover:bg-slate-800 border border-transparent'
+                      }`}
+                    title="Chat History"
+                  >
+                    <History className="w-3.5 h-3.5" />
+                  </button>
+                  {/* Regional Mentorship Hub Toggle */}
+                  <div className="bg-zinc-100/80 dark:bg-slate-800/80 p-0.5 rounded-lg flex items-center border border-zinc-200/50 dark:border-slate-700/50 shadow-inner transition-colors">
+                    {(['en', 'hi', 'ta'] as const).map((lang) => (
+                      <button
+                        key={lang}
+                        onClick={() => handleLanguageChange(lang)}
+                        className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all ${language === lang ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm border border-zinc-200/50 dark:border-slate-600/50' : 'text-zinc-500 dark:text-slate-400 hover:text-zinc-700 dark:hover:text-slate-200'}`}
+                      >
+                        {lang === 'en' ? 'EN' : lang === 'hi' ? 'HI' : 'TA'}
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 <button
                   onClick={handleReviewCode}
@@ -648,8 +715,103 @@ export function WorkspacePage() {
               </div>
             </div>
 
+            {/* Chat History Panel (collapsible) */}
+            <AnimatePresence>
+              {isHistoryOpen && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="overflow-hidden border-b border-zinc-100/80 dark:border-slate-800/80"
+                >
+                  <div className="px-4 py-3 bg-zinc-50/80 dark:bg-slate-900/60">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-zinc-400 dark:text-slate-500">
+                        <Clock className="w-3 h-3" />
+                        Chat History
+                      </div>
+                      <span className="text-[10px] font-medium text-zinc-400 dark:text-slate-500">
+                        {allHistoryMessages.length} message{allHistoryMessages.length !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+                    <div className="max-h-[200px] overflow-y-auto space-y-1 scrollbar-thin scrollbar-thumb-zinc-200 dark:scrollbar-thumb-slate-700">
+                      {allHistoryMessages.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-4 gap-1 text-zinc-400 dark:text-slate-500">
+                          <MessageSquare className="w-5 h-5 opacity-40" />
+                          <span className="text-[11px] font-medium">No conversations yet</span>
+                          <span className="text-[10px] opacity-70">Start chatting with Sentinel</span>
+                        </div>
+                      ) : (
+                        (() => {
+                          // Group messages into "conversations" by looking at user messages
+                          const conversations: { title: string; timestamp: string; msgCount: number; startIndex: number; messagesList: Message[] }[] = [];
+                          let currentConvo: { title: string; timestamp: string; msgCount: number; startIndex: number; messagesList: Message[] } | null = null;
+                          allHistoryMessages.forEach((msg, idx) => {
+                            if (msg.role === 'user' && msg.content) {
+                              if (currentConvo) conversations.push(currentConvo);
+                              currentConvo = {
+                                title: msg.content.slice(0, 50) + (msg.content.length > 50 ? '…' : ''),
+                                timestamp: msg.timestamp,
+                                msgCount: 1,
+                                startIndex: idx,
+                                messagesList: [msg]
+                              };
+                            } else if (currentConvo) {
+                              currentConvo.msgCount++;
+                              currentConvo.messagesList.push(msg);
+                            } else if (msg.role === 'sentinel' && (msg.isAnalysis || msg.reviewData)) {
+                              const label = msg.reviewData ? 'Code Review' : msg.analysisData?.title ?? 'Sentinel Analysis';
+                              if (currentConvo) conversations.push(currentConvo);
+                              currentConvo = { title: label, timestamp: msg.timestamp, msgCount: 1, startIndex: idx, messagesList: [msg] };
+                            }
+                          });
+                          if (currentConvo) conversations.push(currentConvo);
+
+                          if (conversations.length === 0) {
+                            return (
+                              <div className="py-3 text-center text-[11px] text-zinc-400 dark:text-slate-500">No conversations found</div>
+                            );
+                          }
+
+                          return conversations.map((convo, i) => (
+                            <button
+                              key={i}
+                              onClick={() => {
+                                // For loading a past conversation, replace the active view with the 
+                                // messages from this conversation onwards (simplest approach for flat history)
+                                const historyToLoad = allHistoryMessages.slice(convo.startIndex);
+                                setMessages(historyToLoad);
+                                try { localStorage.setItem(`velocis:workspace:chat:${id}`, JSON.stringify({ messages: historyToLoad })); } catch { }
+                                setIsHistoryOpen(false);
+                              }}
+                              className="w-full flex items-start gap-2.5 px-3 py-2 rounded-lg hover:bg-white dark:hover:bg-slate-800 transition-colors text-left group"
+                            >
+                              <div className="w-6 h-6 rounded-md flex items-center justify-center bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100/50 dark:border-indigo-500/20 shrink-0 mt-0.5">
+                                <MessageSquare className="w-3 h-3 text-indigo-500 dark:text-indigo-400" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-[12px] font-medium text-zinc-700 dark:text-slate-300 truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                                  {convo.title}
+                                </div>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  <span className="text-[10px] text-zinc-400 dark:text-slate-500">{convo.timestamp}</span>
+                                  <span className="text-[10px] text-zinc-300 dark:text-slate-600">·</span>
+                                  <span className="text-[10px] text-zinc-400 dark:text-slate-500">{convo.msgCount} msg{convo.msgCount !== 1 ? 's' : ''}</span>
+                                </div>
+                              </div>
+                            </button>
+                          ));
+                        })()
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             {/* Chat Messages */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-5 scrollbar-thin scrollbar-thumb-zinc-200 dark:scrollbar-thumb-slate-700">
+            <div data-chat-area className="flex-1 overflow-y-auto p-5 space-y-5 scrollbar-thin scrollbar-thumb-zinc-200 dark:scrollbar-thumb-slate-700">
               <AnimatePresence mode="wait">
                 {messages.map((message, index) => (
                   <motion.div

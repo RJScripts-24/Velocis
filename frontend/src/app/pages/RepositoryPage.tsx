@@ -103,37 +103,49 @@ const getIndigoBarColor = (risk: number) => {
   return 'bg-indigo-300/80 dark:bg-indigo-200/60';
 };
 
-const PRRiskBars = () => (
-  <div className="w-full h-full flex flex-col justify-center gap-[7px] py-1">
-    {prData.map((d, i) => (
-      <div key={i} className="flex items-center gap-2">
-        <span className="text-[9px] font-medium text-zinc-400 dark:text-zinc-500 w-10 shrink-0 tabular-nums font-mono">{d.label}</span>
-        <div className="flex-1 h-1.5 bg-zinc-100 dark:bg-zinc-800 rounded-sm overflow-hidden">
-          <motion.div
-            className={`h-full rounded-sm ${getIndigoBarColor(d.risk)}`}
-            initial={{ width: 0 }}
-            animate={{ width: `${d.risk}%` }}
-            transition={{ delay: i * 0.08, duration: 0.55, ease: "easeOut" }}
-          />
+const PRRiskBars = ({ data }: { data: any[] }) => {
+  const displayData = data.length > 0
+    ? data.slice(0, 6).map(p => ({ label: `PR #${p.pr_number}`, risk: p.risk_score }))
+    : prData; // Fallback to mock for visualization if no real PRs
+
+  return (
+    <div className="w-full h-full flex flex-col justify-center gap-[7px] py-1">
+      {displayData.map((d, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <span className="text-[9px] font-medium text-zinc-400 dark:text-zinc-500 w-10 shrink-0 tabular-nums font-mono">{d.label}</span>
+          <div className="flex-1 h-1.5 bg-zinc-100 dark:bg-zinc-800 rounded-sm overflow-hidden">
+            <motion.div
+              className={`h-full rounded-sm ${getIndigoBarColor(d.risk)}`}
+              initial={{ width: 0 }}
+              animate={{ width: `${d.risk}%` }}
+              transition={{ delay: i * 0.08, duration: 0.55, ease: "easeOut" }}
+            />
+          </div>
+          <span className="text-[9px] font-semibold w-6 text-right tabular-nums text-zinc-500 dark:text-zinc-400 font-mono">{d.risk}%</span>
         </div>
-        <span className="text-[9px] font-semibold w-6 text-right tabular-nums text-zinc-500 dark:text-zinc-400 font-mono">{d.risk}%</span>
-      </div>
-    ))}
-  </div>
-);
+      ))}
+    </div>
+  );
+};
+
 
 // â”€â”€â”€ GitHub-style Mini Bar Chart (replaces wavy line for "QA Pipeline") â”€â”€â”€â”€â”€
 const qaData = [94, 97, 95, 100, 98, 92, 96, 100, 99, 95, 98, 100, 97, 100, 96, 98, 97, 100, 95, 99, 100, 96, 97, 98, 100, 99, 97, 100];
 
-const QABarChart = () => {
-  const max = Math.max(...qaData);
-  const min = 90;
+const QABarChart = ({ runs }: { runs: any[] }) => {
+  const displayData = runs.length > 5
+    ? runs.map(r => r.status === 'success' ? 100 : r.status === 'failed' ? 10 : 50).reverse()
+    : qaData;
+
+  const max = Math.max(...displayData, 1);
+  const min = runs.length > 5 ? 0 : 90;
+
   return (
     <div className="w-full h-full flex flex-col justify-end gap-0.5">
       <div className="flex items-end gap-px flex-1">
-        {qaData.map((v, i) => {
-          const heightPct = Math.max(10, ((v - min) / (max - min)) * 100);
-          const isLast = i === qaData.length - 1;
+        {displayData.map((v, i) => {
+          const heightPct = Math.max(10, ((v - min) / (Math.max(1, max - min))) * 100);
+          const isLast = i === displayData.length - 1;
           const color = v === 100 ? '#10b981' : v >= 97 ? '#34d399' : v >= 95 ? '#fbbf24' : '#f87171';
           return (
             <div key={i} className="flex-1 flex flex-col justify-end">
@@ -142,7 +154,7 @@ const QABarChart = () => {
                 style={{
                   height: `${heightPct}%`,
                   backgroundColor: color,
-                  opacity: isLast ? 1 : 0.55 + (i / qaData.length) * 0.45,
+                  opacity: isLast ? 1 : 0.55 + (i / displayData.length) * 0.45,
                 }}
               />
             </div>
@@ -150,11 +162,12 @@ const QABarChart = () => {
         })}
       </div>
       <div className="flex justify-between text-[8px] text-zinc-400 dark:text-zinc-600 font-medium pt-1">
-        <span>28d ago</span><span>14d ago</span><span>today</span>
+        <span>{runs.length > 5 ? 'history' : '28d ago'}</span><span>today</span>
       </div>
     </div>
   );
 };
+
 
 // â”€â”€â”€ AWS Resource Key-Value List (replaces donut chart for "Infrastructure") â”€
 const awsResources = [
@@ -166,22 +179,29 @@ const awsResources = [
   { name: 'RDS', count: 2, ok: false },
 ];
 
-const AWSResourceList = () => (
-  <div className="w-full h-full flex flex-col justify-center gap-[5px]">
-    {awsResources.map((r, i) => (
-      <div key={i} className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
-          <span
-            className="w-1.5 h-1.5 rounded-full shrink-0"
-            style={{ backgroundColor: r.ok ? '#10b981' : '#f59e0b' }}
-          />
-          <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">{r.name}</span>
+const AWSResourceList = ({ data }: { data: any[] }) => {
+  const displayData = data.length > 0
+    ? data.map(c => ({ name: c.service, count: `$${c.cost_usd.toFixed(2)}`, ok: true }))
+    : awsResources;
+
+  return (
+    <div className="w-full h-full flex flex-col justify-center gap-[5px]">
+      {displayData.map((r, i) => (
+        <div key={i} className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <span
+              className="w-1.5 h-1.5 rounded-full shrink-0"
+              style={{ backgroundColor: r.ok ? '#10b981' : '#f59e0b' }}
+            />
+            <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">{r.name}</span>
+          </div>
+          <span className="text-[11px] font-semibold text-zinc-800 dark:text-zinc-200 tabular-nums">{r.count}</span>
         </div>
-        <span className="text-[11px] font-semibold text-zinc-800 dark:text-zinc-200 tabular-nums">{r.count}</span>
-      </div>
-    ))}
-  </div>
-);
+      ))}
+    </div>
+  );
+};
+
 
 // â”€â”€â”€ Canonical card class helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const cardCls = [
@@ -196,7 +216,11 @@ export function RepositoryPage() {
   const navigate = useNavigate();
   const [repo, setRepo] = useState<RepoDetail>(FALLBACK_REPO);
   const [repoActivity, setRepoActivity] = useState<ActivityEvent[]>([]);
+  const [prs, setPrs] = useState<any[]>([]);
+  const [pipelineRuns, setPipelineRuns] = useState<any[]>([]);
+  const [infraData, setInfraData] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+
   const [error, setError] = useState<string | null>(null);
 
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -224,7 +248,36 @@ export function RepositoryPage() {
             if (!cancelled) setRepoActivity(actData.events ?? []);
           }
         } catch (_) { /* activity is non-fatal */ }
+
+        // Fetch PRS for Sentinel preview
+        try {
+          const prsRes = await fetch(`${BACKEND_URL}/api/repos/${id}/sentinel/prs`, { credentials: 'include' });
+          if (prsRes.ok) {
+            const prsData = await prsRes.json();
+            if (!cancelled) setPrs(prsData.prs ?? []);
+          }
+        } catch (_) { }
+
+        // Fetch Pipeline Runs for Fortress preview
+        try {
+          const runsRes = await fetch(`${BACKEND_URL}/api/repos/${id}/pipeline/runs?limit=15`, { credentials: 'include' });
+          if (runsRes.ok) {
+            const runsData = await runsRes.json();
+            if (!cancelled) setPipelineRuns(runsData.runs ?? []);
+          }
+        } catch (_) { }
+
+        // Fetch Infrastructure for preview
+        try {
+          const infraRes = await fetch(`${BACKEND_URL}/api/repos/${id}/infrastructure`, { credentials: 'include' });
+          if (infraRes.ok) {
+            const iData = await infraRes.json();
+            if (!cancelled) setInfraData(iData.cost_breakdown ?? []);
+          }
+        } catch (_) { }
+
       } catch (err: any) {
+
         console.error('Error loading repo:', err);
         if (!cancelled) setError(err.message ?? 'Failed to load repository');
       } finally {
@@ -234,6 +287,7 @@ export function RepositoryPage() {
     load();
     return () => { cancelled = true; };
   }, [id, navigate]);
+
 
   if (isLoading || !repo) {
     return (
@@ -280,7 +334,7 @@ export function RepositoryPage() {
       accentColor: "#6366f1",
       action: () => navigate(`/repo/${id}/workspace`),
       cta: "Workspace",
-      preview: <PRRiskBars />,
+      preview: <PRRiskBars data={prs} />,
     },
     {
       title: "QA Pipeline Data",
@@ -289,8 +343,9 @@ export function RepositoryPage() {
       accentColor: "#3b82f6",
       action: () => navigate(`/repo/${id}/pipeline`),
       cta: "QA Pipeline",
-      preview: <QABarChart />,
+      preview: <QABarChart runs={pipelineRuns} />,
     },
+
     {
       title: "Infrastructure View",
       description: "AWS status, resource load, and live cost tracking tools.",
@@ -298,8 +353,9 @@ export function RepositoryPage() {
       accentColor: "#f59e0b",
       action: () => navigate(`/repo/${id}/infrastructure`),
       cta: "Infrastructure",
-      preview: <AWSResourceList />,
+      preview: <AWSResourceList data={infraData} />,
     }
+
   ];
 
   const agentIconMap: Record<string, React.ElementType> = { sentinel: Shield, fortress: TestTube2, cortex: Cloud };
@@ -350,6 +406,13 @@ export function RepositoryPage() {
               <div className="w-[7px] h-[7px] rounded-full bg-emerald-500 animate-[custom-pulse_2s_infinite]" />
               <div className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">GitHub Sync</div>
             </div>
+            <button
+              onClick={() => navigate(`/repo/${id}/settings`)}
+              className="p-2 ml-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-500 dark:text-slate-400"
+              title="Repository Settings"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
             <button
               onClick={() => setIsDarkMode(!isDarkMode)}
               className="p-2 ml-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-500 dark:text-slate-400"
@@ -450,190 +513,167 @@ export function RepositoryPage() {
 
 
               </div>
-            {/* â”€â”€ END LEFT COLUMN â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+              {/* â”€â”€ END LEFT COLUMN â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
 
-            {/* â”€â”€ RIGHT SIDEBAR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+              {/* â”€â”€ RIGHT SIDEBAR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
               <div className="flex flex-col gap-5 xl:sticky xl:top-[72px] self-start">
 
-              {/* TOOL CARDS, REPOSITORY ACTIVITY, RISK OVERVIEW */}
-              <div className="flex flex-col gap-5">
-                <div className={`${cardCls} rounded-2xl overflow-hidden`}>
-                  <div className="px-5 py-4 border-b border-[rgba(16,24,40,0.06)] dark:border-zinc-800 text-[10px] font-semibold tracking-widest text-zinc-400 dark:text-zinc-500 uppercase">
-                    Settings
-                  </div>
-                  {[
-                    { icon: Settings, label: 'Repository Settings', sub: 'Manage integrations & tokens' },
-                    { icon: Webhook, label: 'Webhook Status', sub: '3 active endpoints' },
-                    { icon: Sliders, label: 'Agent Configuration', sub: 'Rules & thresholds' },
-                  ].map((tool, i) => (
-                    <div
-                      key={i}
-                      className={`flex items-center gap-3 px-5 py-3.5 cursor-pointer transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/40 group ${i < 2 ? 'border-b border-[rgba(16,24,40,0.04)] dark:border-zinc-800/60' : ''}`}
-                    >
-                      <div className="w-8 h-8 rounded-lg bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 flex shrink-0 items-center justify-center transition-colors group-hover:bg-zinc-100 dark:group-hover:bg-zinc-700">
-                        <tool.icon className="w-3.5 h-3.5 text-zinc-500 dark:text-zinc-400" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[13px] font-semibold text-zinc-900 dark:text-white truncate">{tool.label}</div>
-                        <div className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">{tool.sub}</div>
-                      </div>
-                      <ChevronRight className="w-3.5 h-3.5 text-zinc-400 dark:text-zinc-500 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                {/* TOOL CARDS, REPOSITORY ACTIVITY, RISK OVERVIEW */}
+                <div className="flex flex-col gap-5">
+
+                  <div className={`${cardCls} rounded-2xl p-6 flex flex-col`}>
+                    <div className="flex justify-between items-center mb-4">
+                      <div className="text-[15px] font-bold text-zinc-900 dark:text-white tracking-tight">Repository Activity</div>
+                      <div className="text-[11px] font-medium text-zinc-400 dark:text-zinc-500">All Time</div>
                     </div>
-                  ))}
-                </div>
-                <div className={`${cardCls} rounded-2xl p-6 flex flex-col`}>
-                  <div className="flex justify-between items-center mb-4">
-                    <div className="text-[15px] font-bold text-zinc-900 dark:text-white tracking-tight">Repository Activity</div>
-                    <div className="text-[11px] font-medium text-zinc-400 dark:text-zinc-500">All Time</div>
-                  </div>
-                  <div className="flex-1 flex flex-col">
-                    {(repo.commit_by_month?.length ?? 0) > 0 ? (() => {
-                      const months = repo.commit_by_month!;
-                      const allDays = months.flatMap(m => m.days);
-                      const maxVal = Math.max(...allDays, 1);
-                      const W = 100, H = 60;
-                      const pts = allDays.map((v, i) => {
-                        const x = (i / (allDays.length - 1)) * W;
-                        const y = H - (v / maxVal) * (H - 6);
-                        return `${x.toFixed(2)},${y.toFixed(2)}`;
-                      });
-                      const lineColor = repo.status === 'critical' ? '#ef4444' : repo.status === 'warning' ? '#f59e0b' : '#60A5FA';
-                      const fillId = `fill-${repo.id}`;
-                      const monthBounds = [];
-                      let dayIdx = 0;
-                      for (const m of months) {
-                        const x = (dayIdx / allDays.length) * 100;
-                        monthBounds.push({ label: m.month, x, count: m.count });
-                        dayIdx += m.days.length;
-                      }
-                      return (
-                        <>
-                          <div className="relative w-full" style={{ paddingTop: '28%' }}>
-                            <svg
-                              viewBox={`0 0 ${W} ${H}`}
-                              preserveAspectRatio="none"
-                              className="absolute inset-0 w-full h-full overflow-visible"
-                            >
-                              <defs>
-                                <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
-                                  <stop offset="0%" stopColor={lineColor} stopOpacity="0.18" />
-                                  <stop offset="100%" stopColor={lineColor} stopOpacity="0" />
-                                </linearGradient>
-                                {monthBounds.slice(1).map((mb) => (
-                                  <line
-                                    key={mb.label + '-div'}
-                                    x1={mb.x} y1="0"
-                                    x2={mb.x} y2={H}
-                                    stroke="currentColor"
-                                    strokeWidth="0.4"
-                                    strokeDasharray="2 2"
-                                    className="text-zinc-200 dark:text-zinc-700"
-                                  />
-                                ))}
-                              </defs>
-                              <polyline
-                                points={`0,${H} ${pts.join(' ')} ${W},${H}`}
-                                fill={`url(#${fillId})`}
-                                stroke="none"
-                              />
-                              <polyline
-                                points={pts.join(' ')}
-                                fill="none"
-                                stroke={lineColor}
-                                strokeWidth="1.5"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              />
-                              {allDays.map((v, i) => {
-                                if (v === 0) return null;
-                                const x = (i / (allDays.length - 1)) * W;
-                                const y = H - (v / maxVal) * (H - 6);
-                                return (
-                                  <circle key={i} cx={x} cy={y} r="1.5"
-                                    fill={lineColor} stroke="white" strokeWidth="0.5" />
-                                );
-                              })}
-                            </svg>
-                          </div>
-                          <div className="flex gap-0.5 w-full mt-3">
-                            {months.map((m, mi) => (
-                              <div
-                                key={m.month}
-                                className="flex-1 flex flex-col items-center gap-0.5 group relative cursor-default"
-                                style={{ flexBasis: `${(m.days.length / allDays.length) * 100}%` }}
+                    <div className="flex-1 flex flex-col">
+                      {(repo.commit_by_month?.length ?? 0) > 0 ? (() => {
+                        const months = repo.commit_by_month!;
+                        const allDays = months.flatMap(m => m.days);
+                        const maxVal = Math.max(...allDays, 1);
+                        const W = 100, H = 60;
+                        const pts = allDays.map((v, i) => {
+                          const x = (i / (allDays.length - 1)) * W;
+                          const y = H - (v / maxVal) * (H - 6);
+                          return `${x.toFixed(2)},${y.toFixed(2)}`;
+                        });
+                        const lineColor = repo.status === 'critical' ? '#ef4444' : repo.status === 'warning' ? '#f59e0b' : '#60A5FA';
+                        const fillId = `fill-${repo.id}`;
+                        const monthBounds = [];
+                        let dayIdx = 0;
+                        for (const m of months) {
+                          const x = (dayIdx / allDays.length) * 100;
+                          monthBounds.push({ label: m.month, x, count: m.count });
+                          dayIdx += m.days.length;
+                        }
+                        return (
+                          <>
+                            <div className="relative w-full" style={{ paddingTop: '28%' }}>
+                              <svg
+                                viewBox={`0 0 ${W} ${H}`}
+                                preserveAspectRatio="none"
+                                className="absolute inset-0 w-full h-full overflow-visible"
                               >
-                                <div className="absolute -top-7 left-1/2 -translate-x-1/2 bg-zinc-800 dark:bg-zinc-700 text-white text-[9px] font-semibold px-2 py-1 rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 shadow-lg">
-                                  {m.count} commit{m.count !== 1 ? 's' : ''}
+                                <defs>
+                                  <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stopColor={lineColor} stopOpacity="0.18" />
+                                    <stop offset="100%" stopColor={lineColor} stopOpacity="0" />
+                                  </linearGradient>
+                                  {monthBounds.slice(1).map((mb) => (
+                                    <line
+                                      key={mb.label + '-div'}
+                                      x1={mb.x} y1="0"
+                                      x2={mb.x} y2={H}
+                                      stroke="currentColor"
+                                      strokeWidth="0.4"
+                                      strokeDasharray="2 2"
+                                      className="text-zinc-200 dark:text-zinc-700"
+                                    />
+                                  ))}
+                                </defs>
+                                <polyline
+                                  points={`0,${H} ${pts.join(' ')} ${W},${H}`}
+                                  fill={`url(#${fillId})`}
+                                  stroke="none"
+                                />
+                                <polyline
+                                  points={pts.join(' ')}
+                                  fill="none"
+                                  stroke={lineColor}
+                                  strokeWidth="1.5"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                />
+                                {allDays.map((v, i) => {
+                                  if (v === 0) return null;
+                                  const x = (i / (allDays.length - 1)) * W;
+                                  const y = H - (v / maxVal) * (H - 6);
+                                  return (
+                                    <circle key={i} cx={x} cy={y} r="1.5"
+                                      fill={lineColor} stroke="white" strokeWidth="0.5" />
+                                  );
+                                })}
+                              </svg>
+                            </div>
+                            <div className="flex gap-0.5 w-full mt-3">
+                              {months.map((m, mi) => (
+                                <div
+                                  key={m.month}
+                                  className="flex-1 flex flex-col items-center gap-0.5 group relative cursor-default"
+                                  style={{ flexBasis: `${(m.days.length / allDays.length) * 100}%` }}
+                                >
+                                  <div className="absolute -top-7 left-1/2 -translate-x-1/2 bg-zinc-800 dark:bg-zinc-700 text-white text-[9px] font-semibold px-2 py-1 rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 shadow-lg">
+                                    {m.count} commit{m.count !== 1 ? 's' : ''}
+                                  </div>
+                                  <div className="w-full h-[18px] flex items-end">
+                                    <div
+                                      className="w-full rounded-t-sm"
+                                      style={{
+                                        height: `${Math.max(15, (m.count / Math.max(...months.map(x => x.count), 1)) * 100)}%`,
+                                        backgroundColor: lineColor,
+                                        opacity: 0.25 + (mi / months.length) * 0.55,
+                                      }}
+                                    />
+                                  </div>
+                                  <div className="text-[8px] font-semibold text-zinc-400 dark:text-zinc-500 truncate w-full text-center">
+                                    {m.month.split(' ')[0]}
+                                  </div>
+                                  <div className="text-[7px] font-medium text-zinc-300 dark:text-zinc-600 h-[9px]">
+                                    {mi === 0 || m.month.split(' ')[1] !== months[mi - 1].month.split(' ')[1]
+                                      ? m.month.split(' ')[1] : ''}
+                                  </div>
                                 </div>
-                                <div className="w-full h-[18px] flex items-end">
-                                  <div
-                                    className="w-full rounded-t-sm"
-                                    style={{
-                                      height: `${Math.max(15, (m.count / Math.max(...months.map(x => x.count), 1)) * 100)}%`,
-                                      backgroundColor: lineColor,
-                                      opacity: 0.25 + (mi / months.length) * 0.55,
-                                    }}
-                                  />
-                                </div>
-                                <div className="text-[8px] font-semibold text-zinc-400 dark:text-zinc-500 truncate w-full text-center">
-                                  {m.month.split(' ')[0]}
-                                </div>
-                                <div className="text-[7px] font-medium text-zinc-300 dark:text-zinc-600 h-[9px]">
-                                  {mi === 0 || m.month.split(' ')[1] !== months[mi - 1].month.split(' ')[1]
-                                    ? m.month.split(' ')[1] : ''}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                          <div className="flex justify-between items-center mt-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
-                            <div className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">commit history</div>
-                            {repo.commit_trend_label && (
-                              <div className={`text-xs font-bold ${repo.commit_trend_direction === 'up' ? 'text-emerald-600 dark:text-emerald-400' :
-                                repo.commit_trend_direction === 'down' ? 'text-rose-600 dark:text-rose-400' :
-                                  'text-amber-600 dark:text-amber-400'
-                                }`}>{repo.commit_trend_label}</div>
-                            )}
-                          </div>
-                        </>
-                      );
-                    })() : (
-                      <div className="flex flex-col items-center justify-center h-[200px] text-sm text-zinc-400 dark:text-zinc-500">
-                        <div className="text-2xl mb-2">ðŸ“Š</div>
-                        <div>No commit history available yet</div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div className={`${cardCls} rounded-2xl p-6`}>
-                  <div className="text-[15px] font-bold text-zinc-900 dark:text-white tracking-tight mb-5">Risk Overview</div>
-                  <div className="flex items-center gap-6 py-2">
-                    <div
-                      className="relative w-24 h-24 rounded-full flex items-center justify-center shrink-0"
-                      style={{ background: `conic-gradient(#EF4444 0% ${criticalPct}%, #EAB308 ${criticalPct}% ${criticalPct + mediumPct}%, rgba(156,163,175,0.2) ${criticalPct + mediumPct}% 100%)` }}
-                    >
-                      <div className="absolute inset-2 bg-white dark:bg-zinc-900 rounded-full flex flex-col items-center justify-center shadow-sm">
-                        <div className="text-2xl font-black text-zinc-900 dark:text-white leading-none"><AnimatedCounter value={totalRisks} /></div>
-                        <div className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 mt-0.5">TOTAL</div>
-                      </div>
-                    </div>
-                    <div className="flex flex-col gap-3.5 flex-1">
-                      {[
-                        { label: 'Critical', dot: 'bg-red-500', val: repo.risks.critical },
-                        { label: 'Medium', dot: 'bg-yellow-500', val: repo.risks.medium },
-                        { label: 'Low', dot: 'bg-zinc-300 dark:bg-zinc-600', val: repo.risks.low },
-                      ].map((r, i) => (
-                        <div key={i} className="flex items-center justify-between">
-                          <div className="flex items-center gap-1.5">
-                            <div className={`w-2 h-2 rounded-full ${r.dot}`} />
-                            <div className="text-[11px] text-zinc-500 dark:text-zinc-400 font-medium">{r.label}</div>
-                          </div>
-                          <div className="text-[22px] font-black text-zinc-900 dark:text-white leading-none"><AnimatedCounter value={r.val} /></div>
+                              ))}
+                            </div>
+                            <div className="flex justify-between items-center mt-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
+                              <div className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">commit history</div>
+                              {repo.commit_trend_label && (
+                                <div className={`text-xs font-bold ${repo.commit_trend_direction === 'up' ? 'text-emerald-600 dark:text-emerald-400' :
+                                  repo.commit_trend_direction === 'down' ? 'text-rose-600 dark:text-rose-400' :
+                                    'text-amber-600 dark:text-amber-400'
+                                  }`}>{repo.commit_trend_label}</div>
+                              )}
+                            </div>
+                          </>
+                        );
+                      })() : (
+                        <div className="flex flex-col items-center justify-center h-[200px] text-sm text-zinc-400 dark:text-zinc-500">
+                          <div className="text-2xl mb-2">ðŸ“Š</div>
+                          <div>No commit history available yet</div>
                         </div>
-                      ))}
+                      )}
+                    </div>
+                  </div>
+                  <div className={`${cardCls} rounded-2xl p-6`}>
+                    <div className="text-[15px] font-bold text-zinc-900 dark:text-white tracking-tight mb-5">Risk Overview</div>
+                    <div className="flex items-center gap-6 py-2">
+                      <div
+                        className="relative w-24 h-24 rounded-full flex items-center justify-center shrink-0"
+                        style={{ background: `conic-gradient(#EF4444 0% ${criticalPct}%, #EAB308 ${criticalPct}% ${criticalPct + mediumPct}%, rgba(156,163,175,0.2) ${criticalPct + mediumPct}% 100%)` }}
+                      >
+                        <div className="absolute inset-2 bg-white dark:bg-zinc-900 rounded-full flex flex-col items-center justify-center shadow-sm">
+                          <div className="text-2xl font-black text-zinc-900 dark:text-white leading-none"><AnimatedCounter value={totalRisks} /></div>
+                          <div className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 mt-0.5">TOTAL</div>
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-3.5 flex-1">
+                        {[
+                          { label: 'Critical', dot: 'bg-red-500', val: repo.risks.critical },
+                          { label: 'Medium', dot: 'bg-yellow-500', val: repo.risks.medium },
+                          { label: 'Low', dot: 'bg-zinc-300 dark:bg-zinc-600', val: repo.risks.low },
+                        ].map((r, i) => (
+                          <div key={i} className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5">
+                              <div className={`w-2 h-2 rounded-full ${r.dot}`} />
+                              <div className="text-[11px] text-zinc-500 dark:text-zinc-400 font-medium">{r.label}</div>
+                            </div>
+                            <div className="text-[22px] font-black text-zinc-900 dark:text-white leading-none"><AnimatedCounter value={r.val} /></div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
 
               </div>
             </div>

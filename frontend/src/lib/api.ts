@@ -1,3 +1,8 @@
+// ─── Delete Repo ────────────────────────────────────────────────────────────
+/** Delete a repo from Velocis database by ID */
+export const deleteRepo = async (repoId: string): Promise<{ success: boolean }> => {
+  return request(`/api/repos/${repoId}`, { method: 'DELETE' });
+};
 /**
  * Velocis — API Client
  * Base URL: VITE_BACKEND_URL  (defaults to http://localhost:3001)

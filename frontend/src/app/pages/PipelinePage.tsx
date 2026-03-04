@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { motion } from 'motion/react';
 import {
@@ -9,11 +9,93 @@ import {
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router';
 
+// ─── Live Pipeline Workflow ───────────────────────────────────────────────────
+function LivePipelineWorkflow({ isDarkMode }: { isDarkMode: boolean }) {
+  const [currentStep, setCurrentStep] = useState(1);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentStep((prev) => (prev < 4 ? prev + 1 : prev));
+    }, 1500);
+    return () => clearInterval(interval);
+  }, []);
+
+  const steps = [
+    { id: 1, label: "Ingesting Code" },
+    { id: 2, label: "Analyzing Logic" },
+    { id: 3, label: "Finding Edge Cases" },
+    { id: 4, label: "Drafting Test Plan" },
+  ];
+
+  return (
+    <div className={`relative w-full py-10 px-6 rounded-2xl shadow-xl overflow-hidden mb-6 transition-colors duration-300 ${isDarkMode ? 'bg-[#0a0f1c] border border-slate-800/80 shadow-2xl' : 'bg-white border border-gray-200'
+      }`}>
+      {/* Subtle radial-gradient vignette */}
+      <div
+        className="absolute inset-0 pointer-events-none transition-colors duration-300"
+        style={{
+          background: isDarkMode
+            ? 'radial-gradient(ellipse at center, rgba(59, 130, 246, 0.12) 0%, rgba(0, 0, 0, 0.4) 80%)'
+            : 'radial-gradient(ellipse at center, rgba(59, 130, 246, 0.05) 0%, rgba(255, 255, 255, 0.8) 100%)'
+        }}
+      />
+
+      <div className="relative z-10 flex items-start justify-between w-full max-w-3xl mx-auto">
+        {steps.map((step, index) => {
+          const isCompleted = currentStep > step.id;
+          const isActive = currentStep === step.id;
+          const isPending = currentStep < step.id;
+
+          return (
+            <div key={step.id} className="relative flex flex-col items-center flex-1">
+              {/* Connecting line */}
+              {index !== steps.length - 1 && (
+                <div className={`absolute top-4 left-1/2 w-full h-[2px] -z-10 transition-colors duration-300 ${isDarkMode ? 'bg-slate-800/80' : 'bg-gray-200'}`}>
+                  <div
+                    className={`h-full transition-all duration-700 ease-in-out ${isCompleted ? 'bg-green-500' : 'bg-transparent'}`}
+                    style={{ width: isCompleted ? '100%' : '0%' }}
+                  />
+                </div>
+              )}
+
+              {/* Node Circle */}
+              <div
+                className={`w-8 h-8 rounded-full flex items-center justify-center border-2 transition-all duration-300 z-10 
+                  ${isCompleted ? 'bg-green-500 border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.3)]' : ''}
+                  ${isActive ? `animate-pulse ring-4 ${isDarkMode
+                    ? 'bg-blue-900/60 border-blue-400 ring-blue-500/20 shadow-[0_0_20px_rgba(59,130,246,0.6)]'
+                    : 'bg-blue-50 border-blue-500 ring-blue-500/20 shadow-[0_0_15px_rgba(59,130,246,0.3)]'
+                    }` : ''}
+                  ${isPending ? (isDarkMode ? 'bg-slate-800/50 border-slate-600' : 'bg-gray-50 border-gray-300') : ''}
+                `}
+              >
+                {isCompleted && <Check className="w-4 h-4 text-white" />}
+                {isActive && <div className={`w-2.5 h-2.5 rounded-full ${isDarkMode ? 'bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]' : 'bg-blue-600 shadow-[0_0_8px_rgba(37,99,235,0.6)]'}`} />}
+              </div>
+
+              {/* Label */}
+              <span
+                className={`mt-4 text-[11px] sm:text-xs font-semibold text-center transition-colors duration-300 px-1 tracking-wide
+                  ${isCompleted ? 'text-green-500' : ''}
+                  ${isActive ? (isDarkMode ? 'text-blue-300' : 'text-blue-700') : ''}
+                  ${isPending ? (isDarkMode ? 'text-slate-500' : 'text-gray-400') : ''}
+                `}
+              >
+                {step.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── PipelinePage ─────────────────────────────────────────────────────────────
 export function PipelinePage() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
-  const [isDarkMode, setIsDarkMode] = useState(true);
+  const [isDarkMode, setIsDarkMode] = useState(false);
   const themeClass = isDarkMode ? 'dark' : '';
 
   const repoName = id ?? 'Unknown';
@@ -24,6 +106,24 @@ export function PipelinePage() {
   const [qaError, setQaError] = useState<string | null>(null);
   const [filesAnalyzed, setFilesAnalyzed] = useState<string[]>([]);
   const [qaCopied, setQaCopied] = useState(false);
+
+  // ── Restore cached Fortress data on mount ────────────────────────────────
+  useEffect(() => {
+    if (!id) return;
+    try {
+      const cachedQA = localStorage.getItem(`velocis:fortress:qa:${id}`);
+      if (cachedQA) {
+        const parsed = JSON.parse(cachedQA);
+        setQaPlanMarkdown(parsed.markdown ?? '');
+        setFilesAnalyzed(parsed.files ?? []);
+      }
+      const cachedDocs = localStorage.getItem(`velocis:fortress:docs:${id}`);
+      if (cachedDocs) {
+        const parsed = JSON.parse(cachedDocs);
+        setApiDocsMarkdown(parsed.markdown ?? '');
+      }
+    } catch { /* ignore corrupt cache */ }
+  }, [id]);
 
   const fetchQAPlan = useCallback(async () => {
     if (isFortressLoading) return;
@@ -46,6 +146,14 @@ export function PipelinePage() {
       const data = await res.json();
       setQaPlanMarkdown(data.qaPlanMarkdown ?? '');
       setFilesAnalyzed(data.filesAnalyzed ?? []);
+      // Cache to localStorage so it persists across navigation
+      try {
+        localStorage.setItem(`velocis:fortress:qa:${repoName}`, JSON.stringify({
+          markdown: data.qaPlanMarkdown ?? '',
+          files: data.filesAnalyzed ?? [],
+          savedAt: new Date().toISOString(),
+        }));
+      } catch { /* storage full — ignore */ }
     } catch (err: any) {
       setQaError(err?.message ?? 'Failed to generate QA plan.');
     } finally {
@@ -85,6 +193,13 @@ export function PipelinePage() {
       }
       const data = await res.json();
       setApiDocsMarkdown(data.apiDocsMarkdown ?? '');
+      // Cache to localStorage so it persists across navigation
+      try {
+        localStorage.setItem(`velocis:fortress:docs:${repoName}`, JSON.stringify({
+          markdown: data.apiDocsMarkdown ?? '',
+          savedAt: new Date().toISOString(),
+        }));
+      } catch { /* storage full — ignore */ }
     } catch (err: any) {
       setDocsError(err?.message ?? 'Failed to generate API documentation.');
     } finally {
@@ -241,21 +356,7 @@ export function PipelinePage() {
             <div className="flex-1 px-5 py-5">
               {/* Loading */}
               {isFortressLoading && (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2.5 mb-5">
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-400 shrink-0" />
-                    <span className="text-xs font-medium text-gray-500 dark:text-slate-400">
-                      Fetching repo files and generating BDD test scenarios...
-                    </span>
-                  </div>
-                  {[75, 55, 68, 45, 60, 38, 70].map((w, i) => (
-                    <div
-                      key={i}
-                      className="h-2.5 rounded-full bg-slate-200 dark:bg-slate-800 animate-pulse"
-                      style={{ width: `${w}%`, animationDelay: `${i * 110}ms` }}
-                    />
-                  ))}
-                </div>
+                <LivePipelineWorkflow isDarkMode={isDarkMode} />
               )}
 
               {/* Error */}

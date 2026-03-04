@@ -32,6 +32,19 @@ export function InfrastructurePage() {
   const themeClass = isDarkMode ? 'dark' : '';
   const repoName = id ?? 'Unknown';
 
+  // ── Restore cached infra data on mount ──────────────────────────────────
+  useEffect(() => {
+    if (!id) return;
+    try {
+      const cached = localStorage.getItem(`velocis:infra:${id}`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        setInfraData(parsed.data ?? null);
+        if (parsed.data?.iacCode) setTfCode(parsed.data.iacCode);
+      }
+    } catch { /* ignore corrupt cache */ }
+  }, [id]);
+
   // ── File extensions worth analysing for infrastructure prediction ─────
   const CODE_EXTENSIONS = new Set([
     'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs',
@@ -101,6 +114,14 @@ export function InfrastructurePage() {
       const res = await predictInfrastructure(codeBlob);
       setInfraData(res.data);
       if (res.data.iacCode) setTfCode(res.data.iacCode);
+
+      // Cache to localStorage so it persists across navigation
+      try {
+        localStorage.setItem(`velocis:infra:${id}`, JSON.stringify({
+          data: res.data,
+          savedAt: new Date().toISOString(),
+        }));
+      } catch { /* storage full — ignore */ }
 
     } catch (err: any) {
       setInfraError(err?.message ?? 'Infrastructure analysis failed. Please try again.');

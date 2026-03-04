@@ -7,6 +7,7 @@ import { CortexPage } from "./pages/CortexPage";
 import { WorkspacePage } from "./pages/WorkspacePage";
 import { PipelinePage } from "./pages/PipelinePage";
 import { InfrastructurePage } from "./pages/InfrastructurePage";
+import { RepositorySettingsPage } from "./pages/RepositorySettingsPage";
 import { AuthPage } from "./pages/AuthPage";
 
 export const routeConfig = [
@@ -41,6 +42,10 @@ export const routeConfig = [
   {
     path: "/repo/:id/pipeline",
     element: <PipelinePage />,
+  },
+  {
+    path: "/repo/:id/settings",
+    element: <RepositorySettingsPage />,
   },
   {
     path: "/repo/:id/infrastructure",

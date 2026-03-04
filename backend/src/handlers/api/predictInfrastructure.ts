@@ -21,6 +21,7 @@ import {
 } from "@aws-sdk/client-bedrock-runtime";
 import { ok, errors, preflight } from "../../utils/apiResponse";
 import { logger } from "../../utils/logger";
+import { logActivity } from "../../utils/activityLogger";
 import { BEDROCK_MODELS } from "../../services/aws/bedrockClient";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -148,6 +149,15 @@ export const handler = async (
         "AI response was not valid JSON. Please try again."
       );
     }
+
+    // ── Log activity for the dashboard ─────────────────────────────────
+    logActivity({
+      userId: "system",
+      repoId: "infrastructure",
+      agent: "predictor",
+      message: `Infrastructure predicted — confidence ${parsed.confidenceScore}%, cost: ${parsed.costProjection}`,
+      severity: "info",
+    });
 
     // ── Return structured response ─────────────────────────────────────
     return ok({ status: "success", data: parsed });
