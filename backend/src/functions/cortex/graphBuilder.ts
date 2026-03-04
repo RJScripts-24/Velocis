@@ -18,9 +18,9 @@
 import * as path from "path";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
-import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
 import { fetchRepoTree, fetchFileContent } from "../../services/github/repoOps";
 import { dynamoClient, getDocClient } from "../../services/database/dynamoClient";
+import { invokeClaude } from "../../services/aws/bedrockClient";
 import { logger } from "../../utils/logger";
 import { config } from "../../utils/config";
 
@@ -42,6 +42,12 @@ export interface CortexNode {
   lastModified: string;     // ISO timestamp from GitHub
   importCount: number;      // How many other modules this node imports
   dependencyCount: number;  // How many nodes depend on this node
+  /** Resolved file paths this node imports (populated after edge building) */
+  importsFrom: string[];
+  /** Resolved file paths that import this node (populated after edge building) */
+  importedBy: string[];
+  /** Top-level exported function / class names extracted from source */
+  functions: string[];
   /** 3D positioning hints (frontend assigns final coordinates) */
   layer: number;            // 0 = infrastructure, 1 = services, 2 = functions, 3 = handlers
   position?: {
@@ -94,6 +100,15 @@ const IGNORED_PATTERNS = [
   ".env",
   "yarn.lock",
   "package-lock.json",
+  "__pycache__",
+  ".pyc",
+  ".pyo",
+  ".pyd",
+  ".egg-info",
+  "site-packages",
+  ".venv",
+  "venv",
+  ".pytest_cache",
 ];
 
 /** Maps directory segments to layer numbers for 3D Z-axis grouping */
@@ -183,28 +198,132 @@ function inferLanguage(filePath: string): string {
 }
 
 /**
- * Parses static import/require statements from TypeScript/JavaScript source.
- * Returns a list of relative paths that this file imports.
- * This is intentionally static (no AST) to stay Lambda-lightweight.
+ * Fallback regex: extracts relative import paths from JS/TS/Python source.
+ * Used when AI analysis is disabled or fails.
  */
-function extractImports(sourceCode: string, currentFilePath: string): string[] {
-  const importRegex =
-    /(?:import\s+.*?\s+from\s+['"](.+?)['"]|require\s*\(\s*['"](.+?)['"]\s*\))/g;
-
+function extractImportsFallback(sourceCode: string, currentFilePath: string): string[] {
   const imports: string[] = [];
-  let match: RegExpExecArray | null;
+  const isPython = currentFilePath.endsWith(".py");
 
-  while ((match = importRegex.exec(sourceCode)) !== null) {
-    const importPath = match[1] ?? match[2];
-    // Only track relative imports — skip npm packages & AWS SDK
-    if (importPath.startsWith(".")) {
-      const dir = path.dirname(currentFilePath);
-      const resolved = path.normalize(path.join(dir, importPath));
-      imports.push(resolved);
+  if (isPython) {
+    const fromRe = /^\s*from\s+([\w.]+)\s+import/gm;
+    const dir = path.dirname(currentFilePath).replace(/\\/g, "/");
+    let m: RegExpExecArray | null;
+    while ((m = fromRe.exec(sourceCode)) !== null) {
+      const mod = m[1];
+      if (mod.startsWith(".")) {
+        const dots = mod.match(/^\.+/)?.[0].length ?? 1;
+        const rest = mod.replace(/^\.+/, "").replace(/\./g, "/");
+        let base = dir;
+        for (let i = 1; i < dots; i++) base = path.dirname(base).replace(/\\/g, "/");
+        imports.push(rest ? `${base}/${rest}` : base);
+      } else {
+        imports.push(mod.replace(/\./g, "/"));
+      }
+    }
+  } else {
+    const re = /(?:import\s+.*?\s+from\s+['"](.+?)['"]|require\s*\(\s*['"](.+?)['"]\s*\))/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(sourceCode)) !== null) {
+      const p = m[1] ?? m[2];
+      if (p?.startsWith(".")) {
+        const resolved = path.normalize(path.join(path.dirname(currentFilePath), p)).replace(/\\/g, "/");
+        imports.push(resolved);
+      }
     }
   }
-
   return imports;
+}
+
+/**
+ * Fallback regex: extracts top-level function/class names from JS/TS/Python source.
+ */
+function extractFunctionsFallback(source: string, filePath = ""): string[] {
+  const names = new Set<string>();
+  const isPython = filePath.endsWith(".py");
+  const patterns = isPython
+    ? [/^def\s+(\w+)\s*\(/gm, /^async\s+def\s+(\w+)\s*\(/gm, /^class\s+(\w+)[:(]/gm]
+    : [
+        /export\s+(?:async\s+)?function\s+(\w+)/g,
+        /export\s+const\s+(\w+)\s*=\s*(?:async\s*)?(?:\([^)]*\)|\w+)\s*=>/g,
+        /export\s+class\s+(\w+)/g,
+        /^(?:async\s+)?function\s+(\w+)/gm,
+        /^const\s+(\w+)\s*=\s*(?:async\s*)?(?:\([^)]*\)|\w+)\s*=>/gm,
+      ];
+  for (const re of patterns) {
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(source)) !== null) {
+      if (m[1] && m[1].length > 1 && m[1] !== "default") names.add(m[1]);
+    }
+  }
+  return Array.from(names).slice(0, 30);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AI FILE ANALYSIS (DeepSeek V3.2 via AWS Bedrock)
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface FileAnalysis {
+  functions: string[];   // exported / top-level function and class names
+  imports: string[];     // raw import paths exactly as written in the source
+  summary: string;       // one-sentence architectural description
+}
+
+/**
+ * Uses DeepSeek V3.2 to analyse a source file and return structured metadata.
+ * A single AI call replaces both extractImports + extractFunctionNames + generateAiSummary.
+ *
+ * The model is instructed to return ONLY a JSON object — no prose, no markdown.
+ * Falls back to regex extraction if the call fails or returns unparseable output.
+ */
+async function analyzeFileWithAI(
+  filePath: string,
+  sourceCode: string,
+): Promise<FileAnalysis> {
+  // Truncate to ~3 KB to keep token cost very low
+  const snippet = sourceCode.slice(0, 3000);
+  const ext = path.extname(filePath);
+
+  try {
+    const result = await invokeClaude({
+      systemPrompt:
+        "You are a code analysis engine. You read source files and return ONLY a JSON object — no markdown, no explanation, no prose. " +
+        "The JSON object must have exactly three keys:\n" +
+        '  "functions": array of strings — all top-level/exported function and class names defined in this file (max 30)\n' +
+        '  "imports": array of strings — the MODULE PATH portion only from every import statement (e.g. "./utils/auth", "../../lib/db", ".models", "flask", "express"). ' +
+        'For JS/TS: the string after "from" or in "require()". For Python: the string after "import" or "from" (before "import"). Do NOT include the word "from" or "import" or any symbol names.\n' +
+        '  "summary": string — one sentence (max 20 words) describing what this file does architecturally.\n' +
+        "Return nothing except the JSON object.",
+      messages: [
+        {
+          role: "user",
+          content: `File path: ${filePath}\nLanguage: ${ext}\n\nSource:\n\`\`\`\n${snippet}\n\`\`\`\n\nReturn the JSON object now.`,
+        },
+      ],
+      maxTokens: 400,
+      temperature: 0.0,
+    });
+
+    // Strip any accidental markdown fences
+    const raw = result.text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+    const parsed = JSON.parse(raw) as FileAnalysis;
+
+    // Normalise: ensure all fields are the right types
+    return {
+      functions: Array.isArray(parsed.functions) ? parsed.functions.slice(0, 30) : extractFunctionsFallback(sourceCode, filePath),
+      imports:   Array.isArray(parsed.imports)   ? parsed.imports               : extractImportsFallback(sourceCode, filePath),
+      summary:   typeof parsed.summary === "string" && parsed.summary.length > 3
+                   ? parsed.summary
+                   : "No summary available.",
+    };
+  } catch (err) {
+    logger.warn({ filePath, err }, "AI file analysis failed — falling back to regex");
+    return {
+      functions: extractFunctionsFallback(sourceCode, filePath),
+      imports:   extractImportsFallback(sourceCode, filePath),
+      summary:   "Summary unavailable.",
+    };
+  }
 }
 
 /**
@@ -220,49 +339,49 @@ function countLinesOfCode(source: string): number {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// AI SUMMARY GENERATION (Claude 3.5 Sonnet via Bedrock)
+// AI SUMMARY GENERATION (DeepSeek V3.2 via AWS Bedrock)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const bedrockClient = new BedrockRuntimeClient({ region: config.AWS_REGION });
-
 /**
- * Calls Claude 3.5 Sonnet to generate a one-line architectural summary
- * for a given file. Used to populate the tooltip in the 3D canvas.
+/**
+ * Resolves raw import paths as returned by AI (exactly as written in source)
+ * to root-relative file paths, for both JS/TS relative imports and Python
+ * relative/absolute imports.
  *
- * Only called for key architectural files (services, handlers, functions)
- * to minimize Bedrock costs.
+ * Non-relative imports that don't resolve to a known file are kept as-is so
+ * the edge-dedup step can drop them when building the graph.
  */
-async function generateAiSummary(
-  filePath: string,
-  sourceCode: string
-): Promise<string> {
-  try {
-    const truncatedSource = sourceCode.slice(0, 2000); // Keep token cost low
-    const prompt = {
-      system: [{ text: "You analyze source code files and describe their architectural role in one sentence." }],
-      messages: [
-        {
-          role: "user",
-          content: [{ text: `You are analyzing a file in the Velocis codebase.\nFile: ${filePath}\n\nSource (truncated):\n\`\`\`\n${truncatedSource}\n\`\`\`\n\nRespond with ONLY a single sentence (max 20 words) describing what this file does architecturally. No preamble.` }],
-        },
-      ],
-      inferenceConfig: { max_new_tokens: 100 },
-    };
+function resolveRawImportPaths(rawPaths: string[], currentFilePath: string): string[] {
+  const isPython = currentFilePath.endsWith(".py");
+  const dir = path.dirname(currentFilePath).replace(/\\/g, "/");
+  const resolved: string[] = [];
 
-    const command = new InvokeModelCommand({
-      modelId: "us.amazon.nova-pro-v1:0",
-      contentType: "application/json",
-      accept: "application/json",
-      body: JSON.stringify(prompt),
-    });
+  for (const raw of rawPaths) {
+    if (!raw || raw.length === 0) continue;
 
-    const response = await bedrockClient.send(command);
-    const parsed = JSON.parse(new TextDecoder().decode(response.body));
-    return parsed.output?.message?.content?.[0]?.text?.trim() ?? "No summary available.";
-  } catch (err) {
-    logger.warn({ filePath, err }, "AI summary generation failed — skipping");
-    return "Summary unavailable.";
+    if (isPython) {
+      // Python relative: ".models", "..services", "..utils.db"
+      if (raw.startsWith(".")) {
+        const dots = raw.match(/^\.+/)?.[0].length ?? 1;
+        const rest = raw.replace(/^\.+/, "").replace(/\./g, "/");
+        let base = dir;
+        for (let i = 1; i < dots; i++) base = path.dirname(base).replace(/\\/g, "/");
+        resolved.push(rest ? `${base}/${rest}` : base);
+      } else {
+        // Absolute Python import: "services.auth" → "services/auth"
+        resolved.push(raw.replace(/\./g, "/"));
+      }
+    } else {
+      // JS/TS: relative paths starting with "."
+      if (raw.startsWith(".")) {
+        const r = path.normalize(path.join(dir, raw)).replace(/\\/g, "/");
+        resolved.push(r);
+      }
+      // Non-relative (npm packages) are intentionally skipped
+    }
   }
+
+  return resolved;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -270,43 +389,20 @@ async function generateAiSummary(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Fetches the latest test result status for a given file path from DynamoDB.
- * The Fortress TDD pipeline writes results keyed by filePath after each run.
+ * Fetches the latest Fortress TDD status for a file.
  *
- * Returns "untested" if no Fortress record exists for this file.
+ * NOTE: The live `velocis-ai-activity` DynamoDB table uses `RepoID`/`CommitHash` as
+ * its key schema, not `PK`/`SK`. Fortress writes a separate record per commit rather
+ * than per file path, so a file-level lookup is not yet supported.
+ * Until the Fortress pipeline is updated to write per-file results we return
+ * "untested" immediately to avoid a guaranteed-to-fail DynamoDB round-trip on
+ * every file during every graph build.
  */
-async function getFortressStatus(
-  repoId: string,
-  filePath: string
+function getFortressStatus(
+  _repoId: string,
+  _filePath: string
 ): Promise<NodeStatus> {
-  try {
-    const docClient = getDocClient();
-    const result = await docClient.send(
-      new GetCommand({
-        TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
-        Key: {
-          PK: `REPO#${repoId}`,
-          SK: `FORTRESS#${filePath}`,
-        },
-      })
-    );
-
-    if (!result.Item) return "untested";
-
-    const { testStatus, failureCount } = result.Item as {
-      testStatus: string;
-      failureCount: number;
-    };
-
-    if (testStatus === "PASS") return "healthy";
-    if (testStatus === "FAIL" && failureCount >= 3) return "failing";
-    if (testStatus === "FAIL") return "warning";
-
-    return "untested";
-  } catch (err) {
-    logger.warn({ repoId, filePath, err }, "DynamoDB Fortress status fetch failed");
-    return "untested";
-  }
+  return Promise.resolve("untested");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -325,86 +421,100 @@ async function buildNodes(
   repoName: string,
   accessToken: string,
   enableAiSummaries = true
-): Promise<{ nodes: CortexNode[]; importMap: Map<string, string[]> }> {
+): Promise<{ nodes: CortexNode[]; importMap: Map<string, string[]>; rawImportPaths: Map<string, string[]> }> {
   logger.info({ repoId, repoName }, "Cortex: Fetching repo file tree");
 
   const tree = await fetchRepoTree({ repoFullName: `${repoOwner}/${repoName}`, token: accessToken, recursive: true });
-  const importMap = new Map<string, string[]>(); // nodeId → [importedNodeIds]
-  const nodes: CortexNode[] = [];
+  const importMap = new Map<string, string[]>();     // nodeId → [importedNodeIds (hashed)]
+  const rawImportPaths = new Map<string, string[]>(); // nodeId → [resolved root-relative file paths]
 
-  // Determine which files get AI summaries (only key architectural files)
-  const AI_SUMMARY_ELIGIBLE_PATHS = [
-    "/handlers/",
-    "/functions/",
-    "/services/",
-  ];
+  // Filter to processable files upfront
+  const files = tree.filter(f => f.type === "blob" && !shouldIgnore(f.path));
+  logger.info({ repoId, totalFiles: files.length }, "Cortex: Processing files in parallel");
 
-  for (const file of tree) {
-    if (shouldIgnore(file.path)) continue;
-    if (file.type !== "blob") continue; // Skip directories
+  // Process files in parallel batches to avoid GitHub/Bedrock rate-limit while
+  // dramatically cutting wall-clock time vs sequential await.
+  const CONCURRENCY = 6;
+  const results: CortexNode[] = [];
+  const importMapEntries: [string, string[]][] = [];
+  const rawImportEntries: [string, string[]][] = [];
 
-    const nodeId = hashPath(file.path);
-    const language = inferLanguage(file.path);
-    const nodeType = inferNodeType(file.path);
-    const layer = inferLayer(file.path);
+  for (let i = 0; i < files.length; i += CONCURRENCY) {
+    const batch = files.slice(i, i + CONCURRENCY);
+    const batchResults = await Promise.all(
+      batch.map(async (file) => {
+        const nodeId = hashPath(file.path);
+        const language = inferLanguage(file.path);
+        const nodeType = inferNodeType(file.path);
+        const layer = inferLayer(file.path);
+        const isCodeFile = ["typescript", "javascript", "python"].includes(language);
 
-    let linesOfCode = 0;
-    let imports: string[] = [];
-    let aiSummary: string | undefined;
+        let linesOfCode = 0;
+        let resolvedImports: string[] = [];
+        let functionNames: string[] = [];
+        let aiSummary: string | undefined;
 
-    // Fetch source only for code files (skip binary/large files)
-    const isCodeFile = ["typescript", "javascript", "python"].includes(language);
+        if (isCodeFile) {
+          try {
+            const source = await fetchFileContent(repoOwner, repoName, file.path, accessToken);
+            linesOfCode = countLinesOfCode(source);
 
-    if (isCodeFile) {
-      try {
-        const source = await fetchFileContent(
-          repoOwner,
-          repoName,
-          file.path,
-          accessToken
-        );
-        linesOfCode = countLinesOfCode(source);
-        imports = extractImports(source, file.path);
-
-        const isEligibleForAi = AI_SUMMARY_ELIGIBLE_PATHS.some((p) =>
-          file.path.includes(p)
-        );
-
-        if (enableAiSummaries && isEligibleForAi) {
-          aiSummary = await generateAiSummary(file.path, source);
+            if (enableAiSummaries) {
+              const analysis = await analyzeFileWithAI(file.path, source);
+              functionNames   = analysis.functions;
+              aiSummary       = analysis.summary;
+              resolvedImports = resolveRawImportPaths(analysis.imports, file.path);
+            } else {
+              resolvedImports = extractImportsFallback(source, file.path);
+              functionNames   = extractFunctionsFallback(source, file.path);
+            }
+          } catch (err) {
+            logger.warn({ filePath: file.path, err }, "Could not fetch/analyse file");
+          }
         }
-      } catch (err) {
-        logger.warn({ filePath: file.path, err }, "Could not fetch file content");
-      }
-    }
 
-    // Fetch Fortress test health from DynamoDB
-    const status = await getFortressStatus(repoId, file.path);
+        // getFortressStatus is a no-op until the Fortress pipeline writes per-file records
+        const status = await getFortressStatus(repoId, file.path);
 
-    const node: CortexNode = {
-      id: nodeId,
-      label: path.basename(file.path),
-      filePath: file.path,
-      type: nodeType,
-      status,
-      language,
-      linesOfCode,
-      lastModified: new Date().toISOString(),
-      importCount: imports.length,
-      dependencyCount: 0, // Calculated in step 2
-      layer,
-      aiSummary,
-    };
+        const node: CortexNode = {
+          id: nodeId,
+          label: path.basename(file.path),
+          filePath: file.path,
+          type: nodeType,
+          status,
+          language,
+          linesOfCode,
+          lastModified: new Date().toISOString(),
+          importCount: resolvedImports.length,
+          dependencyCount: 0,
+          importsFrom: [],   // Back-filled after edge building
+          importedBy: [],    // Back-filled after edge building
+          functions: functionNames,
+          layer,
+          aiSummary,
+        };
 
-    nodes.push(node);
-    importMap.set(
-      nodeId,
-      imports.map((importPath) => hashPath(importPath))
+        return {
+          node,
+          importEntry:   [nodeId, resolvedImports.map((p) => hashPath(p))] as [string, string[]],
+          rawImportEntry: [nodeId, resolvedImports] as [string, string[]],
+        };
+      })
     );
+
+    for (const r of batchResults) {
+      results.push(r.node);
+      importMapEntries.push(r.importEntry);
+      rawImportEntries.push(r.rawImportEntry);
+    }
   }
 
+  for (const [k, v] of importMapEntries)  importMap.set(k, v);
+  for (const [k, v] of rawImportEntries)  rawImportPaths.set(k, v);
+
+  const nodes = results;
   logger.info({ repoId, nodeCount: nodes.length }, "Cortex: Nodes built");
-  return { nodes, importMap };
+  return { nodes, importMap, rawImportPaths };
 }
 
 /**
@@ -415,13 +525,32 @@ function buildEdges(
   importMap: Map<string, string[]>
 ): CortexEdge[] {
   const nodeIdSet = new Set(nodes.map((n) => n.id));
+
+  // Secondary lookup: imports often omit the file extension (e.g. "./bar" instead of "./bar.ts").
+  // Map hashPath(path-without-extension) → node id so we can still resolve them.
+  const noExtMap = new Map<string, string>();
+  for (const node of nodes) {
+    const noExt = node.filePath.replace(/\.[^/.]+$/, "");
+    noExtMap.set(hashPath(noExt), node.id);
+    // Handle barrel imports: "./utils/index" imported as "./utils"
+    if (noExt.endsWith("/index")) {
+      noExtMap.set(hashPath(noExt.replace(/\/index$/, "")), node.id);
+    }
+  }
+
+  const resolveTarget = (rawId: string): string | undefined => {
+    if (nodeIdSet.has(rawId)) return rawId;
+    return noExtMap.get(rawId);
+  };
+
   const dependencyCounter = new Map<string, number>();
   const edges: CortexEdge[] = [];
 
   for (const [sourceId, targetIds] of importMap.entries()) {
-    for (const targetId of targetIds) {
+    for (const rawTargetId of targetIds) {
+      const targetId = resolveTarget(rawTargetId);
       // Only create edges between nodes that exist in our graph
-      if (!nodeIdSet.has(targetId)) continue;
+      if (!targetId) continue;
       if (sourceId === targetId) continue; // No self-loops
 
       const edgeId = `${sourceId}→${targetId}`;
@@ -431,7 +560,7 @@ function buildEdges(
 
       // Determine edge type based on layer relationship
       const sourceNode = nodes.find((n) => n.id === sourceId);
-      const targetNode = nodes.find((n) => n.id === targetId);
+      const targetNode = nodes.find((n) => n.id === targetId); // targetId is already resolved
 
       let edgeType: CortexEdge["type"] = "import";
       if (
@@ -550,7 +679,7 @@ async function getCachedGraph(repoId: string): Promise<CortexGraph | null> {
     const result = await docClient.send(
       new GetCommand({
         TableName: config.DYNAMO_REPOSITORIES_TABLE,
-        Key: { PK: `REPO#${repoId}`, SK: "CORTEX_GRAPH" },
+        Key: { repoId: `${repoId}#CORTEX_GRAPH` },
       })
     );
 
@@ -581,10 +710,10 @@ async function setCachedGraph(repoId: string, graph: CortexGraph): Promise<void>
       new PutCommand({
         TableName: config.DYNAMO_REPOSITORIES_TABLE,
         Item: {
-          PK: `REPO#${repoId}`,
-          SK: "CORTEX_GRAPH",
+          repoId: `${repoId}#CORTEX_GRAPH`,
           graph,
           cachedAt: Date.now(),
+          updatedAt: new Date().toISOString(),
         },
       })
     );
@@ -647,7 +776,7 @@ export async function buildCortexGraph(
   }
 
   // ── Step 1: Build nodes ──────────────────────────────────────────────────
-  const { nodes: rawNodes, importMap } = await buildNodes(
+  const { nodes: rawNodes, importMap, rawImportPaths } = await buildNodes(
     repoId,
     repoOwner,
     repoName,
@@ -657,6 +786,41 @@ export async function buildCortexGraph(
 
   // ── Step 2: Build edges ──────────────────────────────────────────────────
   const edges = buildEdges(rawNodes, importMap);
+
+  // ── Step 2b: Back-fill importsFrom / importedBy on every node ────────────
+  // Build lookup tables so we can resolve raw import paths → actual file paths
+  const filePathSet = new Set(rawNodes.map((n) => n.filePath));
+  const nodeByFilePath = new Map(rawNodes.map((n) => [n.filePath, n]));
+
+  const resolveToFilePath = (rawPath: string): string | null => {
+    if (filePathSet.has(rawPath)) return rawPath;
+    for (const ext of [".ts", ".tsx", ".js", ".jsx", ".py"]) {
+      if (filePathSet.has(rawPath + ext)) return rawPath + ext;
+    }
+    // Try /index variants: "./utils" → "./utils/index.ts" etc.
+    for (const ext of [".ts", ".tsx", ".js", ".py"]) {
+      if (filePathSet.has(rawPath + "/index" + ext)) return rawPath + "/index" + ext;
+      if (filePathSet.has(rawPath + "/__init__" + ext)) return rawPath + "/__init__" + ext;
+    }
+    return null;
+  };
+
+  for (const node of rawNodes) {
+    const rawPaths = rawImportPaths.get(node.id) ?? [];
+    node.importsFrom = rawPaths
+      .map(resolveToFilePath)
+      .filter((p): p is string => p !== null);
+  }
+
+  // importedBy is the reverse of importsFrom
+  for (const node of rawNodes) {
+    for (const importedPath of node.importsFrom) {
+      const target = nodeByFilePath.get(importedPath);
+      if (target && !target.importedBy.includes(node.filePath)) {
+        target.importedBy.push(node.filePath);
+      }
+    }
+  }
 
   // ── Step 3: Assign 3D positions ──────────────────────────────────────────
   const positionedNodes = assign3DPositions(rawNodes);

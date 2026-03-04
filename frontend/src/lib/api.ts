@@ -166,7 +166,7 @@ export interface InstallJobResponse {
 
 export const installRepo = (
   repoId: number | string,
-  body?: { repoName?: string; language?: string }
+  body?: { repoName?: string; language?: string; repoOwner?: string; repoFullName?: string }
 ): Promise<InstallJobResponse> =>
   request(`/api/repos/${repoId}/install`, {
     method: 'POST',
@@ -403,6 +403,55 @@ export const getCortexServiceDetail = (
 
 export const getCortexTimeline = (repoId: string): Promise<{ events: TimelineEvent[] }> =>
   request(`/api/repos/${repoId}/cortex/timeline`);
+
+export interface CortexFileNode {
+  id: string;
+  name: string;
+  path: string;
+  type: 'module' | 'util' | 'config' | 'test' | 'component';
+  language: string;
+  linesOfCode: number;
+  complexity: number;
+  functions: string[];
+  functionCalls?: Record<string, string[]>;
+  importsFrom: string[];
+  importedBy: string[];
+  lastModified: string;
+}
+
+export interface CortexFileImport {
+  from: string;
+  to: string;
+  count: number;
+  functions: string[];
+}
+
+export interface CortexServiceFilesResponse {
+  service: {
+    id: number;
+    name: string;
+    layer: ServiceLayer;
+    status: 'healthy' | 'warning' | 'critical';
+  };
+  files: CortexFileNode[];
+  imports: CortexFileImport[];
+  stats: {
+    totalFiles: number;
+    totalLOC: number;
+    avgComplexity: number;
+    mostComplex?: string;
+    entryPoint?: string;
+  };
+}
+
+export const getCortexServiceFiles = (
+  repoId: string,
+  serviceId: number
+): Promise<CortexServiceFilesResponse> =>
+  request(`/api/repos/${repoId}/cortex/services/${serviceId}/files`);
+
+export const rebuildCortex = (repoId: string): Promise<{ success: boolean; message: string; stats: { nodes: number; edges: number; services: number } }> =>
+  request(`/api/repos/${repoId}/cortex/rebuild`, { method: 'POST' });
 
 // ─── 10. Workspace ────────────────────────────────────────────────────────────
 export interface WorkspaceFile {

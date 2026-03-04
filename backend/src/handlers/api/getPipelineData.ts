@@ -427,7 +427,7 @@ async function executeFortressPipeline(args: {
 
     let apiDocs = "";
     try {
-      apiDocs = await generateAPIDocs(fileContent);
+      apiDocs = await generateApiDocs(fileContent);
       await setStep("api_docs", "success", Math.round((Date.now() - docsStart) / 1000), {
         filePath: firstFile,
         model: "amazon.nova-pro-v1:0",
@@ -637,7 +637,7 @@ export const postQAPlan = async (
       repoRecord = fallback.Items?.[0];
     }
   } catch (err: any) {
-    logger.error("[Fortress] postQAPlan — DynamoDB lookup failed", { error: err?.message });
+    logger.error({ error: err?.message }, "[Fortress] postQAPlan — DynamoDB lookup failed");
     return errors.internal("Could not look up repository. Please try again.");
   }
 
@@ -705,7 +705,7 @@ export const postQAPlan = async (
       .map((f: any) => f.path as string)
       .slice(0, 8); // cap at 8 files to stay within token budget
   } catch (err: any) {
-    logger.error("[Fortress] postQAPlan — fetchRepoTree failed", { fullName, error: err?.message });
+    logger.error({ fullName, error: err?.message }, "[Fortress] postQAPlan — fetchRepoTree failed");
     return errors.internal(`Could not fetch repository file tree: ${err?.message ?? "GitHub API error"}`);
   }
 
@@ -726,10 +726,10 @@ export const postQAPlan = async (
       Object.entries(result.files).map(([p, fc]) => [p, (fc as any).content as string])
     );
     if (result.failedPaths.length > 0) {
-      logger.warn("[Fortress] postQAPlan — failed to read some files", { failedPaths: result.failedPaths });
+      logger.warn({ failedPaths: result.failedPaths }, "[Fortress] postQAPlan — failed to read some files");
     }
   } catch (err: any) {
-    logger.error("[Fortress] postQAPlan — fetchFileContents failed", { error: err?.message });
+    logger.error({ error: err?.message }, "[Fortress] postQAPlan — fetchFileContents failed");
     return errors.internal("Could not read source files from GitHub.");
   }
 
@@ -771,7 +771,7 @@ export const postQAPlan = async (
     });
     return ok({ status: "success", qaPlanMarkdown, filesAnalyzed: fetchedPaths });
   } catch (err: any) {
-    logger.error("[Fortress] postQAPlan — Bedrock call failed", { error: err?.message });
+    logger.error({ error: err?.message }, "[Fortress] postQAPlan — Bedrock call failed");
     return {
       statusCode: 500,
       headers: { "Content-Type": "application/json" },
@@ -847,7 +847,7 @@ export const postApiDocs = async (
         repoRecord = fallback.Items?.[0];
       }
     } catch (err: any) {
-      logger.error("[Fortress] postApiDocs — DynamoDB lookup failed", { error: err?.message });
+      logger.error({ error: err?.message }, "[Fortress] postApiDocs — DynamoDB lookup failed");
       return errors.internal("Could not look up repository. Please try again.");
     }
 
@@ -911,7 +911,7 @@ export const postApiDocs = async (
         ),
       ].join("\n\n");
     } catch (err: any) {
-      logger.error("[Fortress] postApiDocs — file fetch failed", { error: err?.message });
+      logger.error({ error: err?.message }, "[Fortress] postApiDocs — file fetch failed");
       return errors.internal(`Could not fetch repository files: ${err?.message ?? "GitHub API error"}`);
     }
   }
@@ -938,7 +938,7 @@ export const postApiDocs = async (
     });
     return ok({ status: "success", apiDocsMarkdown });
   } catch (err: any) {
-    logger.error("[Fortress] postApiDocs — Bedrock call failed", { error: err?.message });
+    logger.error({ error: err?.message }, "[Fortress] postApiDocs — Bedrock call failed");
     return {
       statusCode: 500,
       headers: { "Content-Type": "application/json" },

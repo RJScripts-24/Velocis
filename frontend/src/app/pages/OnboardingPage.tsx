@@ -25,6 +25,7 @@ const LANGUAGE_COLORS: Record<string, string> = {
 interface Repo {
   github_id: number;
   name: string;
+  owner: string;
   visibility: 'public' | 'private';
   language: string;
   language_color: string;
@@ -73,6 +74,7 @@ export function OnboardingPage() {
           return {
             github_id: r.id,
             name: r.name,
+            owner: r.ownerLogin,
             visibility: r.isPrivate ? 'private' : 'public',
             language: r.language ?? 'Unknown',
             language_color: LANGUAGE_COLORS[r.language ?? ''] ?? '#8b949e',
@@ -121,26 +123,51 @@ export function OnboardingPage() {
     ];
     setInstallSteps(resetSteps);
 
+    let alreadyInstalled = false;
     try {
       // Kick off the backend install job
       await apiInstallRepo(repo.github_id, {
         repoName: repo.name,
         language: repo.language !== 'Unknown' ? repo.language : undefined,
+        repoOwner: repo.owner,
+        repoFullName: `${repo.owner}/${repo.name}`,
       });
     } catch (err) {
-      // If already installed, treat as success and continue polling
       const msg = String(err);
-      if (!msg.includes('already') && !msg.includes('409')) {
+      if (msg.includes('already') || msg.includes('409')) {
+        // Repo already installed — animate steps to complete and skip polling
+        alreadyInstalled = true;
+      } else {
         console.error('Install failed to start:', err);
         setIsInstalling(false);
         return;
       }
     }
 
+    if (alreadyInstalled) {
+      // Flash through steps visually then mark complete
+      for (let i = 0; i < resetSteps.length; i++) {
+        await new Promise((r) => setTimeout(r, 400));
+        setInstallSteps((prev) =>
+          prev.map((s, idx) => ({ ...s, status: idx <= i ? 'complete' : 'queued' }))
+        );
+        setCurrentStep(i + 1);
+      }
+      setInstallComplete(true);
+      setRepositories((prev) =>
+        prev.map((r) =>
+          r.github_id === repo.github_id ? { ...r, velocis_installed: true } : r
+        )
+      );
+      return;
+    }
+
     // Poll the backend every 900 ms until complete or failed
+    let notFoundStreak = 0;
     const poll = setInterval(async () => {
       try {
         const statusRes = await getInstallStatus(repo.github_id);
+        notFoundStreak = 0; // reset on success
         const steps = statusRes.steps ?? [];
         const overallStatus = statusRes.overall_status ?? statusRes.status;
 
@@ -171,7 +198,24 @@ export function OnboardingPage() {
           clearInterval(poll);
         }
       } catch (pollErr) {
-        console.error('Status poll error:', pollErr);
+        const errMsg = String(pollErr);
+        // If the job is gone (server restart lost in-memory store), treat as complete
+        if (errMsg.includes('404') || errMsg.includes('No install job')) {
+          notFoundStreak++;
+          if (notFoundStreak >= 3) {
+            clearInterval(poll);
+            setInstallSteps(resetSteps.map((s) => ({ ...s, status: 'complete' })));
+            setCurrentStep(resetSteps.length);
+            setInstallComplete(true);
+            setRepositories((prev) =>
+              prev.map((r) =>
+                r.github_id === repo.github_id ? { ...r, velocis_installed: true } : r
+              )
+            );
+          }
+        } else {
+          console.error('Status poll error:', pollErr);
+        }
       }
     }, 900);
   };

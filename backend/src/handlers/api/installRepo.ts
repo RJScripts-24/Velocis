@@ -145,7 +145,9 @@ async function runInstallJob(
   repoId: string,
   userId: string,
   repoName?: string,
-  language?: string
+  language?: string,
+  repoOwner?: string,
+  repoFullName?: string,
 ): Promise<void> {
   const job = jobStore.get(jobId);
   if (!job) return;
@@ -182,6 +184,8 @@ async function runInstallJob(
         repoSlug,
         userId,
         repoName: repoName ?? repoId,
+        repoOwner: repoOwner ?? null,
+        repoFullName: repoFullName ?? (repoOwner && repoName ? `${repoOwner}/${repoName}` : null),
         language: language ?? null,
         status: "healthy",
         lastActivity: [],
@@ -252,18 +256,22 @@ export const installRepo = async (
   // Extract optional body parameters
   let repoName: string | undefined;
   let language: string | undefined;
+  let repoOwner: string | undefined;
+  let repoFullName: string | undefined;
   try {
     if (event.body) {
       const body = JSON.parse(event.body);
       repoName = body.repoName;
       language = body.language;
+      repoOwner = body.repoOwner;
+      repoFullName = body.repoFullName;
     }
   } catch (e) {
     // Ignore invalid JSON body
   }
 
   // Fire async job
-  runInstallJob(jobId, repoId, user.userId, repoName, language).catch((e) =>
+  runInstallJob(jobId, repoId, user.userId, repoName, language, repoOwner, repoFullName).catch((e) =>
     logger.error({ jobId, msg: "Install job crashed", e })
   );
 

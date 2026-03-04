@@ -35,6 +35,8 @@ import * as postChatMessage from "./src/handlers/api/postChatMessage";
 import * as getRepos from "./src/handlers/api/getRepos";
 import * as githubPush from "./src/handlers/webhooks/githubPush";
 import * as predictInfrastructure from "./src/handlers/api/predictInfrastructure";
+import * as rebuildCortex from "./src/handlers/api/rebuildCortex";
+import * as getCortexServiceFiles from "./src/handlers/api/getCortexServiceFiles";
 import * as deleteRepo from "./src/handlers/api/deleteRepo";
 
 // ── App setup ────────────────────────────────────────────────────────────────
@@ -261,10 +263,41 @@ app.post("/api/fortress/qa-plan", wrap(getPipelineData.postQAPlan as LambdaHandl
 // § 8b — Fortress API Documenter
 app.post("/api/fortress/api-docs", wrap(getPipelineData.postApiDocs as LambdaHandler));
 
+// § 9-debug — Cortex graph inspection (dev only)
+app.get("/debug/cortex/:repoId/graph", async (req: Request, res: Response) => {
+  try {
+    const { getDocClient } = await import("./src/services/database/dynamoClient");
+    const { GetCommand } = await import("@aws-sdk/lib-dynamodb");
+    const { config } = await import("./src/utils/config");
+    const dc = getDocClient();
+    const result = await dc.send(new GetCommand({
+      TableName: config.DYNAMO_REPOSITORIES_TABLE,
+      Key: { repoId: `${req.params.repoId}#CORTEX_GRAPH` },
+    }));
+    if (!result.Item) { res.json({ found: false }); return; }
+    const nodes = result.Item.graph?.nodes ?? [];
+    res.json({
+      found: true,
+      nodeCount: nodes.length,
+      edgeCount: result.Item.graph?.edges?.length ?? 0,
+      cachedAt: result.Item.cachedAt,
+      sampleNodes: nodes.slice(0, 5).map((n: any) => ({
+        filePath: n.filePath,
+        functions: n.functions,
+        importsFrom: n.importsFrom,
+        importedBy: n.importedBy,
+        linesOfCode: n.linesOfCode,
+      })),
+    });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
 // § 9 — Cortex agent (service map)
 app.get("/api/repos/:repoId/cortex/services", wrap(getCortexServices.listServices as LambdaHandler));
 app.get("/api/repos/:repoId/cortex/services/:serviceId", wrap(getCortexServices.getServiceDetail as LambdaHandler));
 app.get("/api/repos/:repoId/cortex/timeline", wrap(getCortexServices.getCortexTimeline as LambdaHandler));
+app.get("/api/repos/:repoId/cortex/services/:serviceId/files", wrap(getCortexServiceFiles.handler as LambdaHandler));
+app.post("/api/repos/:repoId/cortex/rebuild", wrap(rebuildCortex.handler as LambdaHandler));
 app.get("/api/repos/:repoId/cortex", wrap(getCortexData.handler as LambdaHandler));
 
 // § 10 — Workspace

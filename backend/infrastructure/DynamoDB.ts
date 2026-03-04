@@ -190,6 +190,91 @@ const TABLE_DEFINITIONS = [
         //   ttl:              number   — Unix timestamp — auto-expire after 90 days
         // }
     },
+
+    // ── velocis-cortex ─────────────────────────────────────────────────────────
+    // Primary key: id (String)             — "REPO#<repoId>#SVC#<serviceId>"
+    // GSI:         repoId-index            — List all services for a given repo
+    //
+    // Stores service-level rows derived from the file-level CortexGraph.
+    // Each row represents a logical microservice visible on the 3D canvas.
+    // Written by: syncCortexServices.ts
+    // Read by:    getCortexServices.ts (listServices, getServiceDetail)
+    {
+        TableName: "velocis-cortex",
+        BillingMode: "PAY_PER_REQUEST" as const,
+        AttributeDefinitions: [
+            { AttributeName: "id", AttributeType: "S" },        // PK
+            { AttributeName: "repoId", AttributeType: "S" },    // GSI PK
+        ],
+        KeySchema: [
+            { AttributeName: "id", KeyType: "HASH" },
+        ],
+        GlobalSecondaryIndexes: [
+            {
+                IndexName: "repoId-index",
+                KeySchema: [{ AttributeName: "repoId", KeyType: "HASH" }],
+                Projection: { ProjectionType: "ALL" },
+            },
+        ],
+        // Schema Reference:
+        // {
+        //   id:              string   — "REPO#<repoId>#SVC#<serviceId>" — PRIMARY KEY
+        //   repoId:          string   — Repository identifier
+        //   recordType:      "SERVICE"
+        //   serviceId:       number   — Numeric service ID
+        //   name:            string   — Display name (e.g. "Auth Service")
+        //   status:          "healthy" | "warning" | "critical"
+        //   layer:           "edge" | "compute" | "data"
+        //   position:        { x, y, z }
+        //   connections:     number[] — Array of connected serviceIds
+        //   p95Latency:      string   — e.g. "142ms"
+        //   errorRatePct:    number
+        //   sparkline:       number[] — 10-element miniature chart
+        //   testsTotal:      number
+        //   testsPassing:    number
+        //   testsErrors:     number
+        //   lastDeployedAt:  string   — ISO timestamp
+        //   updatedAt:       string   — ISO timestamp
+        // }
+    },
+
+    // ── velocis-timeline ───────────────────────────────────────────────────────
+    // Primary key: id (String)             — "deploy_<uuid>" or "scan_<uuid>"
+    // GSI:         repoId-index            — List all events for a given repo
+    //
+    // Stores deployment events and system scan results displayed
+    // on the Cortex timeline bar in the frontend.
+    // Written by: githubPush.ts (deployment events), syncCortexServices.ts (scan events)
+    // Read by:    getCortexServices.ts (getCortexTimeline)
+    {
+        TableName: "velocis-timeline",
+        BillingMode: "PAY_PER_REQUEST" as const,
+        AttributeDefinitions: [
+            { AttributeName: "id", AttributeType: "S" },        // PK
+            { AttributeName: "repoId", AttributeType: "S" },    // GSI PK
+        ],
+        KeySchema: [
+            { AttributeName: "id", KeyType: "HASH" },
+        ],
+        GlobalSecondaryIndexes: [
+            {
+                IndexName: "repoId-index",
+                KeySchema: [{ AttributeName: "repoId", KeyType: "HASH" }],
+                Projection: { ProjectionType: "ALL" },
+            },
+        ],
+        // Schema Reference:
+        // {
+        //   id:              string   — "deploy_<uuid>" or "scan_<uuid>" — PRIMARY KEY
+        //   repoId:          string   — Repository identifier
+        //   positionPct:     number   — 0–100 position on the timeline bar
+        //   label:           string   — e.g. "Deploy main", "System Scan: Healthy"
+        //   color:           string   — Hex color for the timeline marker
+        //   environment:     string   — e.g. "production", "staging"
+        //   deployedAt:      string   — ISO timestamp
+        //   createdAt:       string   — ISO timestamp
+        // }
+    },
 ];
 
 // ─────────────────────────────────────────────

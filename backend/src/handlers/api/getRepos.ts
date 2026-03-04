@@ -112,6 +112,32 @@ export const handler = async (
         }>;
 
         // Return cleaned, minimal shape the frontend needs
+        // Check which repos are already installed by querying DynamoDB
+        const installedReposMap = new Map<string, boolean>();
+        try {
+            // Query all installed repos for this user
+            const installedRepos = await dynamoClient.query<{ repoId: string; repoName: string }>({
+                tableName: DYNAMO_TABLES.REPOSITORIES,
+                indexName: "userId-index",
+                keyConditionExpression: "ownerGithubId = :ownerGithubId",
+                expressionAttributeValues: { ":ownerGithubId": githubId },
+            });
+
+            if (installedRepos && installedRepos.items.length > 0) {
+                installedRepos.items.forEach(repo => {
+                    if (repo.repoName) {
+                        installedReposMap.set(repo.repoName.toLowerCase(), true);
+                    }
+                    if (repo.repoId) {
+                        installedReposMap.set(repo.repoId.toLowerCase(), true);
+                    }
+                });
+            }
+        } catch (queryErr) {
+            logger.warn({ msg: "getRepos: Could not fetch installed repos", error: String(queryErr) });
+            // Continue without installation status if query fails
+        }
+
         const result = repos.map((r) => ({
             id: r.id,
             name: r.name,
@@ -124,6 +150,7 @@ export const handler = async (
             stars: r.stargazers_count,
             ownerId: r.owner.id,
             ownerLogin: r.owner.login,
+            isInstalled: installedReposMap.has(r.name.toLowerCase()) || installedReposMap.has(r.full_name.toLowerCase()),
         }));
 
         logger.info({
@@ -132,6 +159,7 @@ export const handler = async (
             userId: githubId,
             login: userLogin,
             repoCount: result.length,
+            installedCount: installedReposMap.size,
         });
 
         return {

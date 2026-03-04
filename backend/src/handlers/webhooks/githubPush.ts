@@ -21,7 +21,7 @@ import { verifySignature } from "../../middlewares/verifySignature";
 import { validatePayload } from "../../middlewares/validatePayload";
 import { githubPushSchema } from "../../models/schemas/githubSchemas";
 import { analyzeLogic } from "../../functions/sentinel/analyzeLogic";
-import { generateQATestPlan, generateAPIDocs } from "../../functions/fortress/analyzeFortress";
+import { generateQATestPlan, generateApiDocs } from "../../functions/fortress/analyzeFortress";
 import { buildCortexGraph } from "../../functions/cortex/graphBuilder";
 import { dynamoClient } from "../../services/database/dynamoClient";
 import { repoOps } from "../../services/github/repoOps";
@@ -482,7 +482,7 @@ async function runAgentPipeline(ctx: {
   try {
     const [qaTestPlan, apiDocs] = await Promise.all([
       withTimeout(generateQATestPlan(combinedContent), AGENT_TIMEOUT_MS, "Fortress-QA"),
-      withTimeout(generateAPIDocs(combinedContent), AGENT_TIMEOUT_MS, "Fortress-Docs"),
+      withTimeout(generateApiDocs(combinedContent), AGENT_TIMEOUT_MS, "Fortress-Docs"),
     ]);
     fortress = { status: "success", data: { qaTestPlan, apiDocs } };
   } catch (err) {
