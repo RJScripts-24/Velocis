@@ -249,6 +249,7 @@ export function OnboardingPage() {
           position: absolute;
           top: 0; left: 0;
           z-index: -1;
+          background-color: var(--cta-primary, #6366f1);
           transition: transform 0.4s, opacity 0.4s;
         }
         .cta-btn:hover::after {

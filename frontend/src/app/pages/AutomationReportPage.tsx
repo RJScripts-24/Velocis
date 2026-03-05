@@ -403,6 +403,41 @@ export function AutomationReportPage() {
     // Full report view
     return (
         <div className="w-full min-h-screen bg-[#f6f7fb] dark:bg-[#0A0A0E] text-zinc-900 dark:text-slate-100 font-['JetBrains_Mono',_monospace]">
+            <style>{`
+                /* ─── CTA Button – lift + ripple-after animation ─── */
+                .cta-btn {
+                  position: relative;
+                  transition: transform 0.2s, box-shadow 0.2s;
+                  overflow: visible;
+                }
+                .cta-btn:disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+                .cta-btn:hover {
+                  transform: translateY(-3px);
+                  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+                }
+                .cta-btn:active {
+                  transform: translateY(-1px);
+                  box-shadow: 0 5px 10px rgba(0, 0, 0, 0.2);
+                }
+                .cta-btn::after {
+                  content: '';
+                  display: inline-block;
+                  height: 100%;
+                  width: 100%;
+                  border-radius: inherit;
+                  position: absolute;
+                  top: 0; left: 0;
+                  z-index: -1;
+                  background-color: var(--cta-primary, #6366f1);
+                  transition: transform 0.4s, opacity 0.4s;
+                }
+                .cta-btn:hover::after {
+                  transform: scaleX(1.4) scaleY(1.6);
+                  opacity: 0;
+                }
+                .cta-btn--blue::after  { background-color: var(--cta-primary, #6366f1); }
+                .cta-btn--violet::after { background-color: var(--cta-primary, #6366f1); }
+            `}</style>
             <NavBar id={id} navigate={navigate} />
 
             <div className="max-w-5xl mx-auto px-6 md:px-10 py-10">
@@ -417,7 +452,8 @@ export function AutomationReportPage() {
                         <button
                             onClick={handleRestart}
                             disabled={isRestarting}
-                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                            className="cta-btn inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition"
+                            style={{ backgroundColor: 'var(--cta-primary)', color: 'var(--cta-text)' }}
                         >
                             <RotateCcw size={14} className={isRestarting ? 'animate-spin' : ''} />
                             {isRestarting ? 'Restarting...' : 'Restart'}
