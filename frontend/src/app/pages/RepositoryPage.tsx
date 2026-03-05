@@ -693,6 +693,34 @@ export function RepositoryPage() {
                       )}
                     </div>
                   </div>
+                  {activityItems.length > 0 && (
+                    <div className={`${cardCls} rounded-2xl p-5 flex flex-col`}>
+                      <div className="flex justify-between items-center mb-3">
+                        <div className="text-[15px] font-bold text-zinc-900 dark:text-white tracking-tight">Recent Activity</div>
+                        <div className="text-[11px] font-medium text-zinc-400 dark:text-zinc-500">Last 10</div>
+                      </div>
+                      <div className="flex flex-col gap-2.5">
+                        {activityItems.slice(0, 6).map((item, i) => (
+                          <div key={i} className="flex items-start gap-2.5">
+                            <div
+                              className="w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 mt-0.5"
+                              style={{ backgroundColor: `${item.color}18`, border: `1px solid ${item.color}30` }}
+                            >
+                              <item.icon className="w-3 h-3" style={{ color: item.color }} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5 mb-0.5">
+                                <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: item.color }}>{item.agent}</span>
+                                <span className="text-[10px] text-zinc-400 dark:text-zinc-500">{item.time}</span>
+                              </div>
+                              <div className="text-[11px] text-zinc-600 dark:text-zinc-400 leading-snug line-clamp-2">{item.text}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <div
                     onClick={() => navigate(`/repo/${id}/automation-report`)}
                     className={`${cardCls} rounded-2xl p-6 cursor-pointer hover:-translate-y-1 hover:shadow-lg transition-all duration-300 group`}
