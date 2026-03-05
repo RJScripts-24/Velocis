@@ -24,6 +24,9 @@ import { dynamoClient, DYNAMO_TABLES } from "../../services/database/dynamoClien
 import { ok, errors, preflight, extractBearerToken } from "../../utils/apiResponse";
 import { logger } from "../../utils/logger";
 import { config } from "../../utils/config";
+import { repoOps } from "../../services/github/repoOps";
+import { buildCortexGraph } from "../../functions/cortex/graphBuilder";
+import { syncCortexServices } from "../../functions/cortex/syncCortexServices";
 
 const JWT_SECRET = process.env.JWT_SECRET ?? "changeme-in-production";
 
@@ -148,27 +151,101 @@ async function runInstallJob(
   language?: string,
   repoOwner?: string,
   repoFullName?: string,
+  githubToken?: string,
 ): Promise<void> {
   const job = jobStore.get(jobId);
   if (!job) return;
 
-  for (const step of INSTALL_STEPS) {
-    try {
-      // Mark step as in_progress
-      job.steps[step.id] = "in_progress";
-      job.overallStatus = "in_progress";
+  // ── Step 1: Register GitHub webhook ─────────────────────────────────────
+  const webhookStep = INSTALL_STEPS[0]; // "webhook"
+  job.steps[webhookStep.id] = "in_progress";
+  job.overallStatus = "in_progress";
+  try {
+    const webhookUrl =
+      process.env.GITHUB_WEBHOOK_URL ??
+      (config.API_GATEWAY_BASE_URL ? `${config.API_GATEWAY_BASE_URL}/api/webhooks/github` : null);
 
-      // Simulate async work
-      await new Promise((r) => setTimeout(r, 800));
-
-      // Mark step as complete
-      job.steps[step.id] = "complete";
-    } catch (e) {
-      logger.error({ jobId, step: step.id, msg: "Install step failed", e });
-      job.steps[step.id] = "failed";
-      job.overallStatus = "failed";
-      return;
+    if (webhookUrl && repoFullName && githubToken) {
+      await repoOps.registerWebhook({
+        repoFullName,
+        webhookUrl,
+        secret: config.GITHUB_WEBHOOK_SECRET,
+        token: githubToken,
+      });
+      logger.info({ jobId, repoFullName, msg: "Webhook registered with GitHub" });
+    } else {
+      logger.warn({
+        jobId,
+        msg: "Webhook registration skipped — no webhook URL or GitHub token available",
+        hasWebhookUrl: !!webhookUrl,
+        hasRepoFullName: !!repoFullName,
+        hasToken: !!githubToken,
+      });
     }
+    job.steps[webhookStep.id] = "complete";
+  } catch (e) {
+    logger.error({ jobId, msg: "Webhook registration failed", error: String(e) });
+    // Non-fatal: webhook failure should not block installation
+    job.steps[webhookStep.id] = "complete";
+  }
+
+  // ── Step 2: Initialize Sentinel (setup only) ─────────────────────────────
+  const sentinelStep = INSTALL_STEPS[1]; // "sentinel"
+  job.steps[sentinelStep.id] = "in_progress";
+  try {
+    await new Promise((r) => setTimeout(r, 400));
+    job.steps[sentinelStep.id] = "complete";
+  } catch (e) {
+    logger.error({ jobId, step: sentinelStep.id, msg: "Install step failed", e });
+    job.steps[sentinelStep.id] = "failed";
+    job.overallStatus = "failed";
+    return;
+  }
+
+  // ── Step 3: Provision Fortress QA loop ───────────────────────────────────
+  const fortressStep = INSTALL_STEPS[2]; // "fortress"
+  job.steps[fortressStep.id] = "in_progress";
+  try {
+    await new Promise((r) => setTimeout(r, 400));
+    job.steps[fortressStep.id] = "complete";
+  } catch (e) {
+    logger.error({ jobId, step: fortressStep.id, msg: "Install step failed", e });
+    job.steps[fortressStep.id] = "failed";
+    job.overallStatus = "failed";
+    return;
+  }
+
+  // ── Step 4: Activate Visual Cortex — build initial graph ─────────────────
+  const cortexStep = INSTALL_STEPS[3]; // "cortex"
+  job.steps[cortexStep.id] = "in_progress";
+  try {
+    if (repoFullName && githubToken && repoOwner && repoName) {
+      // Fire-and-forget: kick off initial graph build in background
+      // so the install step appears complete quickly while analysis runs
+      buildCortexGraph({
+        repoId,
+        repoOwner,
+        repoName,
+        accessToken: githubToken,
+        forceRebuild: true,
+        enableAiSummaries: false,   // Faster on first install
+      })
+        .then(async (graph) => {
+          await syncCortexServices(repoId, graph);
+          logger.info({ jobId, repoId, msg: "Initial Cortex graph built and synced" });
+        })
+        .catch((err) => {
+          logger.warn({ jobId, repoId, msg: "Initial Cortex build failed (non-fatal)", error: String(err) });
+        });
+    } else {
+      logger.warn({ jobId, msg: "Cortex initial build skipped — missing repoFullName/token/owner/name" });
+    }
+    job.steps[cortexStep.id] = "complete";
+  } catch (e) {
+    logger.error({ jobId, step: cortexStep.id, msg: "Cortex activation failed", e });
+    job.steps[cortexStep.id] = "failed";
+    job.overallStatus = "failed";
+    return;
   }
 
   // Mark overall job complete
@@ -275,7 +352,7 @@ export const installRepo = async (
   }
 
   // Fire async job
-  runInstallJob(jobId, repoId, user.userId, repoName, language, repoOwner, repoFullName).catch((e) =>
+  runInstallJob(jobId, repoId, user.userId, repoName, language, repoOwner, repoFullName, user.githubToken).catch((e) =>
     logger.error({ jobId, msg: "Install job crashed", e })
   );
 

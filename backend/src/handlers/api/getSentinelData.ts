@@ -13,27 +13,53 @@
 
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import * as jwt from "jsonwebtoken";
-import { randomUUID } from "crypto";
+import { randomUUID, createHash } from "crypto";
 import {
-  DynamoDBDocumentClient,
-  GetCommand,
-  ScanCommand,
+  QueryCommand,
   PutCommand,
 } from "@aws-sdk/lib-dynamodb";
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { ok, errors, preflight, extractBearerToken } from "../../utils/apiResponse";
 import { timeAgo } from "./getDashboard";
 import { logger } from "../../utils/logger";
+import { dynamoClient, DYNAMO_TABLES, getDocClient } from "../../services/database/dynamoClient";
+import { config } from "../../utils/config";
 
-const dynamo          = DynamoDBDocumentClient.from(new DynamoDBClient({}));
-const JWT_SECRET      = process.env.JWT_SECRET       ?? "changeme-in-production";
-const USERS_TABLE     = process.env.USERS_TABLE      ?? "velocis-users";
-const SENTINEL_TABLE  = process.env.SENTINEL_TABLE   ?? "velocis-sentinel";
-const SCAN_JOBS_TABLE = process.env.SCAN_JOBS_TABLE  ?? "velocis-scan-jobs";
+const JWT_SECRET      = process.env.JWT_SECRET  ?? "changeme-in-production";
+const SCAN_JOBS_TABLE = process.env.SCAN_JOBS_TABLE ?? "velocis-scan-jobs";
+
+/** Maps overallRisk text → 0-100 score for the frontend risk bars */
+const riskToScore: Record<string, number> = {
+  critical: 90, high: 70, medium: 50, low: 25, clean: 10,
+};
 
 // ── Auth helper ──────────────────────────────────────────────────────────────
-async function requireAuth(authHeader: string | undefined) {
-  const token = extractBearerToken(authHeader);
+function parseCookieValue(cookieHeader: string | undefined | null, name: string): string | null {
+  if (!cookieHeader) return null;
+  for (const cookie of cookieHeader.split(";").map((c) => c.trim())) {
+    const [key, ...valueParts] = cookie.split("=");
+    if (key?.trim() === name) return valueParts.join("=").trim() || null;
+  }
+  return null;
+}
+
+async function requireAuth(event: APIGatewayProxyEvent) {
+  // 1. Session cookie
+  const cookieHeader = event.headers?.["cookie"] ?? event.headers?.["Cookie"];
+  const sessionToken = parseCookieValue(cookieHeader, "velocis_session");
+  if (sessionToken) {
+    try {
+      const hash = createHash("sha256").update(sessionToken).digest("hex");
+      const session = await dynamoClient.get<{ userId: string; githubId: string; expiresAt: string }>({
+        tableName: DYNAMO_TABLES.USERS,
+        key: { userId: `session_${hash}` },
+      });
+      if (session && new Date(session.expiresAt) > new Date()) return session.githubId;
+    } catch (e) {
+      logger.error({ msg: "Session cookie lookup failed", error: String(e) });
+    }
+  }
+  // 2. Bearer JWT fallback
+  const token = extractBearerToken(event.headers?.Authorization ?? event.headers?.authorization);
   if (!token) return null;
   try {
     return (jwt.verify(token, JWT_SECRET) as { sub: string }).sub;
@@ -51,7 +77,7 @@ export const listPrs = async (
 ): Promise<APIGatewayProxyResult> => {
   if (event.httpMethod === "OPTIONS") return preflight();
 
-  const userId = await requireAuth(event.headers?.Authorization ?? event.headers?.authorization);
+  const userId = await requireAuth(event);
   if (!userId) return errors.unauthorized();
 
   const repoId = event.pathParameters?.repoId;
@@ -59,32 +85,34 @@ export const listPrs = async (
 
   let prs: any[] = [];
   try {
-    const res = await dynamo.send(
-      new ScanCommand({
-        TableName: SENTINEL_TABLE,
-        FilterExpression: "repoId = :r AND recordType = :t",
-        ExpressionAttributeValues: { ":r": repoId, ":t": "PR_REVIEW" },
+    // Sentinel writes commit-level reviews to DYNAMO_AI_ACTIVITY_TABLE
+    // with PK=REPO#<repoId> and SK=SENTINEL#<commitSha>
+    const res = await getDocClient().send(
+      new QueryCommand({
+        TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
+        KeyConditionExpression: "PK = :pk AND begins_with(SK, :skp)",
+        ExpressionAttributeValues: { ":pk": `REPO#${repoId}`, ":skp": "SENTINEL#" },
+        ScanIndexForward: false, // newest first
+        Limit: 20,
       })
     );
-    prs = (res.Items ?? [])
-      .sort((a: any, b: any) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""))
-      .map((p: any) => ({
-        pr_number:  p.prNumber,
-        title:      p.title       ?? `PR #${p.prNumber}`,
-        author:     p.author      ?? "unknown",
-        branch:     p.branch      ?? "",
-        risk_score: p.riskScore   ?? 0,
-        risk_level: p.riskLevel   ?? "low",
-        state:      p.state       ?? "open",
-        created_at: p.createdAt,
-        findings:  (p.findings ?? []).map((f: any) => ({
-          id:       f.id,
-          severity: f.severity,
-          file:     f.file,
-          line:     f.line,
-          message:  f.message,
-        })),
-      }));
+    prs = (res.Items ?? []).map((p: any, i: number) => ({
+      pr_number:  i + 1,
+      title:      `Commit ${(p.SK ?? "").replace("SENTINEL#", "").slice(0, 7)}`,
+      author:     p.outputLanguage ?? "en",
+      branch:     p.reviewDepth ?? "standard",
+      risk_score: riskToScore[p.overallRisk] ?? 10,
+      risk_level: p.overallRisk ?? "clean",
+      state:      "reviewed",
+      created_at: p.reviewedAt,
+      findings:  (p.findingSummaries ?? []).slice(0, 5).map((f: any) => ({
+        id:       f.id,
+        severity: f.severity,
+        file:     f.filePath,
+        line:     f.startLine,
+        message:  f.title,
+      })),
+    }));
   } catch (e: any) {
     logger.error({ repoId, msg: "listPrs failed", error: e?.message });
     return errors.agentUnavailable("Sentinel");
@@ -102,43 +130,48 @@ export const getPrDetail = async (
 ): Promise<APIGatewayProxyResult> => {
   if (event.httpMethod === "OPTIONS") return preflight();
 
-  const userId = await requireAuth(event.headers?.Authorization ?? event.headers?.authorization);
+  const userId = await requireAuth(event);
   if (!userId) return errors.unauthorized();
 
   const { repoId, prNumber } = event.pathParameters ?? {};
   if (!repoId || !prNumber) return errors.badRequest("Missing repoId or prNumber.");
 
-  const res = await dynamo.send(
-    new ScanCommand({
-      TableName: SENTINEL_TABLE,
-      FilterExpression: "repoId = :r AND recordType = :t AND prNumber = :pr",
-      ExpressionAttributeValues: {
-        ":r": repoId,
-        ":t": "PR_REVIEW",
-        ":pr": parseInt(prNumber, 10),
-      },
-      Limit: 1,
-    })
-  );
+  // prNumber maps to a positional index — fetch all and pick the nth
+  let pr: any;
+  try {
+    const res = await getDocClient().send(
+      new QueryCommand({
+        TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
+        KeyConditionExpression: "PK = :pk AND begins_with(SK, :skp)",
+        ExpressionAttributeValues: { ":pk": `REPO#${repoId}`, ":skp": "SENTINEL#" },
+        ScanIndexForward: false,
+        Limit: parseInt(prNumber, 10) + 1,
+      })
+    );
+    const items = res.Items ?? [];
+    pr = items[parseInt(prNumber, 10) - 1];
+  } catch (e: any) {
+    logger.error({ repoId, msg: "getPrDetail failed", error: e?.message });
+    return errors.agentUnavailable("Sentinel");
+  }
 
-  const pr = res.Items?.[0];
-  if (!pr) return errors.notFound(`PR #${prNumber} not found for repo '${repoId}'.`);
+  if (!pr) return errors.notFound(`Review #${prNumber} not found for repo '${repoId}'.`);
 
   return ok({
-    pr_number:  pr.prNumber,
-    title:      pr.title       ?? `PR #${pr.prNumber}`,
-    risk_score: pr.riskScore   ?? 0,
-    risk_level: pr.riskLevel   ?? "low",
-    summary:    pr.summary     ?? "",
-    findings:  (pr.findings ?? []).map((f: any) => ({
+    pr_number:  parseInt(prNumber, 10),
+    title:      `Commit ${(pr.SK ?? "").replace("SENTINEL#", "").slice(0, 7)}`,
+    risk_score: riskToScore[pr.overallRisk] ?? 10,
+    risk_level: pr.overallRisk ?? "clean",
+    summary:    pr.executiveSummary ?? "",
+    findings:  (pr.findingSummaries ?? []).map((f: any) => ({
       id:         f.id,
       severity:   f.severity,
-      file:       f.file,
-      line:       f.line,
-      message:    f.message,
-      suggestion: f.suggestion ?? "",
+      file:       f.filePath,
+      line:       f.startLine,
+      message:    f.title,
+      suggestion: "",
     })),
-    diff_url: pr.diffUrl ?? "",
+    diff_url: "",
   });
 };
 
@@ -151,7 +184,7 @@ export const triggerScan = async (
 ): Promise<APIGatewayProxyResult> => {
   if (event.httpMethod === "OPTIONS") return preflight();
 
-  const userId = await requireAuth(event.headers?.Authorization ?? event.headers?.authorization);
+  const userId = await requireAuth(event);
   if (!userId) return errors.unauthorized();
 
   const repoId = event.pathParameters?.repoId;
@@ -160,7 +193,7 @@ export const triggerScan = async (
   const scanId  = `scan_${randomUUID().replace(/-/g, "").toUpperCase().slice(0, 12)}`;
   const now     = new Date().toISOString();
 
-  await dynamo.send(
+  await getDocClient().send(
     new PutCommand({
       TableName: SCAN_JOBS_TABLE,
       Item: {
@@ -194,7 +227,7 @@ export const getSentinelActivity = async (
 ): Promise<APIGatewayProxyResult> => {
   if (event.httpMethod === "OPTIONS") return preflight();
 
-  const userId = await requireAuth(event.headers?.Authorization ?? event.headers?.authorization);
+  const userId = await requireAuth(event);
   if (!userId) return errors.unauthorized();
 
   const repoId = event.pathParameters?.repoId;
@@ -206,27 +239,28 @@ export const getSentinelActivity = async (
 
   let events: any[] = [];
   try {
-    const res = await dynamo.send(
-      new ScanCommand({
-        TableName: SENTINEL_TABLE,
-        FilterExpression: "repoId = :r AND recordType = :t",
-        ExpressionAttributeValues: { ":r": repoId, ":t": "ACTIVITY_EVENT" },
+    // Sentinel writes reviews to AI_ACTIVITY table — surface them as activity events
+    const res = await getDocClient().send(
+      new QueryCommand({
+        TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
+        KeyConditionExpression: "PK = :pk AND begins_with(SK, :skp)",
+        ExpressionAttributeValues: { ":pk": `REPO#${repoId}`, ":skp": "SENTINEL#" },
+        ScanIndexForward: false,
+        Limit: limit * page,
       })
     );
-    const all = (res.Items ?? []).sort(
-      (a: any, b: any) => (b.timestamp ?? "").localeCompare(a.timestamp ?? "")
-    );
+    const all = res.Items ?? [];
     const start = (page - 1) * limit;
-    events = all.slice(start, start + limit).map((e: any) => ({
-      id:             e.id,
-      type:           e.eventType    ?? "finding",
-      severity:       e.severity     ?? "info",
-      message:        e.message,
-      file:           e.file         ?? undefined,
-      line:           e.line         ?? undefined,
-      pr_number:      e.prNumber     ?? undefined,
-      timestamp:      e.timestamp,
-      timestamp_ago:  timeAgo(e.timestamp),
+    events = all.slice(start, start + limit).map((e: any, i: number) => ({
+      id:             e.SK ?? `sentinel-${i}`,
+      type:           "review",
+      severity:       e.overallRisk ?? "info",
+      message:        e.executiveSummary ?? `Sentinel review — ${e.overallRisk ?? "clean"}`,
+      file:           e.fileSummaries?.[0]?.filePath ?? undefined,
+      line:           undefined,
+      pr_number:      undefined,
+      timestamp:      e.reviewedAt,
+      timestamp_ago:  timeAgo(e.reviewedAt),
     }));
   } catch (e: any) {
     logger.error({ repoId, msg: "getSentinelActivity failed", error: e?.message });

@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { ChevronLeft, Shield, TestTube2, Cloud, AlertCircle, Bot, ChevronDown, ChevronUp, FileCode, Zap, RotateCcw, Check, X } from 'lucide-react';
+import lightLogoImg from '../../../LightLogo.png';
+import darkLogoImg from '../../../DarkLogo.png';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
@@ -236,7 +238,7 @@ function PipelineProgressPanel({
                     position: absolute;
                     inset: -5px;
                     border-radius: 16px;
-                    border: 1.5px solid rgba(99, 102, 241, 0.5);
+                    border: 1.5px solid rgba(24, 24, 27, 0.5);
                     pointer-events: none;
                     animation: pulse-ring-out 2s ease-out infinite;
                 }
@@ -248,7 +250,7 @@ function PipelineProgressPanel({
                 .dark .conn-track { stroke: #3f3f46; }
                 .dark .conn-track-done { stroke: #10b981; }
                 .conn-run-path {
-                    stroke: #6366f1;
+                    stroke: #18181b;
                     animation: travel-dash-h 1.5s ease-in-out infinite;
                 }
             `}</style>
@@ -272,7 +274,7 @@ function PipelineProgressPanel({
                 </div>
                 <div className="h-[3px] bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
                     <div
-                        className="h-full rounded-full bg-indigo-500 dark:bg-indigo-400 transition-all duration-700 ease-out"
+                        className="h-full rounded-full bg-zinc-900 dark:bg-zinc-100 transition-all duration-700 ease-out"
                         style={{ width: `${pct}%` }}
                     />
                 </div>
@@ -298,7 +300,7 @@ function PipelineProgressPanel({
                                     <div className="flex-1 flex justify-center">
                                         <div className={`relative w-12 h-12 rounded-[14px] flex items-center justify-center shrink-0 border-[1.5px] transition-colors duration-300 ${
                                             isFailed    ? 'bg-rose-50 dark:bg-rose-900/20 border-rose-300 dark:border-rose-700 text-rose-600 dark:text-rose-400' :
-                                            isRunning   ? 'bg-white dark:bg-zinc-900 border-indigo-400 dark:border-indigo-600 text-indigo-600 dark:text-indigo-400 shadow-[0_0_0_3px_rgba(99,102,241,0.12)]' :
+                                            isRunning   ? 'bg-white dark:bg-zinc-900 border-zinc-900 dark:border-zinc-400 text-zinc-900 dark:text-zinc-300 shadow-[0_0_0_3px_rgba(24,24,27,0.12)]' :
                                             isCompleted ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-400 dark:border-emerald-600 text-emerald-600 dark:text-emerald-400' :
                                                           'bg-zinc-50 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-400 dark:text-zinc-500'
                                         }`}>
@@ -356,7 +358,7 @@ function PipelineProgressPanel({
                                     <div className="flex-1 min-w-0 px-1">
                                         <div className={`relative rounded-xl border px-3 py-3 transition-colors duration-300 ${
                                             isFailed    ? 'border-rose-200 dark:border-rose-800/40 bg-rose-50/50 dark:bg-rose-900/10' :
-                                            isRunning   ? 'border-indigo-200 dark:border-indigo-700/50 bg-indigo-50/60 dark:bg-indigo-900/15 pipe-shimmer' :
+                                            isRunning   ? 'border-zinc-300 dark:border-zinc-600/50 bg-zinc-50 dark:bg-zinc-800/30 pipe-shimmer' :
                                             isCompleted ? 'border-emerald-200/60 dark:border-emerald-800/25 bg-emerald-50/30 dark:bg-emerald-900/10' :
                                                           'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900'
                                         }`}>
@@ -373,7 +375,7 @@ function PipelineProgressPanel({
                                             <div className="mt-2 flex items-center gap-1.5 flex-wrap">
                                                 <span className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-md ${
                                                     isFailed    ? 'text-rose-700 dark:text-rose-300 bg-rose-100 dark:bg-rose-900/40' :
-                                                    isRunning   ? 'text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-900/40' :
+                                                    isRunning   ? 'text-zinc-900 dark:text-zinc-100 bg-zinc-200 dark:bg-zinc-700' :
                                                     isCompleted ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900/30' :
                                                                   'text-zinc-400 dark:text-zinc-500 bg-zinc-100 dark:bg-zinc-800'
                                                 }`}>
@@ -381,10 +383,10 @@ function PipelineProgressPanel({
                                                 </span>
                                                 {isRunning && (
                                                     <div className="flex items-center gap-1">
-                                                        <span className="blink-dot inline-block w-[4px] h-[4px] rounded-full bg-indigo-500 dark:bg-indigo-400" />
-                                                        <span className="blink-dot inline-block w-[4px] h-[4px] rounded-full bg-indigo-500 dark:bg-indigo-400" />
-                                                        <span className="blink-dot inline-block w-[4px] h-[4px] rounded-full bg-indigo-500 dark:bg-indigo-400" />
-                                                        <span className="ml-0.5 text-[9px] font-medium text-indigo-500 dark:text-indigo-400">Processing</span>
+                                                        <span className="blink-dot inline-block w-[4px] h-[4px] rounded-full bg-zinc-900 dark:bg-zinc-300" />
+                                                        <span className="blink-dot inline-block w-[4px] h-[4px] rounded-full bg-zinc-900 dark:bg-zinc-300" />
+                                                        <span className="blink-dot inline-block w-[4px] h-[4px] rounded-full bg-zinc-900 dark:bg-zinc-300" />
+                                                        <span className="ml-0.5 text-[9px] font-medium text-zinc-700 dark:text-zinc-300">Processing</span>
                                                     </div>
                                                 )}
                                             </div>
@@ -744,6 +746,40 @@ export function AutomationReportPage() {
     if (!report || report.status === 'not_started' || (!report.sentinel && !report.fortress && !report.infrastructure)) {
         return (
             <div className="w-full min-h-screen bg-[#f6f7fb] dark:bg-[#0A0A0E] text-zinc-900 dark:text-slate-100 font-['JetBrains_Mono',_monospace]">
+                <style>{`
+                    .cta-btn {
+                      position: relative;
+                      transition: transform 0.2s, box-shadow 0.2s;
+                      overflow: visible;
+                    }
+                    .cta-btn:disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+                    .cta-btn:hover {
+                      transform: translateY(-3px);
+                      box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+                    }
+                    .cta-btn:active {
+                      transform: translateY(-1px);
+                      box-shadow: 0 5px 10px rgba(0, 0, 0, 0.2);
+                    }
+                    .cta-btn::after {
+                      content: '';
+                      display: inline-block;
+                      height: 100%;
+                      width: 100%;
+                      border-radius: inherit;
+                      position: absolute;
+                      top: 0; left: 0;
+                      z-index: -1;
+                      background-color: var(--cta-primary, #6366f1);
+                      transition: transform 0.4s, opacity 0.4s;
+                    }
+                    .cta-btn:hover::after {
+                      transform: scaleX(1.4) scaleY(1.6);
+                      opacity: 0;
+                    }
+                    .cta-btn--blue::after  { background-color: var(--cta-primary, #6366f1); }
+                    .cta-btn--violet::after { background-color: var(--cta-primary, #6366f1); }
+                `}</style>
                 <NavBar id={id} navigate={navigate} />
                 <div className="max-w-3xl mx-auto px-6 py-20 flex flex-col items-center text-center gap-6">
                     <div className="w-20 h-20 rounded-2xl bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/30 flex items-center justify-center">
@@ -753,7 +789,11 @@ export function AutomationReportPage() {
                     <p className="text-zinc-500 dark:text-zinc-400 max-w-md leading-relaxed">
                         The automation pipeline hasn't run for this repository yet. Go to <strong>Repository Settings</strong> and enable automation - the full pipeline (Sentinel review, Fortress test plan, Infrastructure prediction) will run automatically on the latest commit.
                     </p>
-                    <button onClick={() => navigate(`/repo/${id}/settings`)} className="mt-2 px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:bg-indigo-700 transition">
+                    <button
+                        onClick={() => navigate(`/repo/${id}/settings`)}
+                        className="cta-btn cta-btn--blue mt-2 inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold transition"
+                        style={{ backgroundColor: 'var(--cta-primary, #6366f1)', color: 'var(--cta-text, #fff)' }}
+                    >
                         Go to Settings -&gt; Enable Automation
                     </button>
                 </div>
@@ -974,7 +1014,11 @@ export function AutomationReportPage() {
                                                 />
                                             ) : (
                                                 <div className="rounded-xl border border-dashed border-zinc-300 dark:border-zinc-700 px-4 py-4 text-sm text-zinc-500 dark:text-zinc-400">
-                                                    A projected post-Sentinel infrastructure plan was not generated for this run.
+                                                    {report.sentinel && (report.sentinel.totalFindings ?? 0) === 0
+                                                        ? 'No Sentinel findings — code appears clean, so no post-fix infrastructure projection is needed.'
+                                                        : report.sentinel === null
+                                                        ? 'Sentinel analysis did not complete, so the projected infrastructure plan could not be generated. Check that Amazon Bedrock (Nova Pro) is enabled in your AWS account.'
+                                                        : 'A projected post-Sentinel infrastructure plan was not generated for this run.'}
                                                 </div>
                                             )}
                                         </>
@@ -1061,8 +1105,9 @@ export function AutomationReportPage() {
 
 // Shared navbar component
 function NavBar({ id, navigate }: { id: string; navigate: (path: string) => void }) {
+    const isDark = typeof window !== 'undefined' && (document.documentElement.classList.contains('dark') || window.matchMedia('(prefers-color-scheme: dark)').matches);
     return (
-        <div className="flex-none z-50 border-b border-zinc-200 dark:border-slate-800/80 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-xl sticky top-0 px-6 h-[60px] flex items-center">
+        <div className="flex-none z-50 border-b border-zinc-200 dark:border-slate-800/80 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-xl sticky top-0 px-6 h-[60px] flex items-center justify-between">
             <div className="flex items-center gap-4">
                 <button
                     onClick={() => navigate(`/repo/${id}`)}
@@ -1078,6 +1123,7 @@ function NavBar({ id, navigate }: { id: string; navigate: (path: string) => void
                     <span className="font-semibold text-zinc-900 dark:text-slate-100">Automation Report</span>
                 </div>
             </div>
+            <img src={isDark ? darkLogoImg : lightLogoImg} alt="Velocis" className="h-7 w-auto object-contain" />
         </div>
     );
 }

@@ -4,8 +4,9 @@ import { Search, Home, Star, Sun, Moon, Loader2, LogOut, MoreVertical, Trash2 } 
 import type { DashboardResponse, ActivityEvent, SystemHealth } from '../../lib/api';
 import { deleteRepo } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import LoadingAnimation from '../components/LoadingAnimation';
-
+import { useTheme } from '../../lib/theme';
+import LoadingAnimation from '../components/LoadingAnimation';import lightLogoImg from '../../../LightLogo.png';
+import darkLogoImg from '../../../DarkLogo.png';
 // Default initial values for data while loading or on failure
 const MOCK_ACTIVITY: ActivityEvent[] = [];
 
@@ -125,7 +126,7 @@ function RepoCardMenu({ repoId, onDeleted }: { repoId: string; onDeleted?: (repo
 
 export function DashboardPage() {
   const [activityTab, setActivityTab] = useState("all");
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const { isDarkMode, setIsDarkMode } = useTheme();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const navigate = useNavigate();
   const { user, logout } = useAuth();
@@ -137,9 +138,12 @@ export function DashboardPage() {
   const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
+    let cancelled = false;
+    let isFirstLoad = true;
+
     async function loadDashboard() {
       try {
-        setIsLoading(true);
+        if (isFirstLoad) setIsLoading(true);
         const res = await fetch(`${BACKEND_URL}/api/dashboard`, {
           credentials: 'include'
         });
@@ -154,23 +158,35 @@ export function DashboardPage() {
         }
 
         const data: DashboardResponse = await res.json();
-        setDashboardData(data);
-        setActivityData(data.activity_feed || []);
+        if (!cancelled) {
+          setDashboardData(data);
+          setActivityData(data.activity_feed || []);
 
-        const healthData = data.system || MOCK_HEALTH;
-        setSystemHealth({
-          ...healthData,
-          agents: (healthData as any).agents || []
-        });
-
+          const healthData = data.system || MOCK_HEALTH;
+          setSystemHealth({
+            ...healthData,
+            agents: (healthData as any).agents || []
+          });
+        }
       } catch (err) {
         console.error('Error fetching dashboard:', err);
       } finally {
-        setIsLoading(false);
+        if (!cancelled && isFirstLoad) setIsLoading(false);
+        isFirstLoad = false;
       }
     }
 
     loadDashboard();
+
+    // Poll every 30 seconds so dashboard repo cards and activity feed reflect new pushes
+    const pollInterval = setInterval(() => {
+      if (!cancelled) loadDashboard();
+    }, 30_000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(pollInterval);
+    };
   }, [navigate]);
 
   const themeClass = isDarkMode ? 'dark' : '';
@@ -240,11 +256,8 @@ export function DashboardPage() {
           <div className="px-6 h-[60px] flex items-center justify-between">
             {/* Left */}
             <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-zinc-900 dark:bg-slate-800 shadow-sm border border-zinc-700 dark:border-slate-700">
-                  <span className="text-white font-bold text-sm">V</span>
-                </div>
-                <span className="font-semibold text-zinc-900 dark:text-slate-100 hidden sm:block tracking-tight">Velocis</span>
+              <div className="flex items-center">
+                <img src={isDarkMode ? darkLogoImg : lightLogoImg} alt="Velocis" className="h-8 w-auto object-contain" />
               </div>
               <div className="flex items-center gap-2 text-sm text-zinc-500 dark:text-slate-400 font-medium ml-2">
                 <Home className="w-4 h-4" />

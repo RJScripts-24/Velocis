@@ -15,26 +15,49 @@
 
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import * as jwt from "jsonwebtoken";
-import { randomUUID } from "crypto";
+import { randomUUID, createHash } from "crypto";
 import {
-  DynamoDBDocumentClient,
-  GetCommand,
-  PutCommand,
   ScanCommand,
+  PutCommand,
+  GetCommand,
 } from "@aws-sdk/lib-dynamodb";
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { ok, errors, preflight, extractBearerToken } from "../../utils/apiResponse";
 import { logger } from "../../utils/logger";
+import { dynamoClient, DYNAMO_TABLES, getDocClient } from "../../services/database/dynamoClient";
 
-const dynamo       = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const JWT_SECRET   = process.env.JWT_SECRET   ?? "changeme-in-production";
 const IAC_TABLE    = process.env.IAC_TABLE    ?? "velocis-iac";
 const IAC_JOBS_TABLE = process.env.IAC_JOBS_TABLE ?? "velocis-iac-jobs";
 
 type Environment = "production" | "staging" | "preview";
 
-async function requireAuth(h: string | undefined): Promise<string | null> {
-  const t = extractBearerToken(h);
+function parseCookieValue(cookieHeader: string | undefined | null, name: string): string | null {
+  if (!cookieHeader) return null;
+  for (const cookie of cookieHeader.split(";").map((c) => c.trim())) {
+    const [key, ...valueParts] = cookie.split("=");
+    if (key?.trim() === name) return valueParts.join("=").trim() || null;
+  }
+  return null;
+}
+
+async function requireAuth(event: APIGatewayProxyEvent): Promise<string | null> {
+  // 1. Session cookie
+  const cookieHeader = event.headers?.["cookie"] ?? event.headers?.["Cookie"];
+  const sessionToken = parseCookieValue(cookieHeader, "velocis_session");
+  if (sessionToken) {
+    try {
+      const hash = createHash("sha256").update(sessionToken).digest("hex");
+      const session = await dynamoClient.get<{ userId: string; githubId: string; expiresAt: string }>({
+        tableName: DYNAMO_TABLES.USERS,
+        key: { userId: `session_${hash}` },
+      });
+      if (session && new Date(session.expiresAt) > new Date()) return session.githubId;
+    } catch (e) {
+      logger.error({ msg: "Session cookie lookup failed", error: String(e) });
+    }
+  }
+  // 2. Bearer JWT fallback
+  const t = extractBearerToken(event.headers?.Authorization ?? event.headers?.authorization);
   if (!t) return null;
   try { return (jwt.verify(t, JWT_SECRET) as { sub: string }).sub; } catch { return null; }
 }
@@ -48,7 +71,7 @@ export const getInfrastructure = async (
 ): Promise<APIGatewayProxyResult> => {
   if (event.httpMethod === "OPTIONS") return preflight();
 
-  const userId = await requireAuth(event.headers?.Authorization ?? event.headers?.authorization);
+  const userId = await requireAuth(event);
   if (!userId) return errors.unauthorized();
 
   const repoId = event.pathParameters?.repoId;
@@ -56,16 +79,20 @@ export const getInfrastructure = async (
 
   const env: Environment = (event.queryStringParameters?.environment as Environment) ?? "production";
 
-  const res = await dynamo.send(
-    new ScanCommand({
-      TableName: IAC_TABLE,
-      FilterExpression: "repoId = :r AND environment = :e",
-      ExpressionAttributeValues: { ":r": repoId, ":e": env },
-      Limit: 1,
-    })
-  );
+  let iac: any;
+  try {
+    const res = await getDocClient().send(
+      new GetCommand({
+        TableName: IAC_TABLE,
+        Key: { repoId, environment: env },
+      })
+    );
+    iac = res.Item;
+  } catch (e: any) {
+    // Table may not exist yet (no IaC generated) — return empty state, not 503
+    logger.warn({ repoId, env, msg: "getInfrastructure DynamoDB get failed — returning empty state", error: e?.message });
+  }
 
-  const iac = res.Items?.[0];
   if (!iac) {
     // Return a sensible empty state — the frontend shows a "generate IaC" CTA
     return ok({
@@ -108,7 +135,7 @@ export const getTerraform = async (
 ): Promise<APIGatewayProxyResult> => {
   if (event.httpMethod === "OPTIONS") return preflight();
 
-  const userId = await requireAuth(event.headers?.Authorization ?? event.headers?.authorization);
+  const userId = await requireAuth(event);
   if (!userId) return errors.unauthorized();
 
   const repoId = event.pathParameters?.repoId;
@@ -116,16 +143,19 @@ export const getTerraform = async (
 
   const env: Environment = (event.queryStringParameters?.environment as Environment) ?? "production";
 
-  const res = await dynamo.send(
-    new ScanCommand({
-      TableName: IAC_TABLE,
-      FilterExpression: "repoId = :r AND environment = :e",
-      ExpressionAttributeValues: { ":r": repoId, ":e": env },
-      Limit: 1,
-    })
-  );
+  let iac: any;
+  try {
+    const res = await getDocClient().send(
+      new GetCommand({
+        TableName: IAC_TABLE,
+        Key: { repoId, environment: env },
+      })
+    );
+    iac = res.Item;
+  } catch (e: any) {
+    logger.warn({ repoId, env, msg: "getTerraform DynamoDB get failed", error: e?.message });
+  }
 
-  const iac = res.Items?.[0];
   if (!iac || !iac.terraformCode) {
     return errors.notFound(
       `Terraform code not yet generated for '${repoId}' (${env}). Trigger a generation first.`
@@ -149,7 +179,7 @@ export const generateInfrastructure = async (
 ): Promise<APIGatewayProxyResult> => {
   if (event.httpMethod === "OPTIONS") return preflight();
 
-  const userId = await requireAuth(event.headers?.Authorization ?? event.headers?.authorization);
+  const userId = await requireAuth(event);
   if (!userId) return errors.unauthorized();
 
   const repoId = event.pathParameters?.repoId;
@@ -167,20 +197,25 @@ export const generateInfrastructure = async (
   const jobId  = `job_${randomUUID().replace(/-/g, "").toUpperCase().slice(0, 12)}`;
   const now    = new Date().toISOString();
 
-  await dynamo.send(
-    new PutCommand({
-      TableName: IAC_JOBS_TABLE,
-      Item: {
-        jobId,
-        repoId,
-        userId,
-        environment: env,
-        branch,
-        status:      "queued",
-        createdAt:   now,
-      },
-    })
-  );
+  try {
+    await getDocClient().send(
+      new PutCommand({
+        TableName: IAC_JOBS_TABLE,
+        Item: {
+          jobId,
+          repoId,
+          userId,
+          environment: env,
+          branch,
+          status:      "queued",
+          createdAt:   now,
+        },
+      })
+    );
+  } catch (e: any) {
+    logger.error({ repoId, msg: "generateInfrastructure DynamoDB put failed", error: e?.message });
+    return errors.agentUnavailable("Infrastructure");
+  }
 
   logger.info({ jobId, repoId, env, userId, msg: "IaC generation queued" });
 

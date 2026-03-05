@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Github, Menu, X } from 'lucide-react';
+import lightLogoImg from '../../../LightLogo.png';
 import { useNavigate, useLocation } from 'react-router';
 import { PrimaryButton } from './shared/PrimaryButton';
 import { GhostButton } from './shared/GhostButton';
@@ -26,24 +27,13 @@ export function Navbar() {
       <nav className="v-container h-[72px] flex items-center justify-between" aria-label="Main navigation">
         {/* Logo */}
         <div
-          className="flex items-center gap-2.5 cursor-pointer select-none"
+          className="flex items-center cursor-pointer select-none"
           onClick={() => navigate('/')}
           role="link"
           tabIndex={0}
           onKeyDown={(e) => e.key === 'Enter' && navigate('/')}
         >
-          <div className="w-8 h-8 bg-[--text-primary] rounded-lg flex items-center justify-center">
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <path d="M10 2L18 7V13L10 18L2 13V7L10 2Z" stroke="white" strokeWidth="2" strokeLinejoin="round" />
-              <path d="M10 2V10" stroke="white" strokeWidth="2" />
-              <path d="M2 7L10 10" stroke="white" strokeWidth="2" />
-              <path d="M18 7L10 10" stroke="white" strokeWidth="2" />
-            </svg>
-          </div>
-          <span className="text-lg font-semibold tracking-tight text-[--text-primary]">
-            Velocis
-          </span>
-        </div>
+          <img src={lightLogoImg} alt="Velocis" className="h-8 w-auto object-contain" />
 
         {/* Desktop actions */}
         <div className="hidden md:flex items-center gap-3">

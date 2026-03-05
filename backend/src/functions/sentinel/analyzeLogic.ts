@@ -51,8 +51,8 @@
 
 import {
   BedrockRuntimeClient,
-  InvokeModelCommand,
   ConverseCommand,
+  type ConverseCommandInput,
 } from "@aws-sdk/client-bedrock-runtime";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
@@ -194,13 +194,17 @@ export interface AnalyzeLogicInput {
   reviewDepth?: ReviewDepth;
   /** Extra context injected from the Vibe Coding chat session */
   context?: string;
+  /**
+   * Pre-fetched file contents keyed by file path.
+   * When provided, analyzeLogic skips its own GitHub fetch (step 3),
+   * avoiding redundant API calls and secondary rate limits.
+   */
+  preloadedContents?: Record<string, string>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────────────────────
-
-const BEDROCK_MODEL_ID = "us.amazon.nova-pro-v1:0";
 
 /** Token budgets per review depth */
 const MAX_TOKENS: Record<ReviewDepth, number> = {
@@ -241,12 +245,6 @@ const SEVERITY_WEIGHTS: Record<IssueSeverity, number> = {
   low: 3,
   info: 0,
 };
-
-// ─────────────────────────────────────────────────────────────────────────────
-// AWS CLIENTS
-// ─────────────────────────────────────────────────────────────────────────────
-
-const bedrockClient = new BedrockRuntimeClient({ region: config.AWS_REGION });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FILE ELIGIBILITY
@@ -444,6 +442,18 @@ Perform a deep semantic review of the above files now. Respond ONLY with the <se
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// BEDROCK CLIENT — same pattern as Fortress (analyzeFortress.ts)
+// deepseek.v3.2 via ConverseCommand in us-east-1
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DEEPSEEK_MODEL = "deepseek.v3.2";
+
+const sentinelBedrockClient = new BedrockRuntimeClient({
+  region: "us-east-1",
+  requestHandler: { requestTimeout: 300_000 } as any, // 5 min — Sentinel reviews large multi-file prompts
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // BEDROCK INVOCATION
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -452,46 +462,41 @@ async function invokeClaudeForReview(
   userPrompt: string,
   reviewDepth: ReviewDepth
 ): Promise<{ responseText: string; latencyMs: number }> {
-  const requestBody = {
+  const input: ConverseCommandInput = {
+    modelId: DEEPSEEK_MODEL,
     system: [{ text: systemPrompt }],
     messages: [{ role: "user", content: [{ text: userPrompt }] }],
     inferenceConfig: {
-      max_new_tokens: MAX_TOKENS[reviewDepth],
+      maxTokens: MAX_TOKENS[reviewDepth],
       temperature: 0.1,
     },
   };
 
+  const command = new ConverseCommand(input);
   const t0 = Date.now();
 
+  const abort = new AbortController();
+  const abortTimer = setTimeout(() => abort.abort(), 295_000); // 4 min 55 s — under the 5-min socket timeout
+  let response;
   try {
-    const command = new InvokeModelCommand({
-      modelId: BEDROCK_MODEL_ID,
-      contentType: "application/json",
-      accept: "application/json",
-      body: JSON.stringify(requestBody),
-    });
-
-    const response = await bedrockClient.send(command);
-    const latencyMs = Date.now() - t0;
-    const parsed = JSON.parse(new TextDecoder().decode(response.body));
-    const responseText: string = parsed.output?.message?.content?.[0]?.text ?? "";
-
-    logger.info(
-      {
-        latencyMs,
-        inputTokens: parsed.usage?.inputTokens,
-        outputTokens: parsed.usage?.outputTokens,
-        reviewDepth,
-      },
-      "Sentinel: Bedrock Nova Pro invocation complete"
-    );
-
-    return { responseText, latencyMs };
-  } catch (err: any) {
-    const latencyMs = Date.now() - t0;
-    logger.error({ err, latencyMs }, "Sentinel: Bedrock invocation failed");
-    throw new Error(`Bedrock invocation failed: ${err.message ?? String(err)}`);
+    response = await sentinelBedrockClient.send(command, { abortSignal: abort.signal });
+  } finally {
+    clearTimeout(abortTimer);
   }
+
+  const latencyMs = Date.now() - t0;
+  const content = response.output?.message?.content;
+  const responseText =
+    Array.isArray(content) && content.length > 0 && "text" in content[0]
+      ? (content[0].text as string)
+      : "";
+
+  logger.info(
+    { latencyMs, reviewDepth, model: DEEPSEEK_MODEL },
+    "Sentinel: Bedrock DeepSeek V3 invocation complete"
+  );
+
+  return { responseText, latencyMs };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1025,6 +1030,7 @@ export async function analyzeLogic(
     language = "en",
     reviewDepth = "standard",
     context,
+    preloadedContents,
   } = input;
 
   const reviewedAt = new Date().toISOString();
@@ -1081,39 +1087,56 @@ export async function analyzeLogic(
     return emptyResult;
   }
 
-  // ── Step 3: Fetch source files from GitHub ────────────────────────────────
-  const fetchResults = await Promise.allSettled(
-    reviewableFiles.map(async (filePath) => {
-      const content = await fetchFileContent(
-        repoOwner,
-        repoName,
-        filePath,
-        accessToken,
-        commitSha
-      );
-      return {
-        path: filePath,
-        content,
-        language: inferFileLanguage(filePath),
-      };
-    })
-  );
+  // ── Step 3: Resolve source file contents ─────────────────────────────────
+  // If the caller already has the file contents (e.g. triggerAutomation.ts
+  // pre-fetched them), use those directly to avoid a redundant GitHub API
+  // round-trip that can trigger secondary rate limits.
+  let fileContents: { path: string; content: string; language: string }[];
 
-  const fileContents = fetchResults
-    .filter(
-      (r): r is PromiseFulfilledResult<{ path: string; content: string; language: string }> =>
-        r.status === "fulfilled"
-    )
-    .map((r) => r.value);
-
-  if (fileContents.length === 0) {
-    throw new Error("Sentinel: Failed to fetch any source files from GitHub.");
+  if (preloadedContents && Object.keys(preloadedContents).length > 0) {
+    fileContents = reviewableFiles
+      .filter((fp) => preloadedContents[fp])
+      .map((fp) => ({
+        path: fp,
+        content: preloadedContents[fp],
+        language: inferFileLanguage(fp),
+      }));
+    logger.info(
+      { repoId, fileCount: fileContents.length },
+      "Sentinel: Using pre-loaded file contents (skipping GitHub fetch)"
+    );
+  } else {
+    const fetchResults = await Promise.allSettled(
+      reviewableFiles.map(async (filePath) => {
+        const content = await fetchFileContent(
+          repoOwner,
+          repoName,
+          filePath,
+          accessToken,
+          commitSha
+        );
+        return {
+          path: filePath,
+          content,
+          language: inferFileLanguage(filePath),
+        };
+      })
+    );
+    fileContents = fetchResults
+      .filter(
+        (r): r is PromiseFulfilledResult<{ path: string; content: string; language: string }> =>
+          r.status === "fulfilled"
+      )
+      .map((r) => r.value);
+    logger.info(
+      { repoId, fetchedFiles: fileContents.map((f) => f.path) },
+      "Sentinel: Source files fetched from GitHub"
+    );
   }
 
-  logger.info(
-    { repoId, fetchedFiles: fileContents.map((f) => f.path) },
-    "Sentinel: Source files fetched"
-  );
+  if (fileContents.length === 0) {
+    throw new Error("Sentinel: Failed to resolve any source files for review.");
+  }
 
   // ── Step 4: Build prompts ─────────────────────────────────────────────────
   const systemPrompt = buildSystemPrompt(reviewDepth);
@@ -1273,50 +1296,36 @@ export const handler = async (
 // SENTINEL REVIEW — ConverseCommand (Modern Bedrock API)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Dedicated Bedrock client for the ConverseCommand integration (us-east-1). */
-const converseClient = new BedrockRuntimeClient({ region: "us-east-1" });
-
 const SENTINEL_SYSTEM_PROMPT =
   "You are Sentinel, an elite AI Senior Engineer. Analyze the provided code diff " +
   "for logic flaws, security vulnerabilities, and scalability issues. Do not just fix " +
   "the code—explain the 'why' behind the issue to mentor the junior developer.";
 
 /**
- * Runs a deep code-diff review through Amazon Bedrock using the modern
- * ConverseCommand API.
+ * Runs a deep code-diff review through Amazon Bedrock (DeepSeek V3).
  *
  * @param codeDiff  A unified diff string (e.g. from `git diff`) to review.
  * @returns         The raw review text produced by Sentinel.
  */
 export async function runSentinelReview(codeDiff: string): Promise<string> {
+  const input: ConverseCommandInput = {
+    modelId: DEEPSEEK_MODEL,
+    system: [{ text: SENTINEL_SYSTEM_PROMPT }],
+    messages: [{ role: "user", content: [{ text: codeDiff }] }],
+    inferenceConfig: {
+      maxTokens: 1500,
+      temperature: 0.2,
+    },
+  };
+
+  const command = new ConverseCommand(input);
   try {
-    const command = new ConverseCommand({
-      modelId: "us.amazon.nova-pro-v1:0",
-      system: [
-        {
-          text: SENTINEL_SYSTEM_PROMPT,
-        },
-      ],
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              text: codeDiff,
-            },
-          ],
-        },
-      ],
-      inferenceConfig: {
-        maxTokens: 1500,
-        temperature: 0.2,
-      },
-    });
-
-    const response = await converseClient.send(command);
-
+    const response = await sentinelBedrockClient.send(command);
+    const content = response.output?.message?.content;
     const reviewText =
-      response.output?.message?.content?.[0]?.text ?? "(no response text returned)";
+      Array.isArray(content) && content.length > 0 && "text" in content[0]
+        ? (content[0].text as string)
+        : "";
 
     console.log("\n--- SENTINEL REVIEW ---");
     console.log(reviewText);
@@ -1324,7 +1333,7 @@ export async function runSentinelReview(codeDiff: string): Promise<string> {
 
     return reviewText;
   } catch (err) {
-    console.error("[runSentinelReview] Bedrock ConverseCommand failed:", err);
+    console.error("[runSentinelReview] Bedrock DeepSeek V3 failed:", err);
     throw err;
   }
 }

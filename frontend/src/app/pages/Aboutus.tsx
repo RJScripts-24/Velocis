@@ -8,6 +8,7 @@ import {
     Database, Globe, Layers, Sparkles, Terminal, Activity, Clock,
     GitBranch, Play, RotateCcw, Circle, Square, Triangle,
 } from "lucide-react";
+import lightLogoImg from '../../../LightLogo.png';
 
 // ΓöÇΓöÇΓöÇ Fonts & Global Styles ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 const FontStyle = () => (
@@ -43,8 +44,6 @@ const FontStyle = () => (
     @keyframes logoDotPulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
     .logo-dot { animation: logoDotPulse 2s ease-in-out infinite; display:inline-block;width:6px;height:6px;border-radius:50%;background:#1A7F3C;margin-left:1px;vertical-align:middle; }
     .scroll-progress { position:fixed;top:0;left:0;height:2px;z-index:9999;background:linear-gradient(to right,#1A7F3C,#3FB950);pointer-events:none;transform-origin:left; }
-    .vcursor { position:fixed;width:6px;height:6px;background:#1A7F3C;border-radius:50%;pointer-events:none;z-index:9998;transform:translate(-50%,-50%);transition:transform 0.08s ease; }
-    .vcursor.link-hover { transform:translate(-50%,-50%) scale(2.5); }
 
     .agent-visual-float { animation: float-agent 6s ease-in-out infinite; }
     @keyframes float-agent { 0%,100%{transform:translateY(0px)} 50%{transform:translateY(-10px)} }
@@ -359,11 +358,11 @@ const StickyNav: React.FC<{ visible: boolean }> = ({ visible }) => {
                     }}
                 >
                     <a href="#hero" className="font-bask font-bold" style={{ color: "#16141A", fontSize: 20, letterSpacing: '-0.01em', display: 'flex', alignItems: 'center', gap: 2 }}>
-                        Velocis<span className="logo-dot" />
+                        <img src={lightLogoImg} alt="Velocis" style={{ height: 32, width: 'auto', objectFit: 'contain' }} />
                     </a>
                     <div className="hidden md:flex items-center gap-8">
                         {links.map((l) => (
-                            <a key={l.href} href={l.href} className="nav-link-light">{l.label}</a>
+                            <a key={l.href} href={l.href} className="nav-link-light" onClick={(e) => { if (l.href.startsWith('/')) { e.preventDefault(); window.location.href = l.href; } }}>{l.label}</a>
                         ))}
                     </div>
                     <a
@@ -1239,7 +1238,6 @@ const Footer: React.FC = () => (
 export default function AboutPage() {
     const [navVisible, setNavVisible] = useState(false);
     const [scrollPct, setScrollPct] = useState(0);
-    const cursorRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         const onScroll = () => {
@@ -1252,30 +1250,12 @@ export default function AboutPage() {
         return () => window.removeEventListener("scroll", onScroll);
     }, []);
 
-    useEffect(() => {
-        const cursor = cursorRef.current;
-        if (!cursor) return;
-        const move = (e: MouseEvent) => {
-            cursor.style.left = e.clientX + 'px';
-            cursor.style.top = e.clientY + 'px';
-        };
-        const hover = (e: MouseEvent) => {
-            const t = e.target as HTMLElement;
-            cursor.classList.toggle('link-hover', !!(t.closest('a, button')));
-        };
-        document.addEventListener('mousemove', move);
-        document.addEventListener('mouseover', hover);
-        return () => { document.removeEventListener('mousemove', move); document.removeEventListener('mouseover', hover); };
-    }, []);
-
     return (
-        <div className="font-inter" style={{ background: "#fff", color: "#16141A", minHeight: "100vh", cursor: 'none' }}>
+        <div className="font-inter" style={{ background: "#fff", color: "#16141A", minHeight: "100vh" }}>
             <FontStyle />
             <GrainOverlay />
             {/* Scroll progress */}
             <div className="scroll-progress" style={{ width: `${scrollPct}%` }} />
-            {/* Custom cursor */}
-            <div ref={cursorRef} className="vcursor" />
             <StickyNav visible={navVisible} />
             <HeroSection />
             <DashboardVisual />

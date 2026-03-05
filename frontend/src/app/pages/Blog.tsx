@@ -1,7 +1,9 @@
 "use client";
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence, useScroll, useSpring } from 'framer-motion';
+import { useNavigate } from 'react-router';
 import { Clock, X, Users, Shield, Info, ArrowRight, Mail, Check, ArrowUpRight, Copy, ChevronLeft, ChevronRight, BookOpen } from 'lucide-react';
+import lightLogoImg from '../../../LightLogo.png';
 
 interface BlogPost { id: string; slug: string; title: string; subtitle: string; category: string; categoryColor: string; readTime: string; date: string; author: { name: string; initials: string; role: string; ringColor: string; }; excerpt: string; tags: string[]; featured: boolean; coverPattern: string; content: string; }
 
@@ -49,29 +51,18 @@ const POSTS: BlogPost[] = [
 const GStyle = () => (
   <style>{`
     @import url('https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-    *{box-sizing:border-box;cursor:none!important;}
+    *{box-sizing:border-box;}
     html{scroll-behavior:smooth;}
     body{font-family:'Inter',sans-serif;background:#fff;color:#16141A;font-feature-settings:"kern"1,"liga"1,"calt"1;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased;}
     ::selection{background:rgba(26,127,60,0.15);color:#16141A;}
     .fb{font-family:'Libre Baskerville',serif;} .fm{font-family:'JetBrains Mono',monospace;}
     button:focus-visible,a:focus-visible{outline:2px solid #1A7F3C;outline-offset:3px;}
     @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}}
-    @media(max-width:768px){*{cursor:auto!important;}.cc{display:none!important;}}
     @keyframes blink{50%{opacity:0;}} @keyframes breathe{0%,100%{transform:scale(.95);opacity:.5;}50%{transform:scale(1.05);opacity:1;}}
     @keyframes pr{0%{box-shadow:0 0 0 0 rgba(26,127,60,.4);}70%{box-shadow:0 0 0 8px rgba(26,127,60,0);}100%{box-shadow:0 0 0 0 rgba(26,127,60,0);}}`}
   </style>
 );
 
-const Cursor = () => {
-  const [p, setP] = useState({ x: -100, y: -100 }), [h, setH] = useState(false);
-  useEffect(() => {
-    const mv = (e: MouseEvent) => setP({ x: e.clientX, y: e.clientY });
-    const ov = (e: MouseEvent) => setH(!!(e.target as HTMLElement).closest('a,button,[role="button"]'));
-    window.addEventListener('mousemove', mv); window.addEventListener('mouseover', ov);
-    return () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseover', ov); };
-  }, []);
-  return <motion.div className="cc fixed top-0 left-0 w-[6px] h-[6px] rounded-full pointer-events-none z-[10000]" style={{ backgroundColor: h ? 'transparent' : '#1A7F3C', border: h ? '1px solid #1A7F3C' : 'none' }} animate={{ x: p.x - 3, y: p.y - 3, scale: h ? 4 : 1 }} transition={{ type: 'spring', damping: 30, stiffness: 250, mass: .5 }} />;
-};
 const ProgBar = () => { const { scrollYProgress } = useScroll(); const sx = useSpring(scrollYProgress, { stiffness: 100, damping: 30 }); return <motion.div style={{ scaleX: sx }} className="fixed top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-[#1A7F3C] to-[#3FB950] origin-left z-[9999]"><div className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-1 bg-[#3FB950] rounded-full shadow-[0_0_6px_#3FB950]" /></motion.div>; };
 const Grain = () => <div style={{ position: 'fixed', inset: 0, zIndex: 999, pointerEvents: 'none', opacity: .04, backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")` }} />;
 
@@ -119,14 +110,15 @@ const Frags = ({ s }: { s: 'left' | 'right' }) => {
 };
 
 const Nav = () => {
+  const navigate = useNavigate();
   const [sc, setSc] = useState(false);
   useEffect(() => { const h = () => setSc(window.scrollY > 80); window.addEventListener('scroll', h); return () => window.removeEventListener('scroll', h); }, []);
   return (
     <motion.nav initial={{ y: -60, opacity: 0 }} animate={{ y: sc ? 0 : -60, opacity: sc ? 1 : 0 }} className="fixed top-0 left-0 right-0 h-[60px] z-[5000] px-8 flex items-center justify-between border-b border-[#E8E5DF] bg-[rgba(255,255,255,0.92)] backdrop-blur-[16px]" style={{ boxShadow: sc ? '0 1px 0 rgba(22,20,26,0.08)' : 'none' }}>
-      <div className="flex items-center gap-2"><span className="fb font-bold text-[18px]">Velocis.</span><div className="w-[2px] h-[13px] bg-[#1A7F3C] animate-[blink_1.1s_step-end_infinite]" /></div>
+      <div className="flex items-center gap-2"><img src={lightLogoImg} alt="Velocis" style={{ height: 28, width: 'auto', objectFit: 'contain' }} /></div>
       <div className="hidden md:flex items-center gap-8 font-[500] text-[14px] text-[#4B4856]">
         {[['About', '/about'], ['Careers', '/careers'], ['Blog', '/blog'], ['Security', '/security'], ['Contact', '/contact']].map(([x, href]) => (
-          <a key={x} href={href} className={`relative group transition-colors ${x === 'Blog' ? 'text-[#16141A] font-semibold' : 'hover:text-[#16141A]'}`}>{x}<span className={`absolute -bottom-1 left-0 w-full h-[1px] bg-[#1A7F3C] origin-left transition-transform duration-200 ${x === 'Blog' ? 'scale-x-100' : 'scale-x-0 group-hover:scale-x-100'}`} /></a>
+          <a key={x} href={href} target="_blank" rel="noopener noreferrer" className={`relative group transition-colors ${x === 'Blog' ? 'text-[#16141A] font-semibold' : 'hover:text-[#16141A]'}`} onClick={(e) => { if (href.startsWith('/')) { e.preventDefault(); window.open(href, '_blank', 'noopener,noreferrer'); } }}>{x}<span className={`absolute -bottom-1 left-0 w-full h-[1px] bg-[#1A7F3C] origin-left transition-transform duration-200 ${x === 'Blog' ? 'scale-x-100' : 'scale-x-0 group-hover:scale-x-100'}`} /></a>
         ))}
       </div>
       <motion.button whileHover={{ y: -1, backgroundColor: '#1A7F3C', boxShadow: '0 4px 12px rgba(26,127,60,0.25)' }} className="bg-[#16141A] text-white px-[18px] py-[9px] rounded-[8px] font-semibold text-[13px]">Connect GitHub</motion.button>
@@ -184,6 +176,7 @@ const CircuitBg = () => {
 
 // ─── MAIN BLOG PAGE ─────────────────────────────────────────────────────────
 export default function BlogPage() {
+  const navigate = useNavigate();
   const [activeCategory, setActiveCategory] = useState('All');
   const [selectedPost, setSelectedPost] = useState<BlogPost | null>(null);
   const [newsletterEmail, setNewsletterEmail] = useState('');
@@ -281,7 +274,7 @@ export default function BlogPage() {
 
   return (
     <div className="min-h-screen bg-white">
-      <GStyle /><Cursor /><ProgBar /><Grain /><Nav />
+      <GStyle /><ProgBar /><Grain /><Nav />
 
       {/* HERO */}
       <section className="relative pt-14 pb-10 bg-white overflow-hidden text-center px-6">
@@ -426,7 +419,7 @@ export default function BlogPage() {
             { icon: <Users size={22} />, title: 'We are hiring', body: 'Three open roles on the Velocis team. Build what you read about.', link: 'See open roles', href: '/careers' },
             { icon: <Shield size={22} />, title: 'How we handle security', body: 'Our read-only OAuth model, AWS infrastructure, and responsible disclosure policy.', link: 'Security overview', href: '/security' },
           ].map((c, i) => (
-            <motion.a key={i} href={c.href} initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: .5, delay: i * .1 }} whileHover={{ y: -3, boxShadow: '0 8px 28px rgba(22,20,26,0.08)', borderColor: 'rgba(26,127,60,0.25)' }} className="bg-[#F7F6F3] border border-[#E8E5DF] rounded-[14px] p-6 flex items-start gap-4 group">
+            <motion.a key={i} href={c.href} target="_blank" rel="noopener noreferrer" onClick={(e) => { if (c.href.startsWith('/')) { e.preventDefault(); window.open(c.href, '_blank', 'noopener,noreferrer'); } }} initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: .5, delay: i * .1 }} whileHover={{ y: -3, boxShadow: '0 8px 28px rgba(22,20,26,0.08)', borderColor: 'rgba(26,127,60,0.25)' }} className="bg-[#F7F6F3] border border-[#E8E5DF] rounded-[14px] p-6 flex items-start gap-4 group">
               <div className="w-12 h-12 rounded-full bg-[#F0FDF4] border border-[rgba(26,127,60,0.12)] flex items-center justify-center text-[#1A7F3C] flex-shrink-0 group-hover:bg-[#DCFCE7] transition-colors">{c.icon}</div>
               <div><h4 className="font-bold text-[15px] text-[#16141A] mb-1">{c.title}</h4><p className="text-[13px] text-[#6B6778] leading-relaxed mb-3">{c.body}</p><span className="font-semibold text-[13px] text-[#1A7F3C] inline-flex items-center gap-1 group/l">{c.link}<ArrowRight size={13} className="group-hover/l:translate-x-1 transition-transform" /></span></div>
             </motion.a>
@@ -472,7 +465,7 @@ export default function BlogPage() {
       <footer className="border-t border-[#E8E5DF] py-10 px-8 bg-white">
         <div className="max-w-[1080px] mx-auto flex flex-col md:flex-row justify-between items-center gap-6 text-[#9B97A8] text-[14px]">
           <div className="flex items-baseline gap-4"><span className="fb font-bold text-[19px] text-[#16141A]">Velocis.</span><span>© 2025 Velocis · Built by <span className="text-[#16141A] font-semibold">Merge Conflict</span></span></div>
-          <div className="flex gap-7 font-medium">{['About Us', 'Blog', 'Security', 'GitHub'].map(l => <a key={l} href="#" className="hover:text-[#16141A] transition-colors">{l}</a>)}</div>
+          <div className="flex gap-7 font-medium">{[['About Us', '/about'], ['Blog', '/blog'], ['Security', '/security'], ['GitHub', '#']].map(([l, href]) => <a key={l} href={href} target="_blank" rel="noopener noreferrer" className="hover:text-[#16141A] transition-colors" onClick={(e) => { if (href.startsWith('/')) { e.preventDefault(); window.open(href, '_blank', 'noopener,noreferrer'); } }}>{l}</a>)}</div>
         </div>
       </footer>
 

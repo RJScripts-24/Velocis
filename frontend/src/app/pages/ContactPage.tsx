@@ -1,7 +1,9 @@
 "use client";
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence, useScroll, useSpring } from 'framer-motion';
+import { useNavigate } from 'react-router';
 import { Mail, Github, MessageCircle, Copy, Check, ChevronDown, ExternalLink, Send, Shield, Lock, ArrowUpRight } from 'lucide-react';
+import lightLogoImg from '../../../LightLogo.png';
 
 interface FormState { name: string; email: string; subject: string; message: string; githubUrl: string; }
 interface FormErrors { name?: string; email?: string; subject?: string; message?: string; }
@@ -11,7 +13,7 @@ const GStyle = () => (
   <style>{`
     @import url('https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
     :root{--g:#1A7F3C;--gb:#2EA44F;--dk:#16141A;--s:#6B6778;--m:#9B97A8;--bd:#E8E5DF;--b2:#F7F6F3;}
-    *{box-sizing:border-box;cursor:none!important;}
+    *{box-sizing:border-box;}
     html{scroll-behavior:smooth;}
     body{font-family:'Inter',sans-serif;background:#fff;color:#16141A;font-feature-settings:"kern"1,"liga"1,"calt"1;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased;}
     ::selection{background:rgba(26,127,60,0.15);color:#16141A;}
@@ -19,24 +21,11 @@ const GStyle = () => (
     .fm{font-family:'JetBrains Mono',monospace;}
     button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid var(--g);outline-offset:3px;}
     @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}}
-    @media(max-width:768px){*{cursor:auto!important;}.cc{display:none!important;}}
     @keyframes blink{50%{opacity:0;}}
     @keyframes breathe{0%,100%{transform:scale(.95);opacity:.5;}50%{transform:scale(1.05);opacity:1;}}
     @keyframes pr{0%{box-shadow:0 0 0 0 rgba(26,127,60,.4);}70%{box-shadow:0 0 0 8px rgba(26,127,60,0);}100%{box-shadow:0 0 0 0 rgba(26,127,60,0);}}`}
   </style>
 );
-
-const Cursor = () => {
-  const [p, setP] = useState({ x: -100, y: -100 });
-  const [h, setH] = useState(false);
-  useEffect(() => {
-    const mv = (e: MouseEvent) => setP({ x: e.clientX, y: e.clientY });
-    const ov = (e: MouseEvent) => setH(!!(e.target as HTMLElement).closest('a,button,input,select,textarea,[role="button"]'));
-    window.addEventListener('mousemove', mv); window.addEventListener('mouseover', ov);
-    return () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseover', ov); };
-  }, []);
-  return <motion.div className="cc fixed top-0 left-0 w-[6px] h-[6px] rounded-full pointer-events-none z-[10000]" style={{ backgroundColor: h ? 'transparent' : '#1A7F3C', border: h ? '1px solid #1A7F3C' : 'none' }} animate={{ x: p.x - 3, y: p.y - 3, scale: h ? 4 : 1 }} transition={{ type: 'spring', damping: 30, stiffness: 250, mass: .5 }} />;
-};
 
 const ProgBar = () => {
   const { scrollYProgress } = useScroll();
@@ -88,15 +77,15 @@ const Lbl = ({ children, pill, color = '#1A7F3C' }: { children: React.ReactNode;
 );
 
 const Nav = () => {
+  const navigate = useNavigate();
   const [sc, setSc] = useState(false);
   useEffect(() => { const h = () => setSc(window.scrollY > 80); window.addEventListener('scroll', h); return () => window.removeEventListener('scroll', h); }, []);
   return (
     <motion.nav initial={{ y: -60, opacity: 0 }} animate={{ y: sc ? 0 : -60, opacity: sc ? 1 : 0 }} className="fixed top-0 left-0 right-0 h-[60px] z-[5000] px-8 flex items-center justify-between border-b border-[#E8E5DF] bg-[rgba(255,255,255,0.92)] backdrop-blur-[16px]" style={{ boxShadow: sc ? '0 1px 0 rgba(22,20,26,0.08)' : 'none' }}>
-      <div className="flex items-center gap-2"><span className="fb font-bold text-[18px]">Velocis.</span><div className="w-[2px] h-[13px] bg-[#1A7F3C] animate-[blink_1.1s_step-end_infinite]" /></div>
+      <div className="flex items-center gap-2"><img src={lightLogoImg} alt="Velocis" style={{ height: 28, width: 'auto', objectFit: 'contain' }} /></div>
       <div className="hidden md:flex items-center gap-8 font-[500] text-[14px] text-[#4B4856]">
         {[['About', '/about'], ['Careers', '/careers'], ['Contact', '/contact']].map(([x, href]) => (
-          <a key={x} href={href} className={`relative group transition-colors ${x === 'Contact' ? 'text-[#16141A] font-semibold' : 'hover:text-[#16141A]'}`}>
-            {x}<span className={`absolute -bottom-1 left-0 w-full h-[1px] bg-[#1A7F3C] origin-left transition-transform duration-200 ${x === 'Contact' ? 'scale-x-100' : 'scale-x-0 group-hover:scale-x-100'}`} />
+          <a key={x} href={href} target="_blank" rel="noopener noreferrer" className={`relative group transition-colors ${x === 'Contact' ? 'text-[#16141A] font-semibold' : 'hover:text-[#16141A]'}`} onClick={(e) => { if (href.startsWith('/')) { e.preventDefault(); window.open(href, '_blank', 'noopener,noreferrer'); } }}>\n            {x}<span className={`absolute -bottom-1 left-0 w-full h-[1px] bg-[#1A7F3C] origin-left transition-transform duration-200 ${x === 'Contact' ? 'scale-x-100' : 'scale-x-0 group-hover:scale-x-100'}`} />
           </a>
         ))}
       </div>
@@ -420,19 +409,22 @@ const CTA = () => (
   </section>
 );
 
-const Foot = () => (
-  <footer className="border-t border-[#E8E5DF] py-12 px-8 bg-white">
-    <div className="max-w-[1080px] mx-auto flex flex-col md:flex-row justify-between items-center gap-6 text-[#9B97A8] text-[14px]">
-      <div className="flex items-baseline gap-4"><span className="fb font-bold text-[19px] text-[#16141A]">Velocis.</span><span>© 2025 Velocis · Built by <span className="text-[#16141A] font-semibold">Merge Conflict</span></span></div>
-      <div className="flex gap-7 font-medium">{['About Us', 'Blog', 'Twitter', 'GitHub'].map(l => <a key={l} href="#" className="hover:text-[#16141A] transition-colors">{l}</a>)}</div>
-    </div>
-  </footer>
-);
+const Foot = () => {
+  const navigate = useNavigate();
+  return (
+    <footer className="border-t border-[#E8E5DF] py-12 px-8 bg-white">
+      <div className="max-w-[1080px] mx-auto flex flex-col md:flex-row justify-between items-center gap-6 text-[#9B97A8] text-[14px]">
+        <div className="flex items-baseline gap-4"><span className="fb font-bold text-[19px] text-[#16141A]">Velocis.</span><span>© 2025 Velocis · Built by <span className="text-[#16141A] font-semibold">Merge Conflict</span></span></div>
+        <div className="flex gap-7 font-medium">{[['About Us', '/about'], ['Blog', '/blog'], ['Twitter', '#'], ['GitHub', '#']].map(([l, href]) => <a key={l} href={href} target="_blank" rel="noopener noreferrer" className="hover:text-[#16141A] transition-colors" onClick={(e) => { if (href.startsWith('/')) { e.preventDefault(); window.open(href, '_blank', 'noopener,noreferrer'); } }}>{l}</a>)}</div>
+      </div>
+    </footer>
+  );
+};
 
 export default function ContactPage() {
   return (
     <div className="min-h-screen bg-white">
-      <GStyle /><Cursor /><ProgBar /><Grain /><Nav /><Hero />
+      <GStyle /><ProgBar /><Grain /><Nav /><Hero />
       <Divider />
       <section className="relative py-14 overflow-hidden bg-white">
         <Frags s="left" /><Frags s="right" />

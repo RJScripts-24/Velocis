@@ -39,15 +39,7 @@ async function resolveUser(event: APIGatewayProxyEvent): Promise<{ userId: strin
         let githubToken = "";
         try {
           githubToken = await getUserToken(session.githubId);
-        } catch {
-          try {
-            const u = await dynamoClient.get<{ accessToken?: string; github_token?: string }>({
-              tableName: DYNAMO_TABLES.USERS,
-              key: { userId: session.githubId },
-            });
-            githubToken = u?.accessToken ?? u?.github_token ?? "";
-          } catch { /* non-fatal */ }
-        }
+        } catch { /* non-fatal — graph will be empty but page still loads */ }
         return { userId: session.githubId, githubToken };
       }
     } catch (e) {
@@ -58,7 +50,11 @@ async function resolveUser(event: APIGatewayProxyEvent): Promise<{ userId: strin
   if (!token) return null;
   try {
     const { sub } = jwt.verify(token, JWT_SECRET) as { sub: string };
-    return { userId: sub, githubToken: "" };
+    let githubToken = "";
+    try {
+      githubToken = await getUserToken(sub);
+    } catch { /* non-fatal — graph will be empty if token missing */ }
+    return { userId: sub, githubToken };
   } catch {
     return null;
   }
@@ -251,11 +247,14 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
 
 
   let commitByMonth: CommitMonth[] = [];
-  if (githubToken) {
-    const owner = await getGitHubLogin(githubToken);
-    if (owner) {
-      commitByMonth = await fetchAllCommitsByMonth(owner, repo.repoName ?? repoId, githubToken);
-    }
+  // Derive owner from stored repo data first — avoids an extra GitHub API call
+  const owner: string | null =
+    repo.repoOwner ??
+    (repo.repoFullName ? String(repo.repoFullName).split('/')[0] : null) ??
+    (githubToken ? await getGitHubLogin(githubToken) : null);
+
+  if (owner) {
+    commitByMonth = await fetchAllCommitsByMonth(owner, repo.repoName ?? repoId, githubToken);
   }
 
   const totalCommits = commitByMonth.reduce((s, m) => s + m.count, 0);

@@ -292,33 +292,59 @@ async function handlePush(
   }
 
   // ── STEP 4: Fetch the changed files from GitHub ───────────────────────────
-  const changedFiles = commits.flatMap((commit) => [
+  const addedOrModifiedFiles = commits.flatMap((commit) => [
     ...commit.added,
     ...commit.modified,
   ]);
 
-  const uniqueChangedFiles = [...new Set(changedFiles)].filter(
+  // Track deleted files separately — they trigger a full Cortex rebuild
+  const deletedFiles = commits.flatMap((commit) => commit.removed ?? []);
+
+  const uniqueChangedFiles = [...new Set(addedOrModifiedFiles)].filter(
     (f) =>
-      // Only process source files — skip lock files, configs, assets
+      // Process all meaningful source and config file types
       f.endsWith(".ts") ||
       f.endsWith(".tsx") ||
       f.endsWith(".js") ||
       f.endsWith(".jsx") ||
-      f.endsWith(".py")
+      f.endsWith(".py") ||
+      f.endsWith(".json") ||
+      f.endsWith(".yaml") ||
+      f.endsWith(".yml") ||
+      f.endsWith(".tf") ||
+      f.endsWith(".sql") ||
+      f.endsWith(".md")
   );
 
-  if (uniqueChangedFiles.length === 0) {
-    logger.info({ requestId, msg: "No actionable source files changed" });
+  // If only non-source files changed (images, lock files) AND no deletions, skip agent pipeline
+  // but still record the push activity in DynamoDB below.
+  const hasDeletions = deletedFiles.length > 0;
+  const hasActionableChanges = uniqueChangedFiles.length > 0 || hasDeletions;
+
+  if (!hasActionableChanges) {
+    // Still update last push metadata even for trivial pushes
+    await dynamoClient.upsert({
+      tableName: config.DYNAMO_REPOSITORIES_TABLE,
+      item: {
+        repoId: String(repoId),
+        lastPushAt: new Date().toISOString(),
+        lastPushedBy: sender.login,
+        lastCommitSha: commits[commits.length - 1]?.id ?? "unknown",
+      },
+      key: "repoId",
+    });
+    logger.info({ requestId, msg: "No actionable files changed — push metadata updated" });
     return response(200, {
       status: "skipped",
-      reason: "No source files changed in this push",
+      reason: "No actionable source/config files changed in this push",
     });
   }
 
   logger.info({
     requestId,
-    msg: `Processing ${uniqueChangedFiles.length} changed files`,
+    msg: `Processing ${uniqueChangedFiles.length} changed files, ${deletedFiles.length} deleted files`,
     files: uniqueChangedFiles,
+    deleted: deletedFiles,
   });
 
   // Fetch the actual file contents from GitHub using installation token
@@ -331,23 +357,47 @@ async function handlePush(
     installation.id
   );
 
-  const fileContentsResult = await repoOps.fetchFileContents({
-    repoFullName,
-    filePaths: uniqueChangedFiles,
-    token: installationToken,
-  });
-  const fileContents: Record<string, string> = Object.fromEntries(
-    Object.entries(fileContentsResult.files).map(([k, v]) => [k, v.content])
+  // Only fetch contents for added/modified source files — not deletions or config-only changes
+  const sourceFilesToFetch = uniqueChangedFiles.filter((f) =>
+    f.endsWith(".ts") || f.endsWith(".tsx") || f.endsWith(".js") || f.endsWith(".jsx") || f.endsWith(".py")
   );
 
+  let fileContents: Record<string, string> = {};
+  if (sourceFilesToFetch.length > 0) {
+    const fileContentsResult = await repoOps.fetchFileContents({
+      repoFullName,
+      filePaths: sourceFilesToFetch,
+      token: installationToken,
+    });
+    fileContents = Object.fromEntries(
+      Object.entries(fileContentsResult.files).map(([k, v]) => [k, v.content])
+    );
+  }
+
   // ── STEP 5: Persist activity snapshot to DynamoDB ─────────────────────────
+  const pushStartedAt = new Date().toISOString();
   const repoRecord: Partial<Repository> = {
     repoId: String(repoId),
     repoFullName,
-    lastPushAt: new Date().toISOString(),
+    lastPushAt: pushStartedAt,
     lastPushedBy: sender.login,
     lastCommitSha: commits[commits.length - 1]?.id ?? "unknown",
+    lastCommitMessage: commits[commits.length - 1]?.message ?? "",
+    lastCommitAuthor: commits[commits.length - 1]?.author?.name ?? sender.login,
+    filesChangedCount: uniqueChangedFiles.length,
+    filesDeletedCount: deletedFiles.length,
     status: "processing",
+    // Mark the automation report as "running" immediately so the UI can
+    // show a live indicator while the agents are executing.
+    automationReport: {
+      status: "running",
+      startedAt: pushStartedAt,
+      updatedAt: pushStartedAt,
+      trigger: "push",
+      commitSha: commits[commits.length - 1]?.id ?? "unknown",
+      pushedBranch,
+      pushedBy: sender.login,
+    },
   };
 
   await dynamoClient.upsert({
@@ -373,18 +423,49 @@ async function handlePush(
     installationToken,
     fileContents,
     uniqueChangedFiles,
+    deletedFiles,
+    forceFullRebuild: hasDeletions,
   });
 
   // ── STEP 7: Update final status in DynamoDB ───────────────────────────────
+  const completedAt = new Date().toISOString();
+
+  // Build automationReport in the same shape that getAutomationReport.ts reads,
+  // so every push automatically refreshes the automation report visible in the UI.
+  const automationReport = {
+    status: agentResults.overallStatus === "healthy" ? "completed" : "failed",
+    startedAt: pushStartedAt,
+    completedAt,
+    updatedAt: completedAt,
+    sentinel: agentResults.sentinel.status === "success" ? agentResults.sentinel.data : null,
+    fortress: agentResults.fortress.status === "success" ? agentResults.fortress.data : null,
+    infrastructure: null,           // Phase C (infra predictor) result not surfaced here yet
+    error: agentResults.overallStatus !== "healthy"
+      ? [
+          agentResults.sentinel.status === "failed" ? `Sentinel: ${agentResults.sentinel.error}` : null,
+          agentResults.fortress.status === "failed" ? `Fortress: ${agentResults.fortress.error}` : null,
+          agentResults.cortex.status === "failed" ? `Cortex: ${agentResults.cortex.error}` : null,
+        ]
+          .filter(Boolean)
+          .join("; ") || "One or more agents failed"
+      : null,
+    progress: null,   // push-triggered runs have no step-by-step progress bar
+    trigger: "push",
+    commitSha: commits[commits.length - 1]?.id ?? "unknown",
+    pushedBranch,
+    pushedBy: sender.login,
+  };
+
   await dynamoClient.upsert({
     tableName: config.DYNAMO_REPOSITORIES_TABLE,
     item: {
       repoId: String(repoId),
       status: agentResults.overallStatus,
-      lastProcessedAt: new Date().toISOString(),
+      lastProcessedAt: completedAt,
       sentinel: agentResults.sentinel,
       fortress: agentResults.fortress,
       cortex: agentResults.cortex,
+      automationReport,
     },
     key: "repoId",
   });
@@ -392,7 +473,7 @@ async function handlePush(
   logger.info({
     requestId,
     repoId: String(repoId),
-    msg: "All agents completed — final status saved",
+    msg: "All agents completed — final status and automation report saved",
     status: agentResults.overallStatus,
   });
 
@@ -419,6 +500,8 @@ async function runAgentPipeline(ctx: {
   installationToken: string;
   fileContents: Record<string, string>;
   uniqueChangedFiles: string[];
+  deletedFiles: string[];
+  forceFullRebuild: boolean;
 }): Promise<AgentPipelineResult> {
   const {
     requestId,
@@ -427,6 +510,8 @@ async function runAgentPipeline(ctx: {
     installationToken,
     fileContents,
     uniqueChangedFiles,
+    deletedFiles,
+    forceFullRebuild,
   } = ctx;
 
   // Let's check if the repo is automated
@@ -454,22 +539,31 @@ async function runAgentPipeline(ctx: {
   // ── Phase A: Sentinel + Cortex run in PARALLEL ────────────────────────────
   logger.info({ requestId, msg: "Phase A: Launching Sentinel + Cortex in parallel" });
 
+  // Only run Sentinel when there are actual source files to analyze
+  const sourceFilesForSentinel = uniqueChangedFiles.filter((f) =>
+    f.endsWith(".ts") || f.endsWith(".tsx") || f.endsWith(".js") || f.endsWith(".jsx") || f.endsWith(".py")
+  );
+
   const [sentinelResult, cortexResult] = await Promise.allSettled([
     // SENTINEL: Deep logic, security, and architectural review via Claude 3.5 Sonnet
-    withTimeout(
-      analyzeLogic({
-        repoId,
-        repoOwner: repoFullName.split("/")[0] ?? "",
-        repoName: repoFullName.split("/")[1] ?? "",
-        filePaths: uniqueChangedFiles,
-        commitSha: String(repoId),
-        accessToken: installationToken,
-      }),
-      AGENT_TIMEOUT_MS,
-      "Sentinel"
-    ),
+    // Only run when there are actual source files to analyze — skip for config/doc-only pushes
+    sourceFilesForSentinel.length > 0
+      ? withTimeout(
+          analyzeLogic({
+            repoId,
+            repoOwner: repoFullName.split("/")[0] ?? "",
+            repoName: repoFullName.split("/")[1] ?? "",
+            filePaths: sourceFilesForSentinel,
+            commitSha: String(repoId),
+            accessToken: installationToken,
+          }),
+          AGENT_TIMEOUT_MS,
+          "Sentinel"
+        )
+      : Promise.resolve({ status: "skipped", reason: "No source files changed" }),
 
     // CORTEX: Rebuild the dependency graph for the 3D canvas
+    // Force a full rebuild when files are deleted so removed nodes are purged
     withTimeout(
       buildCortexGraph({
         repoId,

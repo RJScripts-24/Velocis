@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { createBrowserRouter, RouterProvider } from 'react-router';
 import { routeConfig } from './routes';
 import { AuthProvider } from '../lib/auth';
+import { ThemeProvider } from '../lib/theme';
 
 export default function App() {
   // Create the router inside the component so it is always mounted
@@ -10,7 +11,9 @@ export default function App() {
 
   return (
     <AuthProvider>
-      <RouterProvider router={router} />
+      <ThemeProvider>
+        <RouterProvider router={router} />
+      </ThemeProvider>
     </AuthProvider>
   );
 }

@@ -10,6 +10,7 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import dagre from 'dagre';
 import { motion, AnimatePresence } from 'motion/react';
+import { useTheme } from '../../lib/theme';
 import {
   ChevronLeft, ChevronRight, Search, Shield, TestTube2, Eye, EyeOff,
   RefreshCw, Maximize2, AlertCircle, CheckCircle, AlertTriangle,
@@ -22,6 +23,8 @@ import {
   rebuildCortex, getRepo,
   type CortexServicesResponse,
 } from '../../lib/api';
+import lightLogoImg from '../../../LightLogo.png';
+import darkLogoImg from '../../../DarkLogo.png';
 
 /* ═══════════════════════════════════════════
    CSS ANIMATIONS
@@ -922,15 +925,15 @@ function CortexPageContent() {
   const { id: repoId } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
-  // Theme
-  const [isDark, setIsDark] = useState(false);
+  // Theme — use global context so it persists across pages
+  const { isDarkMode: isDark, setIsDarkMode: setIsDark } = useTheme();
   const isDarkRef = useRef(false);
   isDarkRef.current = isDark;
-  const bg = isDark ? '#080a0f' : '#eef0f4';
-  const panelBg = isDark ? 'rgba(10,12,18,0.97)' : 'rgba(255,255,255,0.97)';
-  const border = isDark ? '#1a1f2e' : '#e5e7eb';
-  const muted = isDark ? '#4b5563' : '#9ca3af';
-  const text = isDark ? '#f1f5f9' : '#111827';
+  const bg        = isDark ? '#080a0f'             : '#eef0f4';
+  const panelBg   = isDark ? 'rgba(10,12,18,0.97)' : 'rgba(255,255,255,0.97)';
+  const border    = isDark ? '#1a1f2e'             : '#e5e7eb';
+  const muted     = isDark ? '#4b5563'             : '#9ca3af';
+  const text      = isDark ? '#f1f5f9'             : '#111827';
 
   // View
   const [view, setView] = useState<'graph' | 'service' | 'flow'>('graph');
@@ -1302,11 +1305,7 @@ function CortexPageContent() {
           style={{ backgroundColor: panelBg, borderColor: border, backdropFilter: 'blur(16px)' }}>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-md flex items-center justify-center shadow-sm"
-                style={{ backgroundColor: isDark ? '#1e2535' : '#f3f4f6', border: `1px solid ${border}` }}>
-                <span className="font-bold text-xs" style={{ color: text }}>V</span>
-              </div>
-              <span className="font-semibold text-sm" style={{ color: text }}>Velocis</span>
+              <img src={isDark ? darkLogoImg : lightLogoImg} alt="Velocis" className="h-7 w-auto object-contain" />
             </div>
             <div className="flex items-center gap-2 text-[13px]" style={{ color: muted }}>
               <button onClick={() => navigate('/dashboard')} className="hover:opacity-80 transition-opacity" style={{ color: muted }}>Dashboard</button>

@@ -2,12 +2,14 @@
 
 import React, { useRef, useEffect, useState } from "react";
 import { motion, useInView, AnimatePresence } from "framer-motion";
+import { useNavigate } from 'react-router';
 import {
     Shield, Lock, Network, Zap, Brain, GitMerge, ArrowDown, Check, X,
     Github, ChevronRight, Eye, Code2, TestTube2, Map, Webhook, Cpu,
     Database, Globe, Layers, Sparkles, Terminal, Activity, Clock,
     GitBranch, Play, RotateCcw, Circle, Square, Triangle, BookOpen, Rocket, ArrowUpRight
 } from "lucide-react";
+import lightLogoImg from '../../../LightLogo.png';
 
 // ─── Fonts & Global Styles ───────────────────────────────────────────────────
 const FontStyle = () => (
@@ -48,10 +50,6 @@ const FontStyle = () => (
     .scroll-progress-container { position:fixed;top:0;left:0;height:2px;width:100%;z-index:9999;pointer-events:none; }
     .scroll-progress-bar { height:100%;background:linear-gradient(to right,#1A7F3C,#3FB950,#22C55E); position:relative; }
     .scroll-progress-glow { position:absolute; right:0; top:-1px; width:4px; height:4px; background:#3FB950; border-radius:50%; box-shadow:0 0 6px #3FB950; transform:translateX(50%); }
-
-    .vcursor { position:fixed;width:6px;height:6px;background:#1A7F3C;border-radius:50%;pointer-events:none;z-index:99999;transform:translate(-50%,-50%);transition:transform 0.08s ease, border-color 0.2s, background 0.2s; }
-    .vcursor.link-hover { transform:translate(-50%,-50%) scale(2.5); background:transparent; border:1.5px solid #1A7F3C; }
-    @media (max-width: 767px) { .vcursor { display: none; } }
 
     .drop-cap::first-letter { font-family:'Libre Baskerville',Georgia,serif;font-size:4.2em;font-weight:700;float:left;line-height:.82;color:#1A7F3C;margin-right:10px;padding-right:2px;text-shadow:0 0 30px rgba(26,127,60,0.2); }
 
@@ -234,11 +232,11 @@ const StickyNav: React.FC<{ visible: boolean }> = ({ visible }) => {
                         fontSize: 18,
                         display: 'flex', alignItems: 'center', textDecoration: 'none', color: '#16141A'
                     }}>
-                        Velocis<span className="logo-dot" />
+                        <img src={lightLogoImg} alt="Velocis" style={{ height: 32, width: 'auto', objectFit: 'contain' }} />
                     </a>
                     <div className="hidden md:flex items-center gap-8">
                         {links.map((l) => (
-                            <a key={l.href} href={l.href} className="nav-link-light">{l.label}</a>
+                            <a key={l.href} href={l.href} className="nav-link-light" onClick={(e) => { if (l.href.startsWith('/')) { e.preventDefault(); window.location.href = l.href; } }}>{l.label}</a>
                         ))}
                     </div>
                     <motion.a
@@ -246,7 +244,7 @@ const StickyNav: React.FC<{ visible: boolean }> = ({ visible }) => {
                         className="hidden md:flex items-center gap-2 font-inter font-semibold"
                         style={{
                             background: "#16141A", color: "#fff", borderRadius: 8,
-                            fontSize: 13, padding: "9px 18px", textDecoration: "none", cursor: 'none'
+                            fontSize: 13, padding: "9px 18px", textDecoration: "none"
                         }}
                         whileHover={{ y: -1, background: "#1A7F3C", boxShadow: "0 4px 12px rgba(26,127,60,0.25)", transition: { duration: 0.22, ease: [0.34, 1.56, 0.64, 1] } }}
                     >
@@ -1138,7 +1136,9 @@ const CTASection: React.FC = () => (
 );
 
 // ─── FOOTER ───────────────────────────────────────────────────────────────────
-const Footer: React.FC = () => (
+const Footer: React.FC = () => {
+    const navigate = useNavigate();
+    return (
     <footer className="font-inter" style={{
         background: "#FFFFFF", borderTop: "1px solid #E8E5DF",
         padding: "32px 48px", display: "flex", alignItems: "center",
@@ -1155,7 +1155,8 @@ const Footer: React.FC = () => (
         </div>
         <div style={{ display: "flex", gap: 32 }}>
             {["About Us", "Product", "Twitter", "GitHub"].map((l) => (
-                <a key={l} href="#" style={{ fontSize: 14, fontWeight: 500, color: "#6B6778", textDecoration: "none", transition: "color 150ms ease" }}
+                <a key={l} href={l === 'About Us' ? '/about' : '#'} style={{ fontSize: 14, fontWeight: 500, color: "#6B6778", textDecoration: "none", transition: "color 150ms ease" }}
+                    onClick={(e) => { if (l === 'About Us') { e.preventDefault(); window.open('/about', '_blank', 'noopener,noreferrer'); } }}
                     onMouseEnter={e => e.currentTarget.style.color = '#16141A'}
                     onMouseLeave={e => e.currentTarget.style.color = '#6B6778'}
                 >
@@ -1164,12 +1165,12 @@ const Footer: React.FC = () => (
             ))}
         </div>
     </footer>
-);
+    );
+};
 
 export function CareerPage() {
     const [navVisible, setNavVisible] = useState(false);
     const [scrollPct, setScrollPct] = useState(0);
-    const cursorRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         const onScroll = () => {
@@ -1182,28 +1183,11 @@ export function CareerPage() {
         return () => window.removeEventListener("scroll", onScroll);
     }, []);
 
-    useEffect(() => {
-        const cursor = cursorRef.current;
-        if (!cursor) return;
-        const move = (e: MouseEvent) => {
-            cursor.style.left = e.clientX + 'px';
-            cursor.style.top = e.clientY + 'px';
-        };
-        const hover = (e: MouseEvent) => {
-            const t = e.target as HTMLElement;
-            cursor.classList.toggle('link-hover', !!(t.closest('a, button')));
-        };
-        document.addEventListener('mousemove', move);
-        document.addEventListener('mouseover', hover);
-        return () => { document.removeEventListener('mousemove', move); document.removeEventListener('mouseover', hover); };
-    }, []);
-
     return (
-        <div className="font-inter" style={{ background: "#fff", color: "#16141A", minHeight: "100vh", cursor: 'none', overflowX: 'hidden' }}>
+        <div className="font-inter" style={{ background: "#fff", color: "#16141A", minHeight: "100vh", overflowX: 'hidden' }}>
             <FontStyle />
             <GrainOverlay />
             <div className="scroll-progress" style={{ width: `${scrollPct}%` }} />
-            <div ref={cursorRef} className="vcursor" />
 
             <StickyNav visible={navVisible} />
             <HeroSection />

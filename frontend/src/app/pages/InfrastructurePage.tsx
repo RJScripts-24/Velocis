@@ -4,7 +4,10 @@ import { useState, useRef, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { ChevronDown, Download, RefreshCw, Shield, Lock, Zap, RotateCcw, DollarSign, TrendingDown, Server, Database, Activity, CloudCog, Home, Folder, Sun, Moon, Copy, Maximize2, Terminal } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router';
+import { useTheme } from '../../lib/theme';
 import { predictInfrastructure, getWorkspaceFiles, getFileContent, type InfraPredictionData } from '../../lib/api';
+import lightLogoImg from '../../../LightLogo.png';
+import darkLogoImg from '../../../DarkLogo.png';
 
 const INFRA_TF_PLACEHOLDER = '# No analysis yet.\n# Click "Analyse Infrastructure" in the toolbar to generate\n# real Terraform IaC from your repository code.';
 
@@ -13,11 +16,11 @@ const INFRA_TF_PLACEHOLDER = '# No analysis yet.\n# Click "Analyse Infrastructur
 export function InfrastructurePage() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
+  const { isDarkMode, setIsDarkMode } = useTheme();
   const [environment, setEnvironment] = useState<'production' | 'staging' | 'preview'>('production');
   // Cost data is derived entirely from infraData (AI prediction) — no initial mock values
   const [tfCode, setTfCode] = useState<string>(INFRA_TF_PLACEHOLDER);
   const [isRegenerating, setIsRegenerating] = useState(false);
-  const [isDarkMode, setIsDarkMode] = useState(false);
   const [isWhyInfraExpanded, setIsWhyInfraExpanded] = useState(false);
 
   // ── IaC Predictor State ──────────────────────────────────────────────
@@ -329,11 +332,8 @@ export function InfrastructurePage() {
           <div className="w-full px-5 h-[52px] flex items-center justify-between">
             {/* Left ΓÇô Breadcrumb */}
             <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-md flex items-center justify-center bg-zinc-900 dark:bg-slate-800 border border-zinc-700 dark:border-slate-700">
-                  <span className="text-white font-bold text-xs">V</span>
-                </div>
-                <span className="font-semibold text-zinc-900 dark:text-slate-100 text-sm hidden sm:block tracking-tight">Velocis</span>
+              <div className="flex items-center">
+                <img src={isDarkMode ? darkLogoImg : lightLogoImg} alt="Velocis" className="h-7 w-auto object-contain" />
               </div>
 
               <div className="flex items-center gap-2 text-[13px] text-zinc-500 dark:text-slate-400 font-medium">

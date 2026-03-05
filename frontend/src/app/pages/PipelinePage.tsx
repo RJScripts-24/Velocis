@@ -8,6 +8,9 @@ import {
   BookOpen, Copy, Check, FileText,
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router';
+import { useTheme } from '../../lib/theme';
+import lightLogoImg from '../../../LightLogo.png';
+import darkLogoImg from '../../../DarkLogo.png';
 
 // ─── Live Pipeline Workflow ───────────────────────────────────────────────────
 function LivePipelineWorkflow({ isDarkMode }: { isDarkMode: boolean }) {
@@ -95,7 +98,7 @@ function LivePipelineWorkflow({ isDarkMode }: { isDarkMode: boolean }) {
 export function PipelinePage() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const { isDarkMode, setIsDarkMode } = useTheme();
   const themeClass = isDarkMode ? 'dark' : '';
 
   const repoName = id ?? 'Unknown';
@@ -271,11 +274,8 @@ export function PipelinePage() {
         {/* ── Top Bar ── */}
         <div className="border-b h-[60px] flex items-center justify-between px-6 bg-white dark:bg-slate-900/80 border-gray-200 dark:border-slate-800 backdrop-blur-md shadow-sm z-20 shrink-0">
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-md flex items-center justify-center bg-gray-900 dark:bg-white">
-                <span className="text-white dark:text-gray-900 font-bold text-sm">V</span>
-              </div>
-              <span className="font-bold hidden sm:block">Velocis</span>
+            <div className="flex items-center">
+              <img src={isDarkMode ? darkLogoImg : lightLogoImg} alt="Velocis" className="h-7 w-auto object-contain" />
             </div>
             <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-slate-400">
               <button

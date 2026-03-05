@@ -14,6 +14,7 @@ import {
 import heroLeft from '../../assets/landing-page/hero-left.svg?raw';
 import heroRight from '../../assets/landing-page/hero-right.svg?raw';
 import timelineBridgeRaw from '../../assets/landing-page/timeline-bridge.svg?raw';
+import lightLogoImg from '../../../LightLogo.png';
 
 gsap.registerPlugin(ScrollTrigger, MotionPathPlugin);
 
@@ -1343,27 +1344,27 @@ function CTA() {
                 </div>
                 <div className="flex flex-col gap-4">
                     <h4 className="font-bold text-textInverse">Product</h4>
-                    {['Sentinel Agent', 'Fortress Agent', 'Visual Cortex', 'Pricing', 'Changelog'].map(l => (
-                        <a key={l} href="#" className="text-textInverse/60 hover:text-primary transition-colors">{l}</a>
+                    {[{ label: 'Sentinel Agent', href: '#' }, { label: 'Fortress Agent', href: '#' }, { label: 'Visual Cortex', href: '#' }, { label: 'Pricing', href: '/pricing' }, { label: 'Changelog', href: '#' }].map(l => (
+                        <a key={l.label} href={l.href} target={l.href.startsWith('/') ? '_blank' : undefined} rel={l.href.startsWith('/') ? 'noopener noreferrer' : undefined} className="text-textInverse/60 hover:text-primary transition-colors">{l.label}</a>
                     ))}
                 </div>
                 <div className="flex flex-col gap-4">
                     <h4 className="font-bold text-textInverse">Resources</h4>
-                    {['Documentation', 'API Reference', 'Blog', 'System Status'].map(l => (
-                        <a key={l} href="#" className="text-textInverse/60 hover:text-primary transition-colors">{l}</a>
+                    {[{ label: 'Documentation', href: '/documentation' }, { label: 'API Reference', href: '#' }, { label: 'Blog', href: '/blog' }, { label: 'System Status', href: '#' }].map(l => (
+                        <a key={l.label} href={l.href} target={l.href.startsWith('/') ? '_blank' : undefined} rel={l.href.startsWith('/') ? 'noopener noreferrer' : undefined} className="text-textInverse/60 hover:text-primary transition-colors">{l.label}</a>
                     ))}
                 </div>
                 <div className="flex flex-col gap-4">
                     <h4 className="font-bold text-textInverse">Company</h4>
-                    {['About Us', 'Careers', 'Contact', 'Security'].map(l => (
-                        <a key={l} href="#" className="text-textInverse/60 hover:text-primary transition-colors">{l}</a>
+                    {[{ label: 'About Us', href: '/about' }, { label: 'Careers', href: '/careers' }, { label: 'Contact', href: '/contact' }, { label: 'Security', href: '/security' }].map(l => (
+                        <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer" className="text-textInverse/60 hover:text-primary transition-colors" onClick={(e) => { if (l.href.startsWith('/')) { e.preventDefault(); window.open(l.href, '_blank', 'noopener,noreferrer'); } }}>{l.label}</a>
                     ))}
                 </div>
             </div>
             <div className="max-w-[1200px] w-full mx-auto px-8 pt-[80px] mt-[80px] border-t border-borderInv flex flex-col sm:flex-row justify-between items-center text-sm text-textInverse/40">
                 <p>© 2026 Velocis. All rights reserved.</p>
                 <div className="flex gap-6 mt-4 sm:mt-0">
-                    {['Privacy', 'Terms', 'Security'].map(l => <a key={l} href="#" className="hover:text-textInverse transition-colors">{l}</a>)}
+                    {[{ label: 'Privacy', href: '#' }, { label: 'Terms', href: '#' }, { label: 'Security', href: '/security' }].map(l => <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer" className="hover:text-textInverse transition-colors" onClick={(e) => { if (l.href.startsWith('/')) { e.preventDefault(); window.open(l.href, '_blank', 'noopener,noreferrer'); } }}>{l.label}</a>)}
                 </div>
             </div>
         </footer>
@@ -1374,6 +1375,7 @@ function CTA() {
 // HomePage (main export)
 // ─────────────────────────────────────────────
 export function HomePage() {
+    const navigate = useNavigate();
     const [isScrolled, setIsScrolled] = useState(false);
 
     useEffect(() => {
@@ -1419,8 +1421,8 @@ export function HomePage() {
             {/* Navigation */}
             <header className={`sticky top-0 z-50 border-b transition-all duration-300 ${isScrolled ? 'bg-white/70 backdrop-blur-md border-borderSubtle' : 'bg-transparent border-transparent'}`}>
                 <div className="w-full px-8 h-20 flex items-center justify-between">
-                    <div className="font-display font-bold text-xl tracking-tight">Velocis.</div>
-                    <button className="bg-dark text-textInverse px-5 py-2.5 rounded-button font-medium hover:bg-dark/90 transition-colors">
+                    <div className="font-display font-bold text-xl tracking-tight"><img src={lightLogoImg} alt="Velocis" className="h-8 w-auto object-contain" /></div>
+                    <button onClick={() => navigate('/auth')} className="bg-dark text-textInverse px-5 py-2.5 rounded-button font-medium hover:bg-dark/90 transition-colors">
                         Connect Repository
                     </button>
                 </div>

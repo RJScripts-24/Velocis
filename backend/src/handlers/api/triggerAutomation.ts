@@ -13,13 +13,17 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import * as jwt from "jsonwebtoken";
 import * as crypto from "crypto";
-import { ScanCommand } from "@aws-sdk/lib-dynamodb";
+import {
+    BedrockRuntimeClient,
+    ConverseCommand,
+    type ConverseCommandInput,
+} from "@aws-sdk/client-bedrock-runtime";
+import { ScanCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
 import { ok, errors, preflight, extractBearerToken } from "../../utils/apiResponse";
 import { logger } from "../../utils/logger";
 import { dynamoClient, DYNAMO_TABLES, getDocClient } from "../../services/database/dynamoClient";
 import { getUserToken } from "../../services/github/auth";
 import { repoOps } from "../../services/github/repoOps";
-import { analyzeLogic } from "../../functions/sentinel/analyzeLogic";
 import { generateQATestPlan } from "../../functions/fortress/analyzeFortress";
 import { generateIac, type IacGenerationResult } from "../../functions/predictor/generateIac";
 import {
@@ -29,6 +33,100 @@ import {
 import axios from "axios";
 
 const JWT_SECRET = process.env.JWT_SECRET ?? "changeme-in-production";
+
+// ── Bedrock client for Sentinel — same model + region as Fortress ─────────────────
+const SENTINEL_MODEL = "deepseek.v3.2";
+const sentinelBedrock = new BedrockRuntimeClient({
+    region: "us-east-1",
+    requestHandler: { requestTimeout: 300_000 } as any,
+});
+
+// ── Automation-report Sentinel: direct ConverseCommand (no XML, returns JSON) ─
+
+const SENTINEL_SYSTEM_PROMPT = [
+    "You are Sentinel, an elite AI Senior Engineer. You perform deep semantic code reviews.",
+    "Focus ONLY on: security vulnerabilities, business logic errors, scalability bottlenecks, type-safety issues, AWS best practice violations, and error-handling gaps.",
+    "Ignore: code style, formatting, naming conventions, import ordering, missing semicolons.",
+    "For every finding, write a mentorExplanation: the WHY behind the issue, written for a junior engineer.",
+    "",
+    "Respond with ONLY a valid JSON object — no markdown, no code fences, no preamble.",
+    "The JSON must match this exact schema:",
+    "{",
+    '  "overallRisk": "critical"|"high"|"medium"|"low"|"clean",',
+    '  "executiveSummary": "2-3 sentence overall assessment of production-readiness",',
+    '  "prioritizedActionItems": ["top action 1", "top action 2", "top action 3"],',
+    '  "findings": [',
+    '    {',
+    '      "severity": "critical"|"high"|"medium"|"low",',
+    '      "category": "security"|"logic"|"scalability"|"type-safety"|"aws-best-practice"|"error-handling",',
+    '      "title": "Short scannable title referencing specific function/variable",',
+    '      "description": "Precise technical description of what is wrong and why it matters",',
+    '      "mentorExplanation": "The deeper architectural or security principle being violated",',
+    '      "location": { "filePath": "exact/file/path.ts", "startLine": 1 },',
+    '      "suggestedFix": "Complete working corrected code snippet",',
+    '      "estimatedFixEffort": "5 min"|"30 min"|"2 hours"|"major refactor"',
+    '    }',
+    '  ],',
+    '  "fileSummaries": [',
+    '    { "filePath": "path/to/file.ts", "headline": "One-line summary or No issues found", "healthScore": 85 }',
+    '  ]',
+    "}",
+].join("\n");
+
+async function runSentinelForAutomation(
+    combinedContent: string,
+    repoId: string
+): Promise<any | null> {
+    const input: ConverseCommandInput = {
+        modelId: SENTINEL_MODEL,
+        system: [{ text: SENTINEL_SYSTEM_PROMPT }],
+        messages: [{
+            role: "user",
+            content: [{ text: `Perform a deep code review of the following repository source files.\n\n${combinedContent}` }],
+        }],
+        inferenceConfig: { maxTokens: 4096, temperature: 0.1 },
+    };
+
+    const abort = new AbortController();
+    const abortTimer = setTimeout(() => abort.abort(), 295_000);
+    let response;
+    try {
+        response = await sentinelBedrock.send(new ConverseCommand(input), { abortSignal: abort.signal });
+    } finally {
+        clearTimeout(abortTimer);
+    }
+
+    const content = response.output?.message?.content;
+    const rawText =
+        Array.isArray(content) && content.length > 0 && "text" in content[0]
+            ? (content[0].text as string).trim()
+            : "";
+
+    if (!rawText) return null;
+
+    // Strip markdown code fences if DeepSeek wraps the JSON
+    const jsonText = rawText
+        .replace(/^```json\s*/i, "")
+        .replace(/^```\s*/i, "")
+        .replace(/\s*```$/i, "")
+        .trim();
+
+    try {
+        const parsed = JSON.parse(jsonText);
+        // Compute derived counts from the findings array
+        const findings: any[] = parsed.findings ?? [];
+        parsed.totalFindings    = findings.length;
+        parsed.criticalFindings = findings.filter((f: any) => f.severity === "critical").length;
+        parsed.highFindings     = findings.filter((f: any) => f.severity === "high").length;
+        parsed.mediumFindings   = findings.filter((f: any) => f.severity === "medium").length;
+        parsed.lowFindings      = findings.filter((f: any) => f.severity === "low").length;
+        logger.info({ repoId, msg: "Sentinel JSON parsed", overallRisk: parsed.overallRisk, findings: parsed.totalFindings });
+        return parsed;
+    } catch (parseErr) {
+        logger.error({ repoId, msg: "Sentinel JSON parse failed", error: String(parseErr), preview: rawText.slice(0, 300) });
+        return null;
+    }
+}
 
 type AutomationStepStatus = "pending" | "running" | "completed" | "failed" | "skipped";
 
@@ -199,6 +297,37 @@ async function persistAutomationReport(repoId: string, report: AutomationReportR
         key: { repoId },
         updates: { automationReport: { ...report, updatedAt: new Date().toISOString() } },
     });
+}
+
+/**
+ * Returns true if automation is still enabled for this repo.
+ * Uses GetCommand (direct key lookup) on the numericRepoId — the same key
+ * that persistAutomationReport writes to. This avoids scan pagination issues
+ * and the "two records" problem where isAutomated lives on a different record
+ * than the automationReport.
+ */
+async function checkIsAutomated(repoId: string, startedAt: string): Promise<boolean> {
+    try {
+        const docClient = getDocClient();
+        // Direct hash-key lookup — O(1), no pagination, reliable
+        const result = await docClient.send(new GetCommand({
+            TableName: DYNAMO_TABLES.REPOSITORIES,
+            Key: { repoId },
+        }));
+        const item = result.Item;
+        if (!item) return true; // Record not found — don't abort
+
+        // Primary signal: automationCancelledAt written by updateRepoSettings
+        // when the user pressed "Disable Automation"
+        if (item.automationCancelledAt && item.automationCancelledAt >= startedAt) return false;
+
+        // Secondary signal: isAutomated explicitly set to false on this record
+        if (item.isAutomated === false) return false;
+
+        return true;
+    } catch {
+        return true; // On error, don't abort
+    }
 }
 
 // ── Auth helpers (same as other handlers) ────────────────────────────────────
@@ -505,6 +634,22 @@ async function runAutomationPipeline(ctx: {
 
     logger.info({ msg: "Automation pipeline starting", repoId, repoFullName });
 
+    // Helper: abort if user disabled automation after this run started
+    const abortIfDisabled = async (phase: string): Promise<boolean> => {
+        const enabled = await checkIsAutomated(repoId, startedAt);
+        if (!enabled) {
+            logger.info({ msg: `Automation cancelled mid-run at ${phase}`, repoId });
+            await persistAutomationReport(repoId, {
+                status: "failed",
+                startedAt,
+                completedAt: new Date().toISOString(),
+                error: "Automation was disabled by the user.",
+                progress,
+            });
+        }
+        return !enabled;
+    };
+
     // Step 2: Get the full repo tree from GitHub
     let allSourceFiles: string[] = [];
     const fetchedTree = await runStep(
@@ -601,30 +746,31 @@ async function runAutomationPipeline(ctx: {
     const stopHeartbeat = startHeartbeat(repoId, startedAt, () => progress);
 
     try {
-    // Phase A: Sentinel review ("standard" depth = 4 096 tokens, ~2–3 min max)
-    logger.info({ msg: "Phase A: Sentinel starting", repoId, files: Object.keys(fileContents).length });
+    // Pre-phase check: was automation disabled before we even started the agents?
+    if (await abortIfDisabled("pre-agents")) { stopHeartbeat(); return; }
+
+    // Phase A: Sentinel — DeepSeek V3 via ConverseCommand (same model as Fortress)
+    logger.info({ msg: "Phase A: Sentinel starting", repoId, contentChars: combinedContent.length });
     await persistRunningProgress(updateProgressStep(progress, "sentinel", {
         status: "running",
-        detail: "Sent to Nova Pro — awaiting security & logic review (2–5 min)",
+        detail: "Sent to DeepSeek V3 — awaiting security & logic review (2–5 min)",
     }));
     try {
-        const reviewResult = await withTimeout(analyzeLogic({
-            repoId,
-            repoOwner,
-            repoName,
-            filePaths: Object.keys(fileContents),
-            commitSha: "HEAD",
-            accessToken: githubToken,
-            reviewDepth: "standard",   // was "deep" (8 000 tokens) — standard is 4 096, ~2× faster
-        }), STEP_TIMEOUT_MS.sentinel, "Sentinel");
-        sentinelResult = (reviewResult as any)?.reviewResult ?? reviewResult;
+        sentinelResult = await withTimeout(
+            runSentinelForAutomation(combinedContent, repoId),
+            STEP_TIMEOUT_MS.sentinel,
+            "Sentinel"
+        );
         logger.info({ msg: "Phase A: Sentinel complete", repoId, overallRisk: sentinelResult?.overallRisk, findings: sentinelResult?.totalFindings });
         await persistRunningProgress(updateProgressStep(progress, "sentinel", { status: "completed" }));
     } catch (err) {
         logger.error({ msg: "Phase A: Sentinel failed", repoId, error: String(err) });
-        sentinelResult = { status: "failed", error: String(err) };
+        sentinelResult = null;
         await persistRunningProgress(updateProgressStep(progress, "sentinel", { status: "failed", detail: `Sentinel error: ${String(err)}` }));
     }
+
+    // Check between phases
+    if (await abortIfDisabled("post-sentinel")) { stopHeartbeat(); return; }
 
     // Phase B: Fortress QA Test Plan
     logger.info({ msg: "Phase B: Fortress starting", repoId, contentChars: combinedContent.length });
@@ -640,6 +786,8 @@ async function runAutomationPipeline(ctx: {
         logger.error({ msg: "Phase B: Fortress failed", repoId, error: String(err) });
         await persistRunningProgress(updateProgressStep(progress, "fortress", { status: "failed", detail: `Fortress error: ${String(err)}` }));
     }
+
+    if (await abortIfDisabled("post-fortress")) { stopHeartbeat(); return; }
 
     // Phase C: Infrastructure prediction
     logger.info({ msg: "Phase C: Infrastructure Predictor starting", repoId });
@@ -664,6 +812,12 @@ async function runAutomationPipeline(ctx: {
         logger.error({ msg: "Phase C: Infrastructure Predictor failed", repoId, error: String(err) });
         await persistRunningProgress(updateProgressStep(progress, "infrastructure", { status: "failed", detail: `Infrastructure error: ${String(err)}` }));
     }
+
+    if (await abortIfDisabled("post-infrastructure")) { stopHeartbeat(); return; }
+
+    // Final check before saving completed report — covers the case where the
+    // user disabled automation while the last phase was running.
+    if (await abortIfDisabled("pre-save")) { stopHeartbeat(); return; }
 
     // Phase D: Projected infrastructure if Sentinel suggestions are applied
     const hasSentinelSuggestions =
@@ -734,12 +888,12 @@ async function runAutomationPipeline(ctx: {
         startedAt,
         completedAt: new Date().toISOString(),
         progress,
-        sentinel: sentinelResult ? {
+        sentinel: (sentinelResult && sentinelResult.overallRisk) ? {
             overallRisk: sentinelResult.overallRisk ?? "unknown",
             riskScore: sentinelResult.criticalFindings != null
                 ? Math.min(100, (sentinelResult.criticalFindings * 30) + (sentinelResult.highFindings * 15) + (sentinelResult.mediumFindings * 5))
                 : 0,
-            summary: sentinelResult.executiveSummary ?? "Review completed.",
+            summary: sentinelResult.executiveSummary || "Review completed.",
             findings: (sentinelResult.findings ?? []).map((f: any) => ({
                 severity: f.severity,
                 category: f.category,

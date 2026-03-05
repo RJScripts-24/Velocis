@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router';
-import { Bot, Shield, TestTube2, Cloud, ChevronLeft, Check, AlertTriangle } from 'lucide-react';
+import { Bot, Shield, TestTube2, Cloud, ChevronLeft, Check, AlertTriangle, X } from 'lucide-react';
+import lightLogoImg from '../../../LightLogo.png';
+import darkLogoImg from '../../../DarkLogo.png';
 
 const cardCls = [
     "bg-white dark:bg-zinc-900",
@@ -122,6 +124,7 @@ export function RepositorySettingsPage() {
                         <span className="font-semibold text-zinc-900 dark:text-slate-100">Settings</span>
                     </div>
                 </div>
+                <img src={typeof window !== 'undefined' && (document.documentElement.classList.contains('dark') || window.matchMedia('(prefers-color-scheme: dark)').matches) ? darkLogoImg : lightLogoImg} alt="Velocis" className="h-7 w-auto object-contain" />
             </div>
 
             <div className="max-w-4xl mx-auto px-6 md:px-10 py-10">
@@ -136,20 +139,30 @@ export function RepositorySettingsPage() {
                                 Enable the full Velocis suite to autonomously manage your repository lifecycle from code push to infrastructure deployment.
                             </p>
                         </div>
-                        <button
-                            onClick={handleAutomateToggle}
-                            disabled={loading}
-                            className={`px-8 py-3 rounded-xl font-bold text-sm transition-all shadow-sm ${isAutomated
-                                ? 'bg-emerald-500 text-white hover:bg-emerald-600'
-                                : 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:opacity-90 disabled:opacity-50'
-                                }`}
-                        >
-                            {loading ? 'Loading...' : isAutomated ? (
-                                <span className="flex items-center gap-2"><Check size={18} /> Enabled</span>
-                            ) : (
-                                'Enable Automation'
-                            )}
-                        </button>
+                        {isAutomated ? (
+                            <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-800/30">
+                                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                                    <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">Automation Active</span>
+                                </div>
+                                <button
+                                    onClick={handleAutomateToggle}
+                                    disabled={loading}
+                                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm border border-rose-200 dark:border-rose-800/50 bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/40 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
+                                >
+                                    <X size={15} />
+                                    Disable Automation
+                                </button>
+                            </div>
+                        ) : (
+                            <button
+                                onClick={handleAutomateToggle}
+                                disabled={loading}
+                                className="px-8 py-3 rounded-xl font-bold text-sm transition-all shadow-sm bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:opacity-90 disabled:opacity-50"
+                            >
+                                {loading ? 'Loading...' : 'Enable Automation'}
+                            </button>
+                        )}
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8 py-8 border-y border-zinc-100 dark:border-zinc-800">

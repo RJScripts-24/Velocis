@@ -1126,6 +1126,112 @@ async function updateCheckRun(params: UpdateCheckRunParams): Promise<void> {
 }
 
 // ─────────────────────────────────────────────
+// WEBHOOK MANAGEMENT
+// Register / verify webhook on a repo so GitHub
+// sends push/PR events to the Velocis backend.
+// ─────────────────────────────────────────────
+
+export interface RegisterWebhookParams {
+  repoFullName: string;
+  webhookUrl: string;          // e.g. "https://api.velocis.dev/api/webhooks/github"
+  secret: string;              // GITHUB_WEBHOOK_SECRET — used for HMAC verification
+  token: string;               // User OAuth token (needs repo scope) or installation token
+  events?: string[];           // Default: push, pull_request, pull_request_review, deployment
+}
+
+export interface RegisterWebhookResult {
+  hookId: number;
+  alreadyExisted: boolean;
+}
+
+/**
+ * Creates a webhook on a GitHub repository so Velocis receives real-time push events.
+ * Idempotent: if a webhook for the same URL already exists and is active, returns it.
+ *
+ * @example
+ * const { hookId } = await repoOps.registerWebhook({
+ *   repoFullName: "owner/my-repo",
+ *   webhookUrl: "https://api.velocis.dev/api/webhooks/github",
+ *   secret: config.GITHUB_WEBHOOK_SECRET,
+ *   token: userOAuthToken,
+ * });
+ */
+async function registerWebhook(
+  params: RegisterWebhookParams
+): Promise<RegisterWebhookResult> {
+  const {
+    repoFullName,
+    webhookUrl,
+    secret,
+    token,
+    events = ["push", "pull_request", "pull_request_review", "deployment"],
+  } = params;
+
+  const [owner, repo] = splitRepoFullName(repoFullName);
+  const octokit = buildOctokit(token);
+
+  logger.info({
+    msg: "repoOps.registerWebhook: checking existing hooks",
+    repoFullName,
+    webhookUrl,
+  });
+
+  // Check if a webhook for this URL already exists (idempotency)
+  try {
+    const { data: hooks } = await octokit.repos.listWebhooks({ owner, repo });
+    const existing = hooks.find(
+      (h) => h.config.url === webhookUrl && h.active
+    );
+    if (existing) {
+      logger.info({
+        msg: "repoOps.registerWebhook: webhook already exists",
+        repoFullName,
+        hookId: existing.id,
+      });
+      return { hookId: existing.id, alreadyExisted: true };
+    }
+  } catch (listErr) {
+    // Non-fatal — permissions may not allow listing; attempt creation anyway
+    logger.warn({
+      msg: "repoOps.registerWebhook: could not list existing hooks",
+      repoFullName,
+      error: String(listErr),
+    });
+  }
+
+  try {
+    const { data } = await octokit.repos.createWebhook({
+      owner,
+      repo,
+      config: {
+        url: webhookUrl,
+        content_type: "json",
+        secret,
+        insecure_ssl: "0",
+      },
+      events,
+      active: true,
+    });
+
+    logger.info({
+      msg: "repoOps.registerWebhook: created",
+      repoFullName,
+      hookId: data.id,
+      events,
+    });
+
+    return { hookId: data.id, alreadyExisted: false };
+  } catch (err) {
+    logger.error({
+      msg: "repoOps.registerWebhook: failed",
+      repoFullName,
+      error: String(err),
+    });
+    throw new RepoOpsError("registerWebhook", repoFullName, err);
+  }
+}
+
+// ─────────────────────────────────────────────
 // INSTALLATION TOKEN PASSTHROUGH
 // Exposed so githubPush.ts can call repoOps.getInstallationToken
 // without importing auth.ts directly
@@ -1286,6 +1392,7 @@ export const repoOps = {
   createCheckRun,
   updateCheckRun,
   getInstallationToken,
+  registerWebhook,
 };
 
 // ─────────────────────────────────────────────

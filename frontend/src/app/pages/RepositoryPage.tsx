@@ -7,8 +7,11 @@ import {
   Sun, Moon, Loader2
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router';
+import { useTheme } from '../../lib/theme';
 import type { RepoDetail, ActivityEvent } from '../../lib/api';
 import { getToken } from '../../lib/api';
+import lightLogoImg from '../../../LightLogo.png';
+import darkLogoImg from '../../../DarkLogo.png';
 
 function authFetch(url: string): Promise<Response> {
   const token = getToken();
@@ -365,14 +368,17 @@ export function RepositoryPage() {
 
   const [error, setError] = useState<string | null>(null);
 
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const { isDarkMode, setIsDarkMode } = useTheme();
   const themeClass = isDarkMode ? 'dark' : '';
 
   // Fetch repo details and activity from the backend
+  // Polls every 30 s so commit history, risk scores, and pipeline state
+  // reflect any push events processed by the backend since page load.
   useEffect(() => {
     let cancelled = false;
+    let isFirstLoad = true;
     async function load() {
-      setIsLoading(true);
+      if (isFirstLoad) setIsLoading(true);
       setError(null);
       try {
         // Fetch repo detail
@@ -423,11 +429,21 @@ export function RepositoryPage() {
         console.error('Error loading repo:', err);
         if (!cancelled) setError(err.message ?? 'Failed to load repository');
       } finally {
-        if (!cancelled) setIsLoading(false);
+        if (!cancelled && isFirstLoad) setIsLoading(false);
+        isFirstLoad = false;
       }
     }
     load();
-    return () => { cancelled = true; };
+
+    // Poll every 30 seconds so the page reflects new pushes processed by the backend
+    const pollInterval = setInterval(() => {
+      if (!cancelled) load();
+    }, 30_000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(pollInterval);
+    };
   }, [id, navigate]);
 
 
@@ -568,7 +584,9 @@ export function RepositoryPage() {
         <div className="flex-none z-50 border-b border-zinc-200 dark:border-slate-800/80 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-xl transition-colors duration-300 sticky top-0 px-6 h-[60px] flex items-center justify-between">
           {/* Left */}
           <div className="flex items-center gap-4">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-zinc-900 dark:bg-slate-800 shadow-sm border border-zinc-700 dark:border-slate-700 text-white font-bold text-sm">V</div>
+            <div className="flex items-center">
+              <img src={isDarkMode ? darkLogoImg : lightLogoImg} alt="Velocis" className="h-8 w-auto object-contain" />
+            </div>
             <div className="flex items-center gap-2 text-sm ml-2">
               <span
                 className="text-zinc-500 dark:text-slate-400 cursor-pointer hover:text-zinc-800 dark:hover:text-slate-200 transition-colors"
@@ -825,6 +843,34 @@ export function RepositoryPage() {
                       )}
                     </div>
                   </div>
+                  {activityItems.length > 0 && (
+                    <div className={`${cardCls} rounded-2xl p-5 flex flex-col`}>
+                      <div className="flex justify-between items-center mb-3">
+                        <div className="text-[15px] font-bold text-zinc-900 dark:text-white tracking-tight">Recent Activity</div>
+                        <div className="text-[11px] font-medium text-zinc-400 dark:text-zinc-500">Last 10</div>
+                      </div>
+                      <div className="flex flex-col gap-2.5">
+                        {activityItems.slice(0, 6).map((item, i) => (
+                          <div key={i} className="flex items-start gap-2.5">
+                            <div
+                              className="w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 mt-0.5"
+                              style={{ backgroundColor: `${item.color}18`, border: `1px solid ${item.color}30` }}
+                            >
+                              <item.icon className="w-3 h-3" style={{ color: item.color }} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5 mb-0.5">
+                                <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: item.color }}>{item.agent}</span>
+                                <span className="text-[10px] text-zinc-400 dark:text-zinc-500">{item.time}</span>
+                              </div>
+                              <div className="text-[11px] text-zinc-600 dark:text-zinc-400 leading-snug line-clamp-2">{item.text}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <div
                     onClick={() => navigate(`/repo/${id}/automation-report`)}
                     className={`${cardCls} rounded-2xl p-6 cursor-pointer hover:-translate-y-1 hover:shadow-lg transition-all duration-300 group`}

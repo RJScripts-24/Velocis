@@ -1,14 +1,15 @@
 "use client";
 
 import { motion } from 'motion/react';
+import { useNavigate } from 'react-router';
 import { Github, Twitter, Linkedin, Youtube } from 'lucide-react';
 
 const footerSections = [
-  { title: 'Product', links: ['Features', 'Pricing', 'Security', 'Changelog', 'Roadmap'] },
-  { title: 'Agents', links: ['Sentinel', 'Fortress', 'Visual Cortex', 'Integration'] },
-  { title: 'Developers', links: ['Documentation', 'API Reference', 'SDKs', 'CLI Tools', 'GitHub App'] },
-  { title: 'Resources', links: ['Blog', 'Case Studies', 'Support', 'Status', 'Community'] },
-  { title: 'Company', links: ['About', 'Careers', 'Contact', 'Press Kit', 'Partners'] },
+  { title: 'Product', links: [{ label: 'Features', href: '#' }, { label: 'Pricing', href: '#' }, { label: 'Security', href: '/security' }, { label: 'Changelog', href: '#' }, { label: 'Roadmap', href: '#' }] },
+  { title: 'Agents', links: [{ label: 'Sentinel', href: '#' }, { label: 'Fortress', href: '#' }, { label: 'Visual Cortex', href: '#' }, { label: 'Integration', href: '#' }] },
+  { title: 'Developers', links: [{ label: 'Documentation', href: '#' }, { label: 'API Reference', href: '#' }, { label: 'SDKs', href: '#' }, { label: 'CLI Tools', href: '#' }, { label: 'GitHub App', href: '#' }] },
+  { title: 'Resources', links: [{ label: 'Blog', href: '/blog' }, { label: 'Case Studies', href: '#' }, { label: 'Support', href: '#' }, { label: 'Status', href: '#' }, { label: 'Community', href: '#' }] },
+  { title: 'Company', links: [{ label: 'About', href: '/about' }, { label: 'Careers', href: '/careers' }, { label: 'Contact', href: '/contact' }, { label: 'Press Kit', href: '#' }, { label: 'Partners', href: '#' }] },
 ];
 
 const socialLinks = [
@@ -18,10 +19,18 @@ const socialLinks = [
   { icon: Youtube, label: 'YouTube' },
 ];
 
-const bottomLinks = ['Terms of Service', 'Privacy Policy', 'Security', 'Status', 'Cookie Settings'];
+const bottomLinks = [{ label: 'Terms of Service', href: '#' }, { label: 'Privacy Policy', href: '#' }, { label: 'Security', href: '/security' }, { label: 'Status', href: '#' }, { label: 'Cookie Settings', href: '#' }];
 
 export function Footer() {
-  return (
+  const navigate = useNavigate();
+
+  const handleLinkClick = (href: string) => {
+    if (href.startsWith('/')) {
+      window.open(href, '_blank', 'noopener,noreferrer');
+    } else if (href !== '#') {
+      window.open(href, '_blank');
+    }
+  };
     <footer className="py-16 bg-[--bg-footer]" aria-label="Site footer">
       <div className="v-container">
         <div className="grid grid-cols-2 md:grid-cols-6 gap-10 mb-14">
@@ -77,9 +86,12 @@ export function Footer() {
               <ul className="space-y-2.5">
                 {section.links.map((link, i) => (
                   <li key={i}>
-                    <a href="#" className="text-[13px] text-white/60 hover:text-white/90 transition-colors block">
-                      {link}
-                    </a>
+                    <button
+                      onClick={() => handleLinkClick(link.href)}
+                      className="text-[13px] text-white/60 hover:text-white/90 transition-colors block text-left"
+                    >
+                      {link.label}
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -98,9 +110,13 @@ export function Footer() {
           <p className="text-xs text-white/50">© 2026 Velocis Technologies, Inc. All rights reserved.</p>
           <div className="flex flex-wrap gap-6">
             {bottomLinks.map((link, i) => (
-              <a key={i} href="#" className="text-xs text-white/60 hover:text-white/90 transition-colors">
-                {link}
-              </a>
+              <button
+                key={i}
+                onClick={() => handleLinkClick(link.href)}
+                className="text-xs text-white/60 hover:text-white/90 transition-colors"
+              >
+                {link.label}
+              </button>
             ))}
           </div>
         </motion.div>

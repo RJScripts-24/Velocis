@@ -1,12 +1,14 @@
 "use client";
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence, useScroll, useSpring } from 'framer-motion';
+import { useNavigate } from 'react-router';
 import { Shield, Lock, Key, Check, X, ChevronDown, Mail, AlertTriangle, Eye, Unlock, Globe, Database, Zap, RefreshCw, Copy, FileX, ArrowUpRight } from 'lucide-react';
+import lightLogoImg from '../../../LightLogo.png';
 
 const GStyle = () => (
   <style>{`
     @import url('https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-    *{box-sizing:border-box;cursor:none!important;}
+    *{box-sizing:border-box;}
     html{scroll-behavior:smooth;}
     body{font-family:'Inter',sans-serif;background:#fff;color:#16141A;font-feature-settings:"kern"1,"liga"1,"calt"1;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased;}
     ::selection{background:rgba(26,127,60,0.15);color:#16141A;}
@@ -14,23 +16,11 @@ const GStyle = () => (
     .fm{font-family:'JetBrains Mono',monospace;}
     button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid #1A7F3C;outline-offset:3px;}
     @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}}
-    @media(max-width:768px){*{cursor:auto!important;}.cc{display:none!important;}}
     @keyframes blink{50%{opacity:0;}}
     @keyframes breathe{0%,100%{transform:scale(.95);opacity:.5;}50%{transform:scale(1.05);opacity:1;}}
     @keyframes pr{0%{box-shadow:0 0 0 0 rgba(26,127,60,.4);}70%{box-shadow:0 0 0 8px rgba(26,127,60,0);}100%{box-shadow:0 0 0 0 rgba(26,127,60,0);}}`}
   </style>
 );
-
-const Cursor = () => {
-  const [p, setP] = useState({ x: -100, y: -100 }), [h, setH] = useState(false);
-  useEffect(() => {
-    const mv = (e: MouseEvent) => setP({ x: e.clientX, y: e.clientY });
-    const ov = (e: MouseEvent) => setH(!!(e.target as HTMLElement).closest('a,button,[role="button"]'));
-    window.addEventListener('mousemove', mv); window.addEventListener('mouseover', ov);
-    return () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseover', ov); };
-  }, []);
-  return <motion.div className="cc fixed top-0 left-0 w-[6px] h-[6px] rounded-full pointer-events-none z-[10000]" style={{ backgroundColor: h ? 'transparent' : '#1A7F3C', border: h ? '1px solid #1A7F3C' : 'none' }} animate={{ x: p.x - 3, y: p.y - 3, scale: h ? 4 : 1 }} transition={{ type: 'spring', damping: 30, stiffness: 250, mass: .5 }} />;
-};
 
 const ProgBar = () => {
   const { scrollYProgress } = useScroll();
@@ -83,14 +73,15 @@ const FadeUp = ({ children, delay = 0, className = '' }: { children: React.React
 const Divider = () => <div className="flex flex-col items-center gap-3 py-2 pointer-events-none opacity-20"><div className="w-px h-10 bg-gradient-to-b from-transparent via-[#E8E5DF] to-transparent" /><div className="flex gap-2">{[0, 1, 2].map(i => <div key={i} className="w-1 h-1 rounded-full bg-[#1A7F3C]" />)}</div></div>;
 
 const Nav = () => {
+  const navigate = useNavigate();
   const [sc, setSc] = useState(false);
   useEffect(() => { const h = () => setSc(window.scrollY > 80); window.addEventListener('scroll', h); return () => window.removeEventListener('scroll', h); }, []);
   return (
     <motion.nav initial={{ y: -60, opacity: 0 }} animate={{ y: sc ? 0 : -60, opacity: sc ? 1 : 0 }} className="fixed top-0 left-0 right-0 h-[60px] z-[5000] px-8 flex items-center justify-between border-b border-[#E8E5DF] bg-[rgba(255,255,255,0.92)] backdrop-blur-[16px]" style={{ boxShadow: sc ? '0 1px 0 rgba(22,20,26,0.08)' : 'none' }}>
-      <div className="flex items-center gap-2"><span className="fb font-bold text-[18px]">Velocis.</span><div className="w-[2px] h-[13px] bg-[#1A7F3C] animate-[blink_1.1s_step-end_infinite]" /></div>
+      <div className="flex items-center gap-2"><img src={lightLogoImg} alt="Velocis" style={{ height: 28, width: 'auto', objectFit: 'contain' }} /></div>
       <div className="hidden md:flex items-center gap-8 font-[500] text-[14px] text-[#4B4856]">
         {[['About', '/about'], ['Careers', '/careers'], ['Security', '/security'], ['Contact', '/contact']].map(([x, href]) => (
-          <a key={x} href={href} className={`relative group transition-colors ${x === 'Security' ? 'text-[#16141A] font-semibold' : 'hover:text-[#16141A]'}`}>{x}<span className={`absolute -bottom-1 left-0 w-full h-[1px] bg-[#1A7F3C] origin-left transition-transform duration-200 ${x === 'Security' ? 'scale-x-100' : 'scale-x-0 group-hover:scale-x-100'}`} /></a>
+          <a key={x} href={href} target="_blank" rel="noopener noreferrer" className={`relative group transition-colors ${x === 'Security' ? 'text-[#16141A] font-semibold' : 'hover:text-[#16141A]'}`} onClick={(e) => { if (href.startsWith('/')) { e.preventDefault(); window.open(href, '_blank', 'noopener,noreferrer'); } }}>{x}<span className={`absolute -bottom-1 left-0 w-full h-[1px] bg-[#1A7F3C] origin-left transition-transform duration-200 ${x === 'Security' ? 'scale-x-100' : 'scale-x-0 group-hover:scale-x-100'}`} /></a>
         ))}
       </div>
       <motion.button whileHover={{ y: -1, backgroundColor: '#1A7F3C', boxShadow: '0 4px 12px rgba(26,127,60,0.25)' }} className="bg-[#16141A] text-white px-[18px] py-[9px] rounded-[8px] font-semibold text-[13px]">Connect GitHub</motion.button>
@@ -142,6 +133,7 @@ const DarkPanel = ({ title, children }: { title: string; children: React.ReactNo
 );
 
 export default function SecurityPage() {
+  const navigate = useNavigate();
   const [faqOpen, setFaqOpen] = useState<number | null>(null);
   const [cp, setCp] = useState(false);
   const copyEmail = () => { navigator.clipboard.writeText('security@velocis.ai'); setCp(true); setTimeout(() => setCp(false), 2000); };
@@ -175,7 +167,7 @@ export default function SecurityPage() {
 
   return (
     <div className="min-h-screen bg-white">
-      <GStyle /><Cursor /><ProgBar /><Grain /><Nav />
+      <GStyle /><ProgBar /><Grain /><Nav />
 
       {/* HERO */}
       <section className="relative pt-14 pb-12 bg-white overflow-hidden text-center px-6">
@@ -472,7 +464,7 @@ export default function SecurityPage() {
       <footer className="border-t border-[#E8E5DF] py-10 px-8 bg-white">
         <div className="max-w-[1080px] mx-auto flex flex-col md:flex-row justify-between items-center gap-6 text-[#9B97A8] text-[14px]">
           <div className="flex items-baseline gap-4"><span className="fb font-bold text-[19px] text-[#16141A]">Velocis.</span><span>© 2025 Velocis · Built by <span className="text-[#16141A] font-semibold">Merge Conflict</span></span></div>
-          <div className="flex gap-7 font-medium">{['About Us', 'Blog', 'Security', 'GitHub'].map(l => <a key={l} href="#" className="hover:text-[#16141A] transition-colors">{l}</a>)}</div>
+          <div className="flex gap-7 font-medium">{[['About Us', '/about'], ['Blog', '/blog'], ['Security', '/security'], ['GitHub', '#']].map(([l, href]) => <a key={l} href={href} target="_blank" rel="noopener noreferrer" className="hover:text-[#16141A] transition-colors" onClick={(e) => { if (href.startsWith('/')) { e.preventDefault(); window.open(href, '_blank', 'noopener,noreferrer'); } }}>{l}</a>)}</div>
         </div>
       </footer>
     </div>

@@ -10,6 +10,7 @@ import {
   CheckCircle, ChevronRight, Sun, Moon, AlertTriangle, Loader2,
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router';
+import { useTheme } from '../../lib/theme';
 import * as THREE from 'three';
 import { getCortexServices, getCortexTimeline, type CortexServicesResponse, type TimelineEvent as ApiTimelineEvent } from '../../lib/api';
 
@@ -475,7 +476,7 @@ export function CortexPage() {
   const [selectedNode, setSelectedNode] = useState<number | null>(null);
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   const [view, setView] = useState<'graph' | 'service' | 'flow'>('graph');
-  const [isDark, setIsDark] = useState(false);
+  const { isDarkMode: isDark, setIsDarkMode: setIsDark } = useTheme();
   const [filters, setFilters] = useState({ sentinel: true, fortress: true, cortex: true });
   const [layers, setLayers] = useState({ microservices: true, apis: true, databases: true, external: true, queues: true });
   const [hoveredEvent, setHoveredEvent] = useState<number | null>(null);

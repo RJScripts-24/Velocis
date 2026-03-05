@@ -123,16 +123,41 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
                 ? { PK: foundRepo.PK, SK: foundRepo.SK }
                 : { repoId: foundRepo.repoId ?? foundRepo.id ?? repoId };
 
+            // When disabling, record the exact time so any running pipeline
+            // can detect mid-run that it was cancelled.
+            const updateExpr = isAutomated
+                ? "SET isAutomated = :a, updatedAt = :u"
+                : "SET isAutomated = :a, updatedAt = :u, automationAbortedAt = :u";
+
             await docClient.send(new UpdateCommand({
                 TableName: tableName,
                 Key: key,
-                UpdateExpression: "SET isAutomated = :a, updatedAt = :u",
+                UpdateExpression: updateExpr,
                 ExpressionAttributeValues: { ":a": isAutomated, ":u": now },
             }));
 
             logger.info({ msg: "isAutomated saved", repoId, isAutomated, tableName });
+
+            // When disabling, ALSO write automationCancelledAt directly onto the
+            // automationReport record (keyed by numericRepoId, same as persistAutomationReport).
+            // This ensures checkIsAutomated in triggerAutomation.ts finds the cancel signal
+            // even if the settings record and the report record have different keys.
+            if (!isAutomated) {
+                const numericRepoId = String(foundRepo.repoId ?? foundRepo.id ?? repoId);
+                try {
+                    await docClient.send(new UpdateCommand({
+                        TableName: tableName,
+                        Key: { repoId: numericRepoId },
+                        UpdateExpression: "SET automationCancelledAt = :t, isAutomated = :a, updatedAt = :t",
+                        ExpressionAttributeValues: { ":t": now, ":a": false },
+                    }));
+                    logger.info({ msg: "automationCancelledAt written to report record", numericRepoId });
+                } catch (e) {
+                    logger.warn({ msg: "Failed to write automationCancelledAt to report record (non-fatal)", error: String(e) });
+                }
+            }
         } else {
-            // Repo not in DynamoDB yet, put a minimal record
+            // Repo not found in DynamoDB yet, put a minimal record
             logger.warn({ msg: "Repo not found in DB, cannot persist isAutomated", repoId });
         }
 
