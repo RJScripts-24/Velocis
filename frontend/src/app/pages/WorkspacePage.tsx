@@ -641,7 +641,7 @@ export function WorkspacePage() {
                     {selectedFile.split('/').pop() || selectedFile}
                   </span>
                   <span className="text-zinc-300 dark:text-slate-700 mx-1 hidden sm:inline">•</span>
-                  <span className="text-xs font-medium px-2 py-0.5 rounded-md bg-zinc-200/50 dark:bg-slate-800 text-zinc-600 dark:text-slate-400 hidden sm:inline transition-colors">{selectedBranch}</span>
+                  <span className="text-xs font-medium px-2 py-0.5 rounded-md bg-zinc-200/50 dark:bg-slate-800 text-zinc-600 dark:text-slate-400 hidden sm:inline transition-colors">main</span>
                   <span className="text-zinc-300 dark:text-slate-700 mx-1 hidden md:inline">•</span>
                   <span className="text-xs text-zinc-400 dark:text-slate-500 font-medium hidden md:inline">Updated 12 min ago</span>
                 </div>
