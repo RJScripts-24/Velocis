@@ -50,10 +50,6 @@ const FontStyle = () => (
     .scroll-progress-bar { height:100%;background:linear-gradient(to right,#1A7F3C,#3FB950,#22C55E); position:relative; }
     .scroll-progress-glow { position:absolute; right:0; top:-1px; width:4px; height:4px; background:#3FB950; border-radius:50%; box-shadow:0 0 6px #3FB950; transform:translateX(50%); }
 
-    .vcursor { position:fixed;width:6px;height:6px;background:#1A7F3C;border-radius:50%;pointer-events:none;z-index:99999;transform:translate(-50%,-50%);transition:transform 0.08s ease, border-color 0.2s, background 0.2s; }
-    .vcursor.link-hover { transform:translate(-50%,-50%) scale(2.5); background:transparent; border:1.5px solid #1A7F3C; }
-    @media (max-width: 767px) { .vcursor { display: none; } }
-
     .drop-cap::first-letter { font-family:'Libre Baskerville',Georgia,serif;font-size:4.2em;font-weight:700;float:left;line-height:.82;color:#1A7F3C;margin-right:10px;padding-right:2px;text-shadow:0 0 30px rgba(26,127,60,0.2); }
 
     .code-frag { position: absolute; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: rgba(26,127,60,1); white-space: nowrap; pointer-events: none; will-change: transform; animation: floatCode linear infinite; }
@@ -1174,7 +1170,6 @@ const Footer: React.FC = () => {
 export function CareerPage() {
     const [navVisible, setNavVisible] = useState(false);
     const [scrollPct, setScrollPct] = useState(0);
-    const cursorRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         const onScroll = () => {
@@ -1187,28 +1182,11 @@ export function CareerPage() {
         return () => window.removeEventListener("scroll", onScroll);
     }, []);
 
-    useEffect(() => {
-        const cursor = cursorRef.current;
-        if (!cursor) return;
-        const move = (e: MouseEvent) => {
-            cursor.style.left = e.clientX + 'px';
-            cursor.style.top = e.clientY + 'px';
-        };
-        const hover = (e: MouseEvent) => {
-            const t = e.target as HTMLElement;
-            cursor.classList.toggle('link-hover', !!(t.closest('a, button')));
-        };
-        document.addEventListener('mousemove', move);
-        document.addEventListener('mouseover', hover);
-        return () => { document.removeEventListener('mousemove', move); document.removeEventListener('mouseover', hover); };
-    }, []);
-
     return (
         <div className="font-inter" style={{ background: "#fff", color: "#16141A", minHeight: "100vh", overflowX: 'hidden' }}>
             <FontStyle />
             <GrainOverlay />
             <div className="scroll-progress" style={{ width: `${scrollPct}%` }} />
-            <div ref={cursorRef} className="vcursor" />
 
             <StickyNav visible={navVisible} />
             <HeroSection />

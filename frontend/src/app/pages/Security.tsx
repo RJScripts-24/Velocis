@@ -15,23 +15,11 @@ const GStyle = () => (
     .fm{font-family:'JetBrains Mono',monospace;}
     button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid #1A7F3C;outline-offset:3px;}
     @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}}
-    @media(max-width:768px){*{cursor:auto!important;}.cc{display:none!important;}}
     @keyframes blink{50%{opacity:0;}}
     @keyframes breathe{0%,100%{transform:scale(.95);opacity:.5;}50%{transform:scale(1.05);opacity:1;}}
     @keyframes pr{0%{box-shadow:0 0 0 0 rgba(26,127,60,.4);}70%{box-shadow:0 0 0 8px rgba(26,127,60,0);}100%{box-shadow:0 0 0 0 rgba(26,127,60,0);}}`}
   </style>
 );
-
-const Cursor = () => {
-  const [p, setP] = useState({ x: -100, y: -100 }), [h, setH] = useState(false);
-  useEffect(() => {
-    const mv = (e: MouseEvent) => setP({ x: e.clientX, y: e.clientY });
-    const ov = (e: MouseEvent) => setH(!!(e.target as HTMLElement).closest('a,button,[role="button"]'));
-    window.addEventListener('mousemove', mv); window.addEventListener('mouseover', ov);
-    return () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseover', ov); };
-  }, []);
-  return <motion.div className="cc fixed top-0 left-0 w-[6px] h-[6px] rounded-full pointer-events-none z-[10000]" style={{ backgroundColor: h ? 'transparent' : '#1A7F3C', border: h ? '1px solid #1A7F3C' : 'none' }} animate={{ x: p.x - 3, y: p.y - 3, scale: h ? 4 : 1 }} transition={{ type: 'spring', damping: 30, stiffness: 250, mass: .5 }} />;
-};
 
 const ProgBar = () => {
   const { scrollYProgress } = useScroll();
@@ -178,7 +166,7 @@ export default function SecurityPage() {
 
   return (
     <div className="min-h-screen bg-white">
-      <GStyle /><Cursor /><ProgBar /><Grain /><Nav />
+      <GStyle /><ProgBar /><Grain /><Nav />
 
       {/* HERO */}
       <section className="relative pt-14 pb-12 bg-white overflow-hidden text-center px-6">
