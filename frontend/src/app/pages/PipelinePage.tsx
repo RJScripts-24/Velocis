@@ -111,6 +111,7 @@ export function PipelinePage() {
   const [filesAnalyzed, setFilesAnalyzed] = useState<string[]>([]);
   const [qaCopied, setQaCopied] = useState(false);
 
+  // ── Restore cached Fortress data on mount ────────────────────────────────
   useEffect(() => {
     if (!id) return;
     getRepo(id).then(r => setRepoName(r.name)).catch(() => {});

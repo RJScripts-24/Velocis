@@ -178,8 +178,6 @@ export function WorkspacePage() {
   // ─ Fetch initial data on mount ───────────────────────────────────────────────────────
   useEffect(() => {
     if (!id) return;
-
-    // Fetch repo name
     getRepo(id).then(r => setRepoName(r.name)).catch(() => {});
 
     // Immediately restore cached messages so history is visible before API returns
@@ -546,11 +544,9 @@ export function WorkspacePage() {
             </div>
 
             {/* Center - File Context */}
-            <div className="relative hidden md:flex items-center justify-center gap-2">
-              {/* File Picker */}
-              <div className="relative">
+            <div className="relative hidden md:flex items-center justify-center">
               <button
-                onClick={() => { setIsDropdownOpen(!isDropdownOpen); }}
+                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
                 className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-700 shadow-sm hover:shadow-md transition-all font-['JetBrains_Mono',_monospace] text-xs font-semibold text-zinc-700 dark:text-slate-300 group"
               >
                 <FileCode className="w-4 h-4 text-indigo-500 dark:text-indigo-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors" />
@@ -604,7 +600,6 @@ export function WorkspacePage() {
                   </motion.div>
                 )}
               </AnimatePresence>
-              </div>
             </div>
 
             {/* Right - Actions */}

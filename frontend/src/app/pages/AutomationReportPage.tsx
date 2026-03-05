@@ -1,9 +1,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router';
+import { getRepo } from '../../lib/api';
 import { ChevronLeft, Shield, TestTube2, Cloud, AlertCircle, Bot, ChevronDown, ChevronUp, FileCode, Zap, RotateCcw, Check, X } from 'lucide-react';
 import lightLogoImg from '../../../LightLogo.png';
 import darkLogoImg from '../../../DarkLogo.png';
-import { getRepo } from '../../lib/api';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
