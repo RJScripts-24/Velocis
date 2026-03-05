@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence, useScroll, useSpring } from 'framer-motion';
 import { useNavigate } from 'react-router';
 import { Mail, Github, MessageCircle, Copy, Check, ChevronDown, ExternalLink, Send, Shield, Lock, ArrowUpRight } from 'lucide-react';
+import lightLogoImg from '../../../LightLogo.png';
 
 interface FormState { name: string; email: string; subject: string; message: string; githubUrl: string; }
 interface FormErrors { name?: string; email?: string; subject?: string; message?: string; }
@@ -81,7 +82,7 @@ const Nav = () => {
   useEffect(() => { const h = () => setSc(window.scrollY > 80); window.addEventListener('scroll', h); return () => window.removeEventListener('scroll', h); }, []);
   return (
     <motion.nav initial={{ y: -60, opacity: 0 }} animate={{ y: sc ? 0 : -60, opacity: sc ? 1 : 0 }} className="fixed top-0 left-0 right-0 h-[60px] z-[5000] px-8 flex items-center justify-between border-b border-[#E8E5DF] bg-[rgba(255,255,255,0.92)] backdrop-blur-[16px]" style={{ boxShadow: sc ? '0 1px 0 rgba(22,20,26,0.08)' : 'none' }}>
-      <div className="flex items-center gap-2"><span className="fb font-bold text-[18px]">Velocis.</span><div className="w-[2px] h-[13px] bg-[#1A7F3C] animate-[blink_1.1s_step-end_infinite]" /></div>
+      <div className="flex items-center gap-2"><img src={lightLogoImg} alt="Velocis" style={{ height: 28, width: 'auto', objectFit: 'contain' }} /></div>
       <div className="hidden md:flex items-center gap-8 font-[500] text-[14px] text-[#4B4856]">
         {[['About', '/about'], ['Careers', '/careers'], ['Contact', '/contact']].map(([x, href]) => (
           <a key={x} href={href} target="_blank" rel="noopener noreferrer" className={`relative group transition-colors ${x === 'Contact' ? 'text-[#16141A] font-semibold' : 'hover:text-[#16141A]'}`} onClick={(e) => { if (href.startsWith('/')) { e.preventDefault(); window.open(href, '_blank', 'noopener,noreferrer'); } }}>\n            {x}<span className={`absolute -bottom-1 left-0 w-full h-[1px] bg-[#1A7F3C] origin-left transition-transform duration-200 ${x === 'Contact' ? 'scale-x-100' : 'scale-x-0 group-hover:scale-x-100'}`} />

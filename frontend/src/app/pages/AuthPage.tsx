@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import gsap from 'gsap';
 import { Github, Check, AlertCircle } from 'lucide-react';
+import lightLogoImg from '../../../LightLogo.png';
 
 // The backend API base URL — point to localhost during dev
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:3001';
@@ -512,10 +513,10 @@ export const AuthPage: React.FC = () => {
             <header className="w-full py-6 px-8 flex justify-start items-center absolute top-0 left-0 bg-transparent z-10">
                 <button
                     onClick={() => navigate('/')}
-                    className="font-extrabold text-[22px] tracking-tight hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded"
+                    className="hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded"
                     aria-label="Homepage"
                 >
-                    Velocis.
+                    <img src={lightLogoImg} alt="Velocis" className="h-8 w-auto object-contain" />
                 </button>
             </header>
 

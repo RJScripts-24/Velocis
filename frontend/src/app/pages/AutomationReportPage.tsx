@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { ChevronLeft, Shield, TestTube2, Cloud, AlertCircle, Bot, ChevronDown, ChevronUp, FileCode, Zap, RotateCcw, Check, X } from 'lucide-react';
+import lightLogoImg from '../../../LightLogo.png';
+import darkLogoImg from '../../../DarkLogo.png';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
@@ -1103,8 +1105,9 @@ export function AutomationReportPage() {
 
 // Shared navbar component
 function NavBar({ id, navigate }: { id: string; navigate: (path: string) => void }) {
+    const isDark = typeof window !== 'undefined' && (document.documentElement.classList.contains('dark') || window.matchMedia('(prefers-color-scheme: dark)').matches);
     return (
-        <div className="flex-none z-50 border-b border-zinc-200 dark:border-slate-800/80 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-xl sticky top-0 px-6 h-[60px] flex items-center">
+        <div className="flex-none z-50 border-b border-zinc-200 dark:border-slate-800/80 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-xl sticky top-0 px-6 h-[60px] flex items-center justify-between">
             <div className="flex items-center gap-4">
                 <button
                     onClick={() => navigate(`/repo/${id}`)}
@@ -1120,6 +1123,7 @@ function NavBar({ id, navigate }: { id: string; navigate: (path: string) => void
                     <span className="font-semibold text-zinc-900 dark:text-slate-100">Automation Report</span>
                 </div>
             </div>
+            <img src={isDark ? darkLogoImg : lightLogoImg} alt="Velocis" className="h-7 w-auto object-contain" />
         </div>
     );
 }

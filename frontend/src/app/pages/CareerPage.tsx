@@ -9,6 +9,7 @@ import {
     Database, Globe, Layers, Sparkles, Terminal, Activity, Clock,
     GitBranch, Play, RotateCcw, Circle, Square, Triangle, BookOpen, Rocket, ArrowUpRight
 } from "lucide-react";
+import lightLogoImg from '../../../LightLogo.png';
 
 // ─── Fonts & Global Styles ───────────────────────────────────────────────────
 const FontStyle = () => (
@@ -231,7 +232,7 @@ const StickyNav: React.FC<{ visible: boolean }> = ({ visible }) => {
                         fontSize: 18,
                         display: 'flex', alignItems: 'center', textDecoration: 'none', color: '#16141A'
                     }}>
-                        Velocis<span className="logo-dot" />
+                        <img src={lightLogoImg} alt="Velocis" style={{ height: 32, width: 'auto', objectFit: 'contain' }} />
                     </a>
                     <div className="hidden md:flex items-center gap-8">
                         {links.map((l) => (

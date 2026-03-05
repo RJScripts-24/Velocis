@@ -8,6 +8,8 @@ import Editor from '@monaco-editor/react';
 import { getWorkspaceFiles, WorkspaceFile, getFileContent, getAnnotations, postChatMessage, getChatHistory, reviewWorkspaceCode } from '../../lib/api';
 import { useTheme } from '../../lib/theme';
 import { translateText } from '../../lib/translate';
+import lightLogoImg from '../../../LightLogo.png';
+import darkLogoImg from '../../../DarkLogo.png';
 
 const INITIAL_FILE = '/src/auth.controller.ts';
 
@@ -514,11 +516,8 @@ export function WorkspacePage() {
           <div className="px-6 h-[60px] flex items-center justify-between">
             {/* Left - Breadcrumb */}
             <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-zinc-900 dark:bg-slate-800 shadow-sm border border-zinc-700 dark:border-slate-700">
-                  <span className="text-white font-bold text-sm">V</span>
-                </div>
-                <span className="font-semibold text-zinc-900 dark:text-slate-100 hidden sm:block tracking-tight">Velocis</span>
+              <div className="flex items-center">
+                <img src={isDarkMode ? darkLogoImg : lightLogoImg} alt="Velocis" className="h-8 w-auto object-contain" />
               </div>
 
               <div className="flex items-center gap-2 text-sm text-zinc-500 dark:text-slate-400 font-medium">

@@ -14,6 +14,7 @@ import {
 import heroLeft from '../../assets/landing-page/hero-left.svg?raw';
 import heroRight from '../../assets/landing-page/hero-right.svg?raw';
 import timelineBridgeRaw from '../../assets/landing-page/timeline-bridge.svg?raw';
+import lightLogoImg from '../../../LightLogo.png';
 
 gsap.registerPlugin(ScrollTrigger, MotionPathPlugin);
 
@@ -1371,7 +1372,7 @@ export function HomePage() {
             {/* Navigation */}
             <header className={`sticky top-0 z-50 border-b transition-all duration-300 ${isScrolled ? 'bg-white/70 backdrop-blur-md border-borderSubtle' : 'bg-transparent border-transparent'}`}>
                 <div className="w-full px-8 h-20 flex items-center justify-between">
-                    <div className="font-display font-bold text-xl tracking-tight">Velocis.</div>
+                    <div className="font-display font-bold text-xl tracking-tight"><img src={lightLogoImg} alt="Velocis" className="h-8 w-auto object-contain" /></div>
                     <button className="bg-dark text-textInverse px-5 py-2.5 rounded-button font-medium hover:bg-dark/90 transition-colors">
                         Connect Repository
                     </button>

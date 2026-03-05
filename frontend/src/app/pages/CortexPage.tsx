@@ -23,6 +23,8 @@ import {
   rebuildCortex,
   type CortexServicesResponse,
 } from '../../lib/api';
+import lightLogoImg from '../../../LightLogo.png';
+import darkLogoImg from '../../../DarkLogo.png';
 
 /* ═══════════════════════════════════════════
    CSS ANIMATIONS
@@ -935,11 +937,7 @@ function CortexPageContent() {
              style={{ backgroundColor: panelBg, borderColor: border, backdropFilter: 'blur(16px)' }}>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-md flex items-center justify-center shadow-sm"
-                   style={{ backgroundColor: isDark ? '#1e2535' : '#f3f4f6', border: `1px solid ${border}` }}>
-                <span className="font-bold text-xs" style={{ color: text }}>V</span>
-              </div>
-              <span className="font-semibold text-sm" style={{ color: text }}>Velocis</span>
+              <img src={isDark ? darkLogoImg : lightLogoImg} alt="Velocis" className="h-7 w-auto object-contain" />
             </div>
             <div className="flex items-center gap-2 text-[13px]" style={{ color: muted }}>
               <button onClick={() => navigate('/dashboard')} className="hover:opacity-80 transition-opacity" style={{ color: muted }}>Dashboard</button>

@@ -7,6 +7,8 @@ import { useNavigate } from 'react-router';
 import { useAuth } from '../../lib/auth';
 import { useTheme } from '../../lib/theme';
 import { getSessionRepos, installRepo as apiInstallRepo, getInstallStatus, getDashboard } from '../../lib/api';
+import lightLogoImg from '../../../LightLogo.png';
+import darkLogoImg from '../../../DarkLogo.png';
 
 // Language → colour mapping (mirrors the backend constant)
 const LANGUAGE_COLORS: Record<string, string> = {
@@ -268,11 +270,8 @@ export function OnboardingPage() {
 
             {/* Left — logo + breadcrumb */}
             <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-zinc-900 dark:bg-slate-800 shadow-sm border border-zinc-700 dark:border-slate-700">
-                  <span className="text-white font-bold text-sm">V</span>
-                </div>
-                <span className="font-semibold text-zinc-900 dark:text-slate-100 hidden sm:block tracking-tight">Velocis</span>
+              <div className="flex items-center">
+                <img src={isDarkMode ? darkLogoImg : lightLogoImg} alt="Velocis" className="h-8 w-auto object-contain" />
               </div>
               <div className="flex items-center gap-2 text-sm text-zinc-500 dark:text-slate-400 font-medium ml-2">
                 <Home className="w-4 h-4" />

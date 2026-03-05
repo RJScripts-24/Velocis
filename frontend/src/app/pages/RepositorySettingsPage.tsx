@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { Bot, Shield, TestTube2, Cloud, ChevronLeft, Check, AlertTriangle, X } from 'lucide-react';
+import lightLogoImg from '../../../LightLogo.png';
+import darkLogoImg from '../../../DarkLogo.png';
 
 const cardCls = [
     "bg-white dark:bg-zinc-900",
@@ -122,6 +124,7 @@ export function RepositorySettingsPage() {
                         <span className="font-semibold text-zinc-900 dark:text-slate-100">Settings</span>
                     </div>
                 </div>
+                <img src={typeof window !== 'undefined' && (document.documentElement.classList.contains('dark') || window.matchMedia('(prefers-color-scheme: dark)').matches) ? darkLogoImg : lightLogoImg} alt="Velocis" className="h-7 w-auto object-contain" />
             </div>
 
             <div className="max-w-4xl mx-auto px-6 md:px-10 py-10">

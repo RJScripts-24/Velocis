@@ -10,6 +10,8 @@ import { useNavigate, useParams } from 'react-router';
 import { useTheme } from '../../lib/theme';
 import type { RepoDetail, ActivityEvent } from '../../lib/api';
 import { getToken } from '../../lib/api';
+import lightLogoImg from '../../../LightLogo.png';
+import darkLogoImg from '../../../DarkLogo.png';
 
 function authFetch(url: string): Promise<Response> {
   const token = getToken();
@@ -432,7 +434,9 @@ export function RepositoryPage() {
         <div className="flex-none z-50 border-b border-zinc-200 dark:border-slate-800/80 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-xl transition-colors duration-300 sticky top-0 px-6 h-[60px] flex items-center justify-between">
           {/* Left */}
           <div className="flex items-center gap-4">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-zinc-900 dark:bg-slate-800 shadow-sm border border-zinc-700 dark:border-slate-700 text-white font-bold text-sm">V</div>
+            <div className="flex items-center">
+              <img src={isDarkMode ? darkLogoImg : lightLogoImg} alt="Velocis" className="h-8 w-auto object-contain" />
+            </div>
             <div className="flex items-center gap-2 text-sm ml-2">
               <span
                 className="text-zinc-500 dark:text-slate-400 cursor-pointer hover:text-zinc-800 dark:hover:text-slate-200 transition-colors"

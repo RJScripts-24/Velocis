@@ -8,6 +8,7 @@ import {
     Database, Globe, Layers, Sparkles, Terminal, Activity, Clock,
     GitBranch, Play, RotateCcw, Circle, Square, Triangle,
 } from "lucide-react";
+import lightLogoImg from '../../../LightLogo.png';
 
 // ΓöÇΓöÇΓöÇ Fonts & Global Styles ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 const FontStyle = () => (
@@ -357,7 +358,7 @@ const StickyNav: React.FC<{ visible: boolean }> = ({ visible }) => {
                     }}
                 >
                     <a href="#hero" className="font-bask font-bold" style={{ color: "#16141A", fontSize: 20, letterSpacing: '-0.01em', display: 'flex', alignItems: 'center', gap: 2 }}>
-                        Velocis<span className="logo-dot" />
+                        <img src={lightLogoImg} alt="Velocis" style={{ height: 32, width: 'auto', objectFit: 'contain' }} />
                     </a>
                     <div className="hidden md:flex items-center gap-8">
                         {links.map((l) => (
