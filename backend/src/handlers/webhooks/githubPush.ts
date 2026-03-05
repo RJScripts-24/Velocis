@@ -23,7 +23,9 @@ import { githubPushSchema } from "../../models/schemas/githubSchemas";
 import { analyzeLogic } from "../../functions/sentinel/analyzeLogic";
 import { generateQATestPlan, generateApiDocs } from "../../functions/fortress/analyzeFortress";
 import { buildCortexGraph } from "../../functions/cortex/graphBuilder";
-import { dynamoClient } from "../../services/database/dynamoClient";
+import { generateIac } from "../../functions/predictor/generateIac";
+import { dynamoClient, getDocClient } from "../../services/database/dynamoClient";
+import { QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { repoOps } from "../../services/github/repoOps";
 import { logger } from "../../utils/logger";
 import { config } from "../../utils/config";
@@ -35,12 +37,12 @@ import { Repository } from "../../models/interfaces/Repository";
 // ─────────────────────────────────────────────
 const AGENT_TIMEOUT_MS = 25000; // Lambda safe timeout buffer
 
-const _rawDynamo   = new DynamoDBClient({});
-const _docClient   = DynamoDBDocumentClient.from(_rawDynamo);
-const SENTINEL_TABLE   = process.env.SENTINEL_TABLE   ?? "velocis-sentinel";
-const ACTIVITY_TABLE   = process.env.ACTIVITY_TABLE   ?? "velocis-activity";
-const TIMELINE_TABLE   = process.env.TIMELINE_TABLE   ?? "velocis-timeline";
-const PIPELINE_TABLE   = process.env.PIPELINE_TABLE   ?? "velocis-pipeline-runs";
+const _rawDynamo = new DynamoDBClient({});
+const _docClient = DynamoDBDocumentClient.from(_rawDynamo);
+const SENTINEL_TABLE = process.env.SENTINEL_TABLE ?? "velocis-sentinel";
+const ACTIVITY_TABLE = process.env.ACTIVITY_TABLE ?? "velocis-activity";
+const TIMELINE_TABLE = process.env.TIMELINE_TABLE ?? "velocis-timeline";
+const PIPELINE_TABLE = process.env.PIPELINE_TABLE ?? "velocis-pipeline-runs";
 
 // ─────────────────────────────────────────────
 // TOP-LEVEL ROUTER
@@ -50,9 +52,9 @@ const PIPELINE_TABLE   = process.env.PIPELINE_TABLE   ?? "velocis-pipeline-runs"
 export const handler = async (
   event: APIGatewayProxyEvent
 ): Promise<APIGatewayProxyResult> => {
-  const requestId  = event.requestContext?.requestId ?? "unknown";
-  const rawBody    = event.body ?? "";
-  const signature  = event.headers["x-hub-signature-256"] ?? "";
+  const requestId = event.requestContext?.requestId ?? "unknown";
+  const rawBody = event.body ?? "";
+  const signature = event.headers["x-hub-signature-256"] ?? "";
   const githubEvent = event.headers["x-github-event"] ?? "push";
 
   // ── Verify HMAC signature ────────────────────────────────────────────────
@@ -106,9 +108,9 @@ async function handlePullRequest(
   body: any
 ): Promise<APIGatewayProxyResult> {
   const { action, pull_request: pr, repository } = body;
-  const repoId    = String(repository?.id ?? "");
-  const prNumber  = pr?.number;
-  const now       = new Date().toISOString();
+  const repoId = String(repository?.id ?? "");
+  const prNumber = pr?.number;
+  const now = new Date().toISOString();
 
   logger.info({ requestId, action, prNumber, repoId, msg: "pull_request event" });
 
@@ -120,21 +122,21 @@ async function handlePullRequest(
       new PutCommand({
         TableName: SENTINEL_TABLE,
         Item: {
-          id:          scanId,
+          id: scanId,
           repoId,
-          recordType:  "PR_REVIEW",
+          recordType: "PR_REVIEW",
           prNumber,
-          title:       pr?.title ?? `PR #${prNumber}`,
-          author:      pr?.user?.login ?? "unknown",
-          branch:      pr?.head?.ref ?? "",
-          state:       "open",
-          status:      "queued",
-          riskScore:   0,
-          riskLevel:   "low",
-          findings:    [],
-          diffUrl:     pr?.html_url ?? "",
-          createdAt:   pr?.created_at ?? now,
-          updatedAt:   now,
+          title: pr?.title ?? `PR #${prNumber}`,
+          author: pr?.user?.login ?? "unknown",
+          branch: pr?.head?.ref ?? "",
+          state: "open",
+          status: "queued",
+          riskScore: 0,
+          riskLevel: "low",
+          findings: [],
+          diffUrl: pr?.html_url ?? "",
+          createdAt: pr?.created_at ?? now,
+          updatedAt: now,
         },
       })
     );
@@ -147,11 +149,11 @@ async function handlePullRequest(
         Item: {
           runId,
           repoId,
-          branch:     pr?.head?.ref ?? "",
-          commitSha:  pr?.head?.sha ?? "",
-          trigger:    "pull_request",
-          status:     "queued",
-          startedAt:  now,
+          branch: pr?.head?.ref ?? "",
+          commitSha: pr?.head?.sha ?? "",
+          trigger: "pull_request",
+          status: "queued",
+          startedAt: now,
           stepStates: {},
         },
       })
@@ -181,20 +183,20 @@ async function handlePullRequestReview(
 ): Promise<APIGatewayProxyResult> {
   const { review, pull_request: pr, repository } = body;
   const repoId = String(repository?.id ?? "");
-  const now    = new Date().toISOString();
+  const now = new Date().toISOString();
 
   await _docClient.send(
     new PutCommand({
       TableName: ACTIVITY_TABLE,
       Item: {
-        id:        `evt_${randomUUID().replace(/-/g, "").slice(0, 10)}`,
+        id: `evt_${randomUUID().replace(/-/g, "").slice(0, 10)}`,
         repoId,
-        repoName:  repository?.name ?? "",
-        agent:     "sentinel",
-        message:   `PR #${pr?.number} review: ${review?.state ?? "submitted"}`,
-        severity:  "info",
+        repoName: repository?.name ?? "",
+        agent: "sentinel",
+        message: `PR #${pr?.number} review: ${review?.state ?? "submitted"}`,
+        severity: "info",
         timestamp: now,
-        read:      false,
+        read: false,
       },
     })
   );
@@ -213,20 +215,20 @@ async function handleDeployment(
 ): Promise<APIGatewayProxyResult> {
   const { deployment, repository } = body;
   const repoId = String(repository?.id ?? "");
-  const now    = new Date().toISOString();
+  const now = new Date().toISOString();
 
   await _docClient.send(
     new PutCommand({
       TableName: TIMELINE_TABLE,
       Item: {
-        id:          `deploy_${randomUUID().replace(/-/g, "").slice(0, 10)}`,
+        id: `deploy_${randomUUID().replace(/-/g, "").slice(0, 10)}`,
         repoId,
         positionPct: 100, // Latest event is at 100%; historical events scaled later
-        label:       `Deploy ${deployment?.ref ?? ""}`,
-        color:       "#22c55e",
+        label: `Deploy ${deployment?.ref ?? ""}`,
+        color: "#22c55e",
         environment: deployment?.environment ?? "production",
-        deployedAt:  deployment?.created_at  ?? now,
-        createdAt:   now,
+        deployedAt: deployment?.created_at ?? now,
+        createdAt: now,
       },
     })
   );
@@ -235,12 +237,12 @@ async function handleDeployment(
     new PutCommand({
       TableName: process.env.DEPLOYS_TABLE ?? "velocis-deployments",
       Item: {
-        id:          `deploy_${randomUUID().replace(/-/g, "").slice(0, 10)}`,
+        id: `deploy_${randomUUID().replace(/-/g, "").slice(0, 10)}`,
         repoId,
-        repoName:    repository?.name          ?? "",
-        environment: deployment?.environment   ?? "production",
-        deployedAt:  deployment?.created_at    ?? now,
-        status:      "success",
+        repoName: repository?.name ?? "",
+        environment: deployment?.environment ?? "production",
+        deployedAt: deployment?.created_at ?? now,
+        status: "success",
       },
     })
   );
@@ -427,6 +429,28 @@ async function runAgentPipeline(ctx: {
     uniqueChangedFiles,
   } = ctx;
 
+  // Let's check if the repo is automated
+  let isAutomated = false;
+  try {
+    const repoDoc = await dynamoClient.get({
+      tableName: config.DYNAMO_REPOSITORIES_TABLE,
+      key: { repoId }
+    });
+    if (repoDoc && repoDoc.isAutomated) {
+      isAutomated = true;
+    } else {
+      const fallbackRepo = await dynamoClient.get({
+        tableName: process.env.REPOS_TABLE ?? "velocis-repos",
+        key: { repoId }
+      });
+      if (fallbackRepo && fallbackRepo.isAutomated) {
+        isAutomated = true;
+      }
+    }
+  } catch (e) { /* ignore */ }
+
+  logger.info({ requestId, repoId, isAutomated, msg: "Automation status" });
+
   // ── Phase A: Sentinel + Cortex run in PARALLEL ────────────────────────────
   logger.info({ requestId, msg: "Phase A: Launching Sentinel + Cortex in parallel" });
 
@@ -436,7 +460,7 @@ async function runAgentPipeline(ctx: {
       analyzeLogic({
         repoId,
         repoOwner: repoFullName.split("/")[0] ?? "",
-        repoName:  repoFullName.split("/")[1] ?? "",
+        repoName: repoFullName.split("/")[1] ?? "",
         filePaths: uniqueChangedFiles,
         commitSha: String(repoId),
         accessToken: installationToken,
@@ -450,7 +474,7 @@ async function runAgentPipeline(ctx: {
       buildCortexGraph({
         repoId,
         repoOwner: repoFullName.split("/")[0] ?? "",
-        repoName:  repoFullName.split("/")[1] ?? "",
+        repoName: repoFullName.split("/")[1] ?? "",
         accessToken: installationToken,
         forceRebuild: true,
       }),
@@ -484,6 +508,25 @@ async function runAgentPipeline(ctx: {
       withTimeout(generateQATestPlan(combinedContent), AGENT_TIMEOUT_MS, "Fortress-QA"),
       withTimeout(generateApiDocs(combinedContent), AGENT_TIMEOUT_MS, "Fortress-Docs"),
     ]);
+
+    // Update Fortress run with the test plan text so it can be fetched later
+    try {
+      const _docClient = getDocClient();
+      const pipelineRes = await _docClient.send(new QueryCommand({
+        TableName: process.env.PIPELINE_TABLE ?? "velocis-pipeline-runs",
+        KeyConditionExpression: "repoId = :r",
+        ExpressionAttributeValues: { ":r": repoId },
+      }));
+      const latestRun = (pipelineRes.Items ?? []).sort((a, b) => (b.startedAt ?? "").localeCompare(a.startedAt ?? ""))[0];
+      if (latestRun) {
+        await dynamoClient.upsert({
+          tableName: process.env.PIPELINE_TABLE ?? "velocis-pipeline-runs",
+          item: { ...latestRun, testPlanText: qaTestPlan },
+          key: "runId"
+        });
+      }
+    } catch (e) { /* ignore */ }
+
     fortress = { status: "success", data: { qaTestPlan, apiDocs } };
   } catch (err) {
     logger.error({ requestId, msg: "Fortress agent failed", err });
@@ -496,11 +539,38 @@ async function runAgentPipeline(ctx: {
     fortressStatus: fortress.status,
   });
 
+  // ── Phase C: Infrastructure Prediction (Automation Only) ───────────────────
+  // Run if automation is enabled
+  let architecture = null;
+  if (isAutomated) {
+    logger.info({ requestId, msg: "Phase C: Automation enabled, running Infrastructure predictor" });
+    try {
+      const iacForecast = await withTimeout(
+        generateIac({
+          repoId,
+          repoOwner: repoFullName.split("/")[0] ?? "",
+          repoName: repoFullName.split("/")[1] ?? "",
+          filePaths: uniqueChangedFiles,
+          commitSha: String(repoId), // usually this is commits[0].id
+          accessToken: installationToken,
+          region: "us-east-1",
+          environment: "production",
+        }),
+        AGENT_TIMEOUT_MS * 2, // IaC takes a bit longer
+        "Infrastructure Predictor"
+      );
+      architecture = { status: "success", data: iacForecast };
+    } catch (err) {
+      logger.error({ requestId, msg: "Infrastructure Predictor failed", err });
+      architecture = { status: "failed", error: String(err), data: null };
+    }
+  }
+
   // ── Determine overall pipeline health ────────────────────────────────────
   const overallStatus =
     sentinel.status === "success" &&
-    fortress.status === "success" &&
-    cortex.status === "success"
+      fortress.status === "success" &&
+      cortex.status === "success"
       ? "healthy"
       : "degraded";
 

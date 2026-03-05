@@ -198,6 +198,7 @@ export interface DashboardRepo {
   commit_sparkline: number[];
   commit_trend_label: string;
   commit_trend_direction: 'up' | 'down' | 'volatile';
+  installed_at?: string;
 }
 
 export interface DashboardResponse {
@@ -248,6 +249,7 @@ export interface RepoDetail {
   commit_trend_label?: string;
   commit_trend_direction?: 'up' | 'down' | 'flat';
   commit_by_month?: { month: string; count: number; days: number[] }[];
+  installed_at?: string;
 }
 
 export const getRepo = (repoId: string): Promise<RepoDetail> =>

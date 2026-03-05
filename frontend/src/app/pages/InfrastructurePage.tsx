@@ -250,6 +250,39 @@ export function InfrastructurePage() {
     <div className={`${themeClass} w-full h-full`}>
       <style>
         {`
+          /* ── CTA Button – lift + ripple-after animation (colours unchanged) ── */
+          .cta-btn {
+            position: relative;
+            transition: transform 0.2s, box-shadow 0.2s;
+            overflow: visible;
+          }
+          .cta-btn:disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+          .cta-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+          }
+          .cta-btn:active {
+            transform: translateY(-1px);
+            box-shadow: 0 5px 10px rgba(0, 0, 0, 0.2);
+          }
+          .cta-btn::after {
+            content: '';
+            display: inline-block;
+            height: 100%;
+            width: 100%;
+            border-radius: inherit;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: -1;
+            background-color: var(--cta-primary, #6366f1);
+            transition: transform 0.4s, opacity 0.4s;
+          }
+          .cta-btn:hover::after {
+            transform: scaleX(1.4) scaleY(1.6);
+            opacity: 0;
+          }
+
           .custom-scrollbar::-webkit-scrollbar {
             width: 6px;
             height: 6px;
@@ -274,7 +307,7 @@ export function InfrastructurePage() {
       </style>
 
       {/* ΓöÇΓöÇ App Shell: viewport-locked, no page scroll ΓöÇΓöÇ */}
-      <div className="w-full h-screen flex flex-col overflow-hidden bg-zinc-50 dark:bg-[#010308] font-['Geist_Sans',_'Inter',_sans-serif] transition-colors duration-300 relative">
+      <div className="w-full h-screen flex flex-col overflow-hidden bg-zinc-50 dark:bg-[#010308] font-['JetBrains_Mono',_monospace] transition-colors duration-300 relative">
 
         {/* Dark Mode Radial & Noise Overlays */}
         {isDarkMode && (
@@ -343,7 +376,7 @@ export function InfrastructurePage() {
             {/* Right ΓÇô Actions */}
             <div className="flex items-center gap-2">
               <button
-                className="hidden sm:flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg"
+                className="cta-btn hidden sm:flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{ backgroundColor: 'var(--cta-primary)', color: 'var(--cta-text)' }}
                 title="Analyse real code files to predict AWS infrastructure"
                 onClick={analyseInfrastructure}
@@ -886,7 +919,7 @@ export function InfrastructurePage() {
                   <button
                     onClick={analyseInfrastructure}
                     disabled={isInfraLoading}
-                    className="mt-2 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-[12px] font-semibold transition-all hover:shadow-lg disabled:opacity-50"
+                    className="cta-btn mt-2 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-[12px] font-semibold disabled:opacity-50"
                     style={{ backgroundColor: 'var(--cta-primary)', color: 'var(--cta-text)' }}
                   >
                     <CloudCog className="w-4 h-4" />

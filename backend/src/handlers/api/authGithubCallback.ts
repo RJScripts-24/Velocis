@@ -118,19 +118,6 @@ export const handler = async (
             ...(tokenResult.userLogin && { username: tokenResult.userLogin }),
         };
 
-        await dynamoClient.upsert({
-            tableName: DYNAMO_TABLES.USERS,
-            item: userRecord,
-            key: "userId",
-        });
-
-        logger.info({
-            requestId,
-            msg: "authGithubCallback: user record upserted",
-            userId: tokenResult.userId,
-            isNewUser: !existingUser,
-        });
-
         // ── Step 3: Generate a session token (opaque token for the frontend) ───────
         // The frontend uses this session token in subsequent API calls.
         // We store a hash of it in DynamoDB so we can validate it server-side.
@@ -144,20 +131,35 @@ export const handler = async (
             Date.now() + SESSION_COOKIE_MAX_AGE_SECONDS * 1000
         ).toISOString();
 
-        // Store session hash in DynamoDB (keyed by userId, namespaced with prefix)
-        await dynamoClient.upsert({
-            tableName: DYNAMO_TABLES.USERS,
-            item: {
-                userId: `session_${sessionTokenHash}`,  // Namespaced session record
-                githubId: tokenResult.userId,
-                userLogin: tokenResult.userLogin,
-                type: "session",
-                expiresAt: sessionExpiresAt,
-                ttl: Math.floor(Date.now() / 1000) + SESSION_COOKIE_MAX_AGE_SECONDS,
-                createdAt: now,
-                updatedAt: now,
-            },
-            key: "userId",
+        // Run user upsert and session write in parallel — they are independent
+        await Promise.all([
+            dynamoClient.upsert({
+                tableName: DYNAMO_TABLES.USERS,
+                item: userRecord,
+                key: "userId",
+            }),
+            // Store session hash in DynamoDB (keyed by userId, namespaced with prefix)
+            dynamoClient.upsert({
+                tableName: DYNAMO_TABLES.USERS,
+                item: {
+                    userId: `session_${sessionTokenHash}`,  // Namespaced session record
+                    githubId: tokenResult.userId,
+                    userLogin: tokenResult.userLogin,
+                    type: "session",
+                    expiresAt: sessionExpiresAt,
+                    ttl: Math.floor(Date.now() / 1000) + SESSION_COOKIE_MAX_AGE_SECONDS,
+                    createdAt: now,
+                    updatedAt: now,
+                },
+                key: "userId",
+            }),
+        ]);
+
+        logger.info({
+            requestId,
+            msg: "authGithubCallback: user record upserted",
+            userId: tokenResult.userId,
+            isNewUser: !existingUser,
         });
 
         // ── Step 4: Set session cookie and redirect to dashboard ───────────────────

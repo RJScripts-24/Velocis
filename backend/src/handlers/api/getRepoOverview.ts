@@ -295,6 +295,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     commit_sparkline: commitByMonth.map((m) => m.count),
     commit_trend_label: trendLabel || repo.commitTrendLabel || "",
     commit_trend_direction: trendDirection || repo.commitTrendDirection || "flat",
+    installed_at: repo.createdAt || repo.updatedAt || repo.lastProcessedAt || repo.lastPushAt || repo.lastScannedAt || lastActionAt,
   });
 };
 

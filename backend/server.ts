@@ -38,6 +38,10 @@ import * as predictInfrastructure from "./src/handlers/api/predictInfrastructure
 import * as rebuildCortex from "./src/handlers/api/rebuildCortex";
 import * as getCortexServiceFiles from "./src/handlers/api/getCortexServiceFiles";
 import * as deleteRepo from "./src/handlers/api/deleteRepo";
+import * as getAutomationReport from "./src/handlers/api/getAutomationReport";
+import * as updateRepoSettings from "./src/handlers/api/updateRepoSettings";
+import * as getRepoSettings from "./src/handlers/api/getRepoSettings";
+import * as triggerAutomation from "./src/handlers/api/triggerAutomation";
 
 // ── App setup ────────────────────────────────────────────────────────────────
 const app = express();
@@ -244,6 +248,13 @@ app.get("/api/dashboard", wrap(getDashboard.handler as LambdaHandler));
 app.get("/api/repos/:repoId", wrap(getRepoOverview.handler as LambdaHandler));
 // § 6b — Delete repo
 app.delete("/api/repos/:repoId", wrap(deleteRepo.handler as LambdaHandler));
+// § 6c — Automation settings
+app.get("/api/repos/:repoId/settings", wrap(getRepoSettings.handler as LambdaHandler));
+app.post("/api/repos/:repoId/settings", wrap(updateRepoSettings.handler as LambdaHandler));
+// § 6d — Automation Report
+app.get("/api/repos/:repoId/automation-report", wrap(getAutomationReport.handler as LambdaHandler));
+app.post("/api/repos/:repoId/trigger-automation", wrap(triggerAutomation.handler as LambdaHandler));
+
 
 // § 7 — Sentinel agent
 app.get("/api/repos/:repoId/sentinel/prs", wrap(getSentinelData.listPrs as LambdaHandler));

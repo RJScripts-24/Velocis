@@ -1,6 +1,6 @@
 /**
  * predictInfrastructure.ts
- * Velocis — Infrastructure View: IaC Predictor
+ * Velocis - Infrastructure View: IaC Predictor
  *
  * Route:
  *   POST /api/infrastructure/predict
@@ -9,9 +9,9 @@
  * on AWS Bedrock via the ConverseCommand API, and returns a structured JSON
  * response containing:
  *   - impactSummary   (string[])
- *   - iacCode         (string — Terraform HCL)
+ *   - iacCode         (string - Terraform HCL)
  *   - costProjection  (string)
- *   - confidenceScore (number 0–100)
+ *   - confidenceScore (number 0-100)
  */
 
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
@@ -24,9 +24,12 @@ import { logger } from "../../utils/logger";
 import { logActivity } from "../../utils/activityLogger";
 import { BEDROCK_MODELS } from "../../services/aws/bedrockClient";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// BEDROCK CLIENT  (us-east-1, default credentials)
-// ─────────────────────────────────────────────────────────────────────────────
+export interface InfrastructurePredictionData {
+  impactSummary: string[];
+  iacCode: string;
+  costProjection: string;
+  confidenceScore: number;
+}
 
 let _client: BedrockRuntimeClient | null = null;
 
@@ -38,10 +41,6 @@ function getClient(): BedrockRuntimeClient {
   return _client;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SYSTEM PROMPT
-// ─────────────────────────────────────────────────────────────────────────────
-
 const SYSTEM_PROMPT = `Develop, an elite AWS Cloud Architect. Analyze the provided application code and determine the exact AWS serverless infrastructure required to deploy it. You MUST respond ONLY with a valid JSON object. Do not include markdown code blocks or any conversational text. The JSON object must have exactly these four keys:
 
 impactSummary: An array of short strings describing changes (e.g., ['+ 1 Lambda Function', '~ 1 IAM Role modified', '+ 1 DynamoDB Table']).
@@ -52,28 +51,84 @@ costProjection: A short string estimating the monthly AWS cost (e.g., '$0.00/mon
 
 confidenceScore: An integer between 0 and 100 representing how confident you are in this architecture.`;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// UTILITY: Strip markdown JSON wrappers
-// ─────────────────────────────────────────────────────────────────────────────
-
 function stripMarkdownJson(text: string): string {
-  // Remove ```json ... ``` or ``` ... ``` wrappers
   let cleaned = text.trim();
   cleaned = cleaned.replace(/^```(?:json)?\s*/i, "");
   cleaned = cleaned.replace(/\s*```\s*$/, "");
   return cleaned.trim();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// HANDLER: POST /api/infrastructure/predict
-// ─────────────────────────────────────────────────────────────────────────────
+function parsePredictionResponse(rawText: string): InfrastructurePredictionData {
+  const cleaned = stripMarkdownJson(rawText);
+  const parsed = JSON.parse(cleaned) as Partial<InfrastructurePredictionData>;
+
+  return {
+    impactSummary: Array.isArray(parsed.impactSummary) ? parsed.impactSummary.map(String) : [],
+    iacCode: typeof parsed.iacCode === "string" ? parsed.iacCode : "",
+    costProjection: typeof parsed.costProjection === "string" ? parsed.costProjection : "",
+    confidenceScore:
+      typeof parsed.confidenceScore === "number"
+        ? parsed.confidenceScore
+        : Number(parsed.confidenceScore ?? 0),
+  };
+}
+
+export async function predictInfrastructureFromCodeContent(
+  codeContent: string
+): Promise<InfrastructurePredictionData> {
+  const command = new ConverseCommand({
+    modelId: BEDROCK_MODELS.DEEPSEEK_V3,
+    system: [{ text: SYSTEM_PROMPT }],
+    messages: [
+      {
+        role: "user",
+        content: [{ text: codeContent }],
+      },
+    ],
+    inferenceConfig: {
+      maxTokens: 8000,
+      temperature: 0.1,
+    },
+  });
+
+  logger.info({
+    msg: "IaC Predictor: sending ConverseCommand",
+    model: BEDROCK_MODELS.DEEPSEEK_V3,
+    codeContentLength: codeContent.length,
+  });
+
+  const response = await getClient().send(command);
+  const rawText = response.output?.message?.content?.[0]?.text ?? "";
+
+  if (!rawText) {
+    throw new Error("AI returned an empty response.");
+  }
+
+  logger.info({
+    msg: "IaC Predictor: response received",
+    stopReason: response.stopReason,
+    inputTokens: response.usage?.inputTokens,
+    outputTokens: response.usage?.outputTokens,
+    rawTextLength: rawText.length,
+  });
+
+  try {
+    return parsePredictionResponse(rawText);
+  } catch (parseErr) {
+    logger.error({
+      msg: "IaC Predictor: failed to parse AI response as JSON",
+      rawText: rawText.slice(0, 500),
+      error: String(parseErr),
+    });
+    throw new Error("AI response was not valid JSON.");
+  }
+}
 
 export const handler = async (
   event: APIGatewayProxyEvent
 ): Promise<APIGatewayProxyResult> => {
   if (event.httpMethod === "OPTIONS") return preflight();
 
-  // ── Parse request body ─────────────────────────────────────────────────
   let body: { codeContent?: string } = {};
   try {
     if (event.body) body = JSON.parse(event.body);
@@ -86,89 +141,35 @@ export const handler = async (
     return errors.badRequest("Missing or empty 'codeContent' in request body.");
   }
 
-  // ── Call Bedrock via ConverseCommand ────────────────────────────────────
   try {
-    const command = new ConverseCommand({
-      modelId: BEDROCK_MODELS.DEEPSEEK_V3,
-      system: [{ text: SYSTEM_PROMPT }],
-      messages: [
-        {
-          role: "user",
-          content: [{ text: codeContent }],
-        },
-      ],
-      inferenceConfig: {
-        maxTokens: 8000,
-        temperature: 0.1,
-      },
-    });
+    const parsed = await predictInfrastructureFromCodeContent(codeContent);
 
-    logger.info({
-      msg: "IaC Predictor: sending ConverseCommand",
-      model: BEDROCK_MODELS.DEEPSEEK_V3,
-      codeContentLength: codeContent.length,
-    });
-
-    const response = await getClient().send(command);
-
-    // ── Extract the text response ──────────────────────────────────────
-    const rawText =
-      response.output?.message?.content?.[0]?.text ?? "";
-
-    if (!rawText) {
-      logger.error({ msg: "IaC Predictor: empty response from Bedrock" });
-      return errors.internal("AI returned an empty response. Please try again.");
-    }
-
-    logger.info({
-      msg: "IaC Predictor: response received",
-      stopReason: response.stopReason,
-      inputTokens: response.usage?.inputTokens,
-      outputTokens: response.usage?.outputTokens,
-      rawTextLength: rawText.length,
-    });
-
-    // ── Parse JSON (strip markdown wrappers if present) ────────────────
-    const cleaned = stripMarkdownJson(rawText);
-    let parsed: {
-      impactSummary: string[];
-      iacCode: string;
-      costProjection: string;
-      confidenceScore: number;
-    };
-
-    try {
-      parsed = JSON.parse(cleaned);
-    } catch (parseErr) {
-      logger.error({
-        msg: "IaC Predictor: failed to parse AI response as JSON",
-        rawText: rawText.slice(0, 500),
-        error: String(parseErr),
-      });
-      return errors.internal(
-        "AI response was not valid JSON. Please try again."
-      );
-    }
-
-    // ── Log activity for the dashboard ─────────────────────────────────
     logActivity({
       userId: "system",
       repoId: "infrastructure",
       agent: "predictor",
-      message: `Infrastructure predicted — confidence ${parsed.confidenceScore}%, cost: ${parsed.costProjection}`,
+      message: `Infrastructure predicted - confidence ${parsed.confidenceScore}%, cost: ${parsed.costProjection}`,
       severity: "info",
     });
 
-    // ── Return structured response ─────────────────────────────────────
     return ok({ status: "success", data: parsed });
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+
+    if (message.includes("empty response")) {
+      return errors.internal("AI returned an empty response. Please try again.");
+    }
+
+    if (message.includes("valid JSON")) {
+      return errors.internal("AI response was not valid JSON. Please try again.");
+    }
+
     logger.error({
       msg: "IaC Predictor: Bedrock invocation failed",
-      error: err instanceof Error ? err.message : String(err),
+      error: message,
       stack: err instanceof Error ? err.stack : undefined,
     });
-    return errors.internal(
-      "Infrastructure prediction failed. Please try again later."
-    );
+
+    return errors.internal("Infrastructure prediction failed. Please try again later.");
   }
 };
