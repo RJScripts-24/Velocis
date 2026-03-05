@@ -198,7 +198,7 @@ function PipelineProgressPanel({
     const pct = Math.round((completedCount / normalized.steps.length) * 100);
 
     return (
-        <div className="w-full max-w-2xl mx-auto">
+        <div className="w-full">
             <style>{`
                 @keyframes shimmer-scan {
                     0%   { transform: translateX(-150%); }
@@ -208,9 +208,9 @@ function PipelineProgressPanel({
                     0%   { transform: scale(1); opacity: 0.6; }
                     100% { transform: scale(1.8); opacity: 0; }
                 }
-                @keyframes travel-stripe {
-                    0%   { top: -24px; }
-                    100% { top: 100%; }
+                @keyframes travel-dash-h {
+                    0%   { stroke-dashoffset: 14; }
+                    100% { stroke-dashoffset: -100; }
                 }
                 @keyframes blink-seq {
                     0%, 70%, 100% { opacity: 1; }
@@ -243,6 +243,14 @@ function PipelineProgressPanel({
                 .blink-dot { animation: blink-seq 1.4s ease-in-out infinite; }
                 .blink-dot:nth-child(2) { animation-delay: 0.22s; }
                 .blink-dot:nth-child(3) { animation-delay: 0.44s; }
+                .conn-track { stroke: #d4d4d8; }
+                .conn-track-done { stroke: #34d399; }
+                .dark .conn-track { stroke: #3f3f46; }
+                .dark .conn-track-done { stroke: #10b981; }
+                .conn-run-path {
+                    stroke: #6366f1;
+                    animation: travel-dash-h 1.5s ease-in-out infinite;
+                }
             `}</style>
 
             {/* Header */}
@@ -270,94 +278,126 @@ function PipelineProgressPanel({
                 </div>
             </div>
 
-            {/* Step list */}
+            {/* Step pipeline — horizontal left-to-right */}
             <div>
-                {normalized.steps.map((step, index) => {
-                    const meta = PIPELINE_META[step.key];
-                    const Icon = meta.icon;
-                    const isRunning   = step.status === 'running';
-                    const isCompleted = step.status === 'completed' || step.status === 'skipped';
-                    const isFailed    = step.status === 'failed';
-                    const isPending   = step.status === 'pending';
-                    const isLast      = index === normalized.steps.length - 1;
+                <div>
 
-                    return (
-                        <div key={step.key} className="flex gap-4">
-                            {/* ─ icon + connector ─ */}
-                            <div className="flex flex-col items-center" style={{ width: 48, minWidth: 48 }}>
-                                <div className={`relative w-12 h-12 rounded-[14px] flex items-center justify-center shrink-0 border-[1.5px] transition-colors duration-300 ${
-                                    isFailed    ? 'bg-rose-50 dark:bg-rose-900/20 border-rose-300 dark:border-rose-700 text-rose-600 dark:text-rose-400' :
-                                    isRunning   ? 'bg-white dark:bg-zinc-900 border-indigo-400 dark:border-indigo-600 text-indigo-600 dark:text-indigo-400 shadow-[0_0_0_3px_rgba(99,102,241,0.12)]' :
-                                    isCompleted ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-400 dark:border-emerald-600 text-emerald-600 dark:text-emerald-400' :
-                                                  'bg-zinc-50 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-400 dark:text-zinc-500'
-                                }`}>
-                                    {isCompleted ? <Check className="w-5 h-5" strokeWidth={2.5} /> :
-                                     isFailed    ? <X     className="w-5 h-5" strokeWidth={2.5} /> :
-                                                   <Icon  className="w-5 h-5" />}
-                                    {isRunning && <span className="pipe-ring" />}
-                                </div>
+                    {/* ── Icon row with curved SVG connectors ── */}
+                    <div className="flex items-center w-full">
+                        {normalized.steps.map((step, index) => {
+                            const meta      = PIPELINE_META[step.key];
+                            const Icon      = meta.icon;
+                            const isRunning   = step.status === 'running';
+                            const isCompleted = step.status === 'completed' || step.status === 'skipped';
+                            const isFailed    = step.status === 'failed';
+                            const isLast      = index === normalized.steps.length - 1;
 
-                                {!isLast && (
-                                    <div className="relative w-[2px] flex-1 min-h-10 my-2 bg-zinc-200 dark:bg-zinc-700 rounded-full overflow-hidden">
-                                        {isCompleted && (
-                                            <div className="absolute inset-0 bg-emerald-400 dark:bg-emerald-500 rounded-full" />
-                                        )}
-                                        {isRunning && (
-                                            <>
-                                                <div className="absolute inset-0 bg-indigo-200 dark:bg-indigo-800/40 rounded-full" />
-                                                <div
-                                                    className="absolute w-full h-6 rounded-full bg-indigo-500 dark:bg-indigo-400"
-                                                    style={{ animation: 'travel-stripe 1.5s ease-in-out infinite' }}
-                                                />
-                                            </>
-                                        )}
+                            return (
+                                <React.Fragment key={step.key}>
+                                    {/* Icon node */}
+                                    <div className="flex-1 flex justify-center">
+                                        <div className={`relative w-12 h-12 rounded-[14px] flex items-center justify-center shrink-0 border-[1.5px] transition-colors duration-300 ${
+                                            isFailed    ? 'bg-rose-50 dark:bg-rose-900/20 border-rose-300 dark:border-rose-700 text-rose-600 dark:text-rose-400' :
+                                            isRunning   ? 'bg-white dark:bg-zinc-900 border-indigo-400 dark:border-indigo-600 text-indigo-600 dark:text-indigo-400 shadow-[0_0_0_3px_rgba(99,102,241,0.12)]' :
+                                            isCompleted ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-400 dark:border-emerald-600 text-emerald-600 dark:text-emerald-400' :
+                                                          'bg-zinc-50 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-400 dark:text-zinc-500'
+                                        }`}>
+                                            {isCompleted ? <Check className="w-5 h-5" strokeWidth={2.5} /> :
+                                             isFailed    ? <X     className="w-5 h-5" strokeWidth={2.5} /> :
+                                                           <Icon  className="w-5 h-5" />}
+                                            {isRunning && <span className="pipe-ring" />}
+                                        </div>
                                     </div>
-                                )}
-                            </div>
 
-                            {/* ─ step card ─ */}
-                            <div className={`flex-1 min-w-0 ${isLast ? '' : 'pb-4'}`}>
-                                <div className={`relative rounded-xl border px-4 py-3.5 transition-colors duration-300 ${
-                                    isFailed    ? 'border-rose-200 dark:border-rose-800/40 bg-rose-50/50 dark:bg-rose-900/10' :
-                                    isRunning   ? 'border-indigo-200 dark:border-indigo-700/50 bg-indigo-50/60 dark:bg-indigo-900/15 pipe-shimmer' :
-                                    isCompleted ? 'border-emerald-200/60 dark:border-emerald-800/25 bg-emerald-50/30 dark:bg-emerald-900/10' :
-                                                  'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900'
-                                }`}>
-                                    <div className="flex items-start justify-between gap-3">
-                                        <div className="min-w-0 flex-1">
-                                            <h3 className={`text-sm font-semibold mb-0.5 ${
+                                    {/* Curved SVG connector to next step */}
+                                    {!isLast && (
+                                        <div className="flex-shrink-0 flex items-center" style={{ width: 72 }}>
+                                            <svg viewBox="0 0 72 36" width={72} height={36} style={{ overflow: 'visible' }}>
+                                                {/* Base S-curve track */}
+                                                <path
+                                                    d="M 0,18 C 18,18 18,0 36,0 C 54,0 54,18 72,18"
+                                                    fill="none"
+                                                    strokeWidth="2"
+                                                    strokeLinecap="round"
+                                                    className={isCompleted ? 'conn-track-done' : 'conn-track'}
+                                                />
+                                                {/* Animated traveling dash for running step */}
+                                                {isRunning && (
+                                                    <path
+                                                        d="M 0,18 C 18,18 18,0 36,0 C 54,0 54,18 72,18"
+                                                        fill="none"
+                                                        strokeWidth="3"
+                                                        strokeLinecap="round"
+                                                        pathLength={100}
+                                                        strokeDasharray="12 988"
+                                                        className="conn-run-path"
+                                                    />
+                                                )}
+                                            </svg>
+                                        </div>
+                                    )}
+                                </React.Fragment>
+                            );
+                        })}
+                    </div>
+
+                    {/* ── Card row aligned under icons ── */}
+                    <div className="flex items-start w-full mt-4">
+                        {normalized.steps.map((step, index) => {
+                            const meta = PIPELINE_META[step.key];
+                            const isRunning   = step.status === 'running';
+                            const isCompleted = step.status === 'completed' || step.status === 'skipped';
+                            const isFailed    = step.status === 'failed';
+                            const isPending   = step.status === 'pending';
+                            const isLast      = index === normalized.steps.length - 1;
+
+                            return (
+                                <React.Fragment key={step.key}>
+                                    <div className="flex-1 min-w-0 px-1">
+                                        <div className={`relative rounded-xl border px-3 py-3 transition-colors duration-300 ${
+                                            isFailed    ? 'border-rose-200 dark:border-rose-800/40 bg-rose-50/50 dark:bg-rose-900/10' :
+                                            isRunning   ? 'border-indigo-200 dark:border-indigo-700/50 bg-indigo-50/60 dark:bg-indigo-900/15 pipe-shimmer' :
+                                            isCompleted ? 'border-emerald-200/60 dark:border-emerald-800/25 bg-emerald-50/30 dark:bg-emerald-900/10' :
+                                                          'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900'
+                                        }`}>
+                                            <h3 className={`text-[11px] font-semibold leading-snug mb-1 ${
                                                 isPending ? 'text-zinc-400 dark:text-zinc-500' : 'text-zinc-900 dark:text-zinc-100'
                                             }`}>
                                                 {step.label || meta.label}
                                             </h3>
-                                            <p className={`text-xs leading-relaxed ${
+                                            <p className={`text-[10px] leading-relaxed ${
                                                 isPending ? 'text-zinc-400 dark:text-zinc-600' : 'text-zinc-500 dark:text-zinc-400'
                                             }`}>
                                                 {step.detail || meta.detail}
                                             </p>
-                                            {isRunning && (
-                                                <div className="flex items-center gap-1.5 mt-2.5">
-                                                    <span className="blink-dot inline-block w-[5px] h-[5px] rounded-full bg-indigo-500 dark:bg-indigo-400" />
-                                                    <span className="blink-dot inline-block w-[5px] h-[5px] rounded-full bg-indigo-500 dark:bg-indigo-400" />
-                                                    <span className="blink-dot inline-block w-[5px] h-[5px] rounded-full bg-indigo-500 dark:bg-indigo-400" />
-                                                    <span className="ml-1 text-[11px] font-medium text-indigo-500 dark:text-indigo-400">Processing</span>
-                                                </div>
-                                            )}
+                                            <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                                                <span className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-md ${
+                                                    isFailed    ? 'text-rose-700 dark:text-rose-300 bg-rose-100 dark:bg-rose-900/40' :
+                                                    isRunning   ? 'text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-900/40' :
+                                                    isCompleted ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900/30' :
+                                                                  'text-zinc-400 dark:text-zinc-500 bg-zinc-100 dark:bg-zinc-800'
+                                                }`}>
+                                                    {STATUS_LABELS[step.status]}
+                                                </span>
+                                                {isRunning && (
+                                                    <div className="flex items-center gap-1">
+                                                        <span className="blink-dot inline-block w-[4px] h-[4px] rounded-full bg-indigo-500 dark:bg-indigo-400" />
+                                                        <span className="blink-dot inline-block w-[4px] h-[4px] rounded-full bg-indigo-500 dark:bg-indigo-400" />
+                                                        <span className="blink-dot inline-block w-[4px] h-[4px] rounded-full bg-indigo-500 dark:bg-indigo-400" />
+                                                        <span className="ml-0.5 text-[9px] font-medium text-indigo-500 dark:text-indigo-400">Processing</span>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
-                                        <span className={`shrink-0 text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-md ${
-                                            isFailed    ? 'text-rose-700 dark:text-rose-300 bg-rose-100 dark:bg-rose-900/40' :
-                                            isRunning   ? 'text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-900/40' :
-                                            isCompleted ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900/30' :
-                                                          'text-zinc-400 dark:text-zinc-500 bg-zinc-100 dark:bg-zinc-800'
-                                        }`}>
-                                            {STATUS_LABELS[step.status]}
-                                        </span>
                                     </div>
-                                </div>
-                            </div>
-                        </div>
-                    );
-                })}
+                                    {/* Spacer matching connector width */}
+                                    {!isLast && <div className="flex-shrink-0" style={{ width: 72 }} />}
+                                </React.Fragment>
+                            );
+                        })}
+                    </div>
+
+                </div>
             </div>
         </div>
     );
@@ -615,14 +655,8 @@ export function AutomationReportPage() {
         return (
             <div className="w-full min-h-screen bg-[#f6f7fb] dark:bg-[#0A0A0E] text-zinc-900 dark:text-slate-100 font-['JetBrains_Mono',_monospace]">
                 <NavBar id={id} navigate={navigate} />
-                <div className="max-w-5xl mx-auto px-6 md:px-10 py-12">
-                    <PipelineProgressPanel
-                        status="running"
-                        progress={null}
-                        title="Loading Automation Report"
-                        subtitle="Syncing with backend pipeline state..."
-                        lastUpdatedAt={null}
-                    />
+                <div className="flex items-center justify-center py-32">
+                    <div className="w-6 h-6 rounded-full border-2 border-zinc-200 dark:border-zinc-700 border-t-indigo-500 animate-spin" />
                 </div>
             </div>
         );
@@ -644,7 +678,7 @@ export function AutomationReportPage() {
         return (
             <div className="w-full min-h-screen bg-[#f6f7fb] dark:bg-[#0A0A0E] text-zinc-900 dark:text-slate-100 font-['JetBrains_Mono',_monospace]">
                 <NavBar id={id} navigate={navigate} />
-                <div className="max-w-2xl mx-auto px-6 md:px-10 py-12 space-y-6">
+                <div className="w-full px-6 md:px-10 py-12 space-y-6">
                     <PipelineProgressPanel
                         status={report.status}
                         progress={report.progress}
@@ -671,7 +705,7 @@ export function AutomationReportPage() {
         return (
             <div className="w-full min-h-screen bg-[#f6f7fb] dark:bg-[#0A0A0E] text-zinc-900 dark:text-slate-100 font-['JetBrains_Mono',_monospace]">
                 <NavBar id={id} navigate={navigate} />
-                <div className="max-w-2xl mx-auto px-6 md:px-10 py-12 space-y-6">
+                <div className="w-full px-6 md:px-10 py-12 space-y-6">
                     <PipelineProgressPanel
                         status={report.status}
                         progress={report.progress}
