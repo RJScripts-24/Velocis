@@ -1296,14 +1296,14 @@ function CTA() {
                 </div>
                 <div className="flex flex-col gap-4">
                     <h4 className="font-bold text-textInverse">Product</h4>
-                    {['Sentinel Agent', 'Fortress Agent', 'Visual Cortex', 'Pricing', 'Changelog'].map(l => (
-                        <a key={l} href="#" className="text-textInverse/60 hover:text-primary transition-colors">{l}</a>
+                    {[{ label: 'Sentinel Agent', href: '#' }, { label: 'Fortress Agent', href: '#' }, { label: 'Visual Cortex', href: '#' }, { label: 'Pricing', href: '/pricing' }, { label: 'Changelog', href: '#' }].map(l => (
+                        <a key={l.label} href={l.href} target={l.href.startsWith('/') ? '_blank' : undefined} rel={l.href.startsWith('/') ? 'noopener noreferrer' : undefined} className="text-textInverse/60 hover:text-primary transition-colors">{l.label}</a>
                     ))}
                 </div>
                 <div className="flex flex-col gap-4">
                     <h4 className="font-bold text-textInverse">Resources</h4>
-                    {[{ label: 'Documentation', href: '#' }, { label: 'API Reference', href: '#' }, { label: 'Blog', href: '/blog' }, { label: 'System Status', href: '#' }].map(l => (
-                        <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer" className="text-textInverse/60 hover:text-primary transition-colors" onClick={(e) => { if (l.href.startsWith('/')) { e.preventDefault(); window.open(l.href, '_blank', 'noopener,noreferrer'); } }}>{l.label}</a>
+                    {[{ label: 'Documentation', href: '/documentation' }, { label: 'API Reference', href: '#' }, { label: 'Blog', href: '/blog' }, { label: 'System Status', href: '#' }].map(l => (
+                        <a key={l.label} href={l.href} target={l.href.startsWith('/') ? '_blank' : undefined} rel={l.href.startsWith('/') ? 'noopener noreferrer' : undefined} className="text-textInverse/60 hover:text-primary transition-colors">{l.label}</a>
                     ))}
                 </div>
                 <div className="flex flex-col gap-4">
