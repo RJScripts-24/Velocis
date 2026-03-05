@@ -343,7 +343,6 @@ export const listFiles = async (
 
   const path = event.queryStringParameters?.path ?? "/";
   const isRecursive = event.queryStringParameters?.recursive === "true";
-  const ref = event.queryStringParameters?.ref;  // optional branch/SHA
 
   let owner = event.headers?.["x-repo-owner"] ?? "";
   const headerName = event.headers?.["x-repo-name"] ?? "";
@@ -358,7 +357,7 @@ export const listFiles = async (
   }
 
   try {
-    const tree = await fetchRepoTree({ repoFullName: `${owner}/${name}`, token: user.githubToken, recursive: true, ...(ref && { ref }) });
+    const tree = await fetchRepoTree({ repoFullName: `${owner}/${name}`, token: user.githubToken, recursive: true });
     const dirPath = path === "/" ? "" : path.replace(/^\//, "");
 
     const files = tree
@@ -915,47 +914,3 @@ export const getChatHistory = async (
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// HANDLER: GET /repos/:repoId/workspace/branches
-// ─────────────────────────────────────────────────────────────────────────────
-
-export const listBranches = async (
-  event: APIGatewayProxyEvent
-): Promise<APIGatewayProxyResult> => {
-  if (event.httpMethod === "OPTIONS") return preflight();
-
-  const user = await resolveUser(event);
-  if (!user) return errors.unauthorized();
-
-  const repoId = event.pathParameters?.repoId;
-  if (!repoId) return errors.badRequest("Missing repoId.");
-
-  let owner = event.headers?.["x-repo-owner"] ?? "";
-  const headerName = event.headers?.["x-repo-name"] ?? "";
-  const name = headerName || (await resolveRepoName(repoId)) || repoId;
-
-  if (!owner) {
-    const inferredOwner = await getGitHubLogin(user.githubToken);
-    if (inferredOwner) owner = inferredOwner;
-    else return errors.badRequest("Missing x-repo-owner header and could not infer owner.");
-  }
-
-  try {
-    const res = await axios.get(
-      `https://api.github.com/repos/${owner}/${name}/branches?per_page=100`,
-      {
-        headers: {
-          Authorization: `Bearer ${user.githubToken}`,
-          "User-Agent": "Velocis-App",
-          Accept: "application/vnd.github+json",
-        },
-        timeout: 8000,
-      }
-    );
-    const branches: string[] = (res.data as any[]).map((b: any) => b.name as string);
-    return ok({ branches });
-  } catch (e: any) {
-    logger.error({ repoId, msg: "listBranches failed", error: e?.message });
-    return errors.internal("Failed to list repository branches.");
-  }
-};

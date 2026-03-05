@@ -467,19 +467,6 @@ Resources:
             Path:   /repos/{repoId}/workspace/chat/history
             Method: GET
 
-  WorkspaceListBranchesFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      Handler:     src/handlers/api/getWorkspaceData.listBranches
-      Description: GET /repos/:repoId/workspace/branches
-      Events:
-        Api:
-          Type: Api
-          Properties:
-            RestApiId: !Ref VelocisApi
-            Path:   /repos/{repoId}/workspace/branches
-            Method: GET
-
   # ──────────────────────────────────────────────────────────────────────────
   # § 11 — INFRASTRUCTURE / IaC PREDICTOR
   # ──────────────────────────────────────────────────────────────────────────

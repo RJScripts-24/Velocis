@@ -2,10 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ChevronDown, Shield, Send, Paperclip, FileCode, Sun, Moon, AlertCircle, Lightbulb, Info, Home, Folder, Sparkles, Zap, CheckCircle2, Activity, Search, History, Clock, MessageSquare, Plus, GitBranch } from 'lucide-react';
+import { ChevronDown, Shield, Send, Paperclip, FileCode, Sun, Moon, AlertCircle, Lightbulb, Info, Home, Folder, Sparkles, Zap, CheckCircle2, Activity, Search, History, Clock, MessageSquare, Plus } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router';
 import Editor from '@monaco-editor/react';
-import { getWorkspaceFiles, WorkspaceFile, getFileContent, getAnnotations, postChatMessage, getChatHistory, reviewWorkspaceCode, getRepoBranches, getRepo } from '../../lib/api';
+import { getWorkspaceFiles, WorkspaceFile, getFileContent, getAnnotations, postChatMessage, getChatHistory, reviewWorkspaceCode, getRepo } from '../../lib/api';
 import { useTheme } from '../../lib/theme';
 import { translateText } from '../../lib/translate';
 import lightLogoImg from '../../../LightLogo.png';
@@ -168,9 +168,6 @@ export function WorkspacePage() {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [allHistoryMessages, setAllHistoryMessages] = useState<Message[]>([]);
   const [repoName, setRepoName] = useState<string>('');
-  const [branches, setBranches] = useState<string[]>([]);
-  const [selectedBranch, setSelectedBranch] = useState<string>('main');
-  const [isBranchDropdownOpen, setIsBranchDropdownOpen] = useState(false);
 
   // Dark mode state
   const { isDarkMode, setIsDarkMode } = useTheme();
@@ -182,16 +179,8 @@ export function WorkspacePage() {
   useEffect(() => {
     if (!id) return;
 
-    // Fetch repo name and available branches
+    // Fetch repo name
     getRepo(id).then(r => setRepoName(r.name)).catch(() => {});
-    getRepoBranches(id).then(r => {
-      if (r.branches.length > 0) {
-        setBranches(r.branches);
-        // Default to 'main' or 'master' if available, otherwise first branch
-        const defaultBranch = r.branches.find(b => b === 'main') ?? r.branches.find(b => b === 'master') ?? r.branches[0];
-        if (defaultBranch) setSelectedBranch(defaultBranch);
-      }
-    }).catch(() => {});
 
     // Immediately restore cached messages so history is visible before API returns
     try {
@@ -270,31 +259,14 @@ export function WorkspacePage() {
       .catch(console.error);
   }, [id]);
 
-  // Reload file tree when branch changes
-  useEffect(() => {
-    if (!id || !selectedBranch) return;
-    getWorkspaceFiles(id, '/', true, selectedBranch)
-      .then((wsRes) => {
-        const files = wsRes.files.filter(f => f.type === 'file');
-        setAllFiles(files);
-        const firstFile = files[0]?.path;
-        if (firstFile) {
-          setSelectedFile(firstFile);
-          getFileContent(id, firstFile, selectedBranch).then(r => setCodeContent(r.content)).catch(() => setCodeContent('// Failed to load file'));
-          getAnnotations(id, firstFile, selectedBranch).then(r => setAnnotations(r.annotations.map(a => ({ line: a.line, type: a.type, message: `${a.title}: ${a.message}` })))).catch(() => setAnnotations([]));
-        }
-      })
-      .catch(() => {});
-  }, [id, selectedBranch]); // eslint-disable-line react-hooks/exhaustive-deps
-
   const loadFile = async (filePath: string) => {
     if (!id || filePath === selectedFile) return;
     setIsLoadingFile(true);
     setSelectedFile(filePath);
     try {
       const [fileRes, annotRes] = await Promise.all([
-        getFileContent(id, filePath, selectedBranch).catch(() => null),
-        getAnnotations(id, filePath, selectedBranch).catch(() => null)
+        getFileContent(id, filePath).catch(() => null),
+        getAnnotations(id, filePath).catch(() => null)
       ]);
       if (fileRes) setCodeContent(fileRes.content);
       else setCodeContent('// Failed to load file content');
@@ -573,50 +545,12 @@ export function WorkspacePage() {
               </div>
             </div>
 
-            {/* Center - Branch selector + File Context */}
+            {/* Center - File Context */}
             <div className="relative hidden md:flex items-center justify-center gap-2">
-              {/* Branch Selector */}
-              {branches.length > 0 && (
-                <div className="relative">
-                  <button
-                    onClick={() => { setIsBranchDropdownOpen(!isBranchDropdownOpen); setIsDropdownOpen(false); }}
-                    className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-700 shadow-sm hover:shadow-md transition-all font-['JetBrains_Mono',_monospace] text-xs font-semibold text-zinc-700 dark:text-slate-300 group"
-                  >
-                    <GitBranch className="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400 group-hover:text-emerald-600 dark:group-hover:text-emerald-300 transition-colors" />
-                    <span className="truncate max-w-[120px]">{selectedBranch}</span>
-                    <ChevronDown className={`w-3.5 h-3.5 text-zinc-400 dark:text-slate-500 transition-transform duration-200 ${isBranchDropdownOpen ? 'rotate-180' : ''}`} />
-                  </button>
-                  <AnimatePresence>
-                    {isBranchDropdownOpen && (
-                      <motion.div
-                        initial={{ opacity: 0, y: 5 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: 5 }}
-                        transition={{ duration: 0.15 }}
-                        className="absolute top-full mt-2 left-0 min-w-[180px] bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden z-[100]"
-                      >
-                        <div className="max-h-[240px] overflow-y-auto p-1 scrollbar-thin scrollbar-thumb-zinc-200 dark:scrollbar-thumb-slate-700">
-                          {branches.map(b => (
-                            <button
-                              key={b}
-                              onClick={() => { setSelectedBranch(b); setIsBranchDropdownOpen(false); }}
-                              className={`w-full text-left px-3 py-2 flex items-center gap-2 text-xs font-['JetBrains_Mono',_monospace] hover:bg-zinc-50 dark:hover:bg-slate-800 rounded-md transition-colors ${selectedBranch === b ? 'bg-emerald-50/50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-semibold' : 'text-zinc-600 dark:text-slate-400'}`}
-                            >
-                              <GitBranch className="w-3 h-3 opacity-60 shrink-0" />
-                              <span className="truncate">{b}</span>
-                            </button>
-                          ))}
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              )}
-
               {/* File Picker */}
               <div className="relative">
               <button
-                onClick={() => { setIsDropdownOpen(!isDropdownOpen); setIsBranchDropdownOpen(false); }}
+                onClick={() => { setIsDropdownOpen(!isDropdownOpen); }}
                 className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-700 shadow-sm hover:shadow-md transition-all font-['JetBrains_Mono',_monospace] text-xs font-semibold text-zinc-700 dark:text-slate-300 group"
               >
                 <FileCode className="w-4 h-4 text-indigo-500 dark:text-indigo-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors" />
