@@ -21,7 +21,11 @@ import { getUserToken } from "../../services/github/auth";
 import { repoOps } from "../../services/github/repoOps";
 import { analyzeLogic } from "../../functions/sentinel/analyzeLogic";
 import { generateQATestPlan } from "../../functions/fortress/analyzeFortress";
-import { generateIac } from "../../functions/predictor/generateIac";
+import { generateIac, type IacGenerationResult } from "../../functions/predictor/generateIac";
+import {
+    predictInfrastructureFromCodeContent,
+    type InfrastructurePredictionData,
+} from "./predictInfrastructure";
 import axios from "axios";
 
 const JWT_SECRET = process.env.JWT_SECRET ?? "changeme-in-production";
@@ -85,6 +89,94 @@ function isReviewableFile(filePath: string): boolean {
     const ext = "." + (filePath.split(".").pop() ?? "");
     if (!REVIEWABLE_EXTENSIONS.has(ext)) return false;
     return !SKIP_PATTERNS.some((p) => filePath.includes(p));
+}
+
+interface AutomationInfrastructurePlan {
+    detectedPatterns: unknown[];
+    architectureNotes: string;
+    costForecast: Record<string, unknown> | null;
+    terraformCode: string | null;
+    hasInfraChanges: boolean;
+    impactSummary?: string[];
+    costProjection?: string | null;
+    confidenceScore?: number | null;
+}
+
+function buildInfrastructurePlanFromIacResult(iacResult: IacGenerationResult): AutomationInfrastructurePlan {
+    return {
+        detectedPatterns: iacResult.detectedPatterns ?? [],
+        architectureNotes: iacResult.architectureNotes ?? "",
+        costForecast: (iacResult.costForecast as unknown as Record<string, unknown>) ?? null,
+        terraformCode: iacResult.terraform?.code ?? null,
+        hasInfraChanges: iacResult.hasInfraChanges ?? false,
+    };
+}
+
+function parseMonthlyCost(costProjection: string): number | null {
+    const match = costProjection.match(/\$?\s*([0-9]+(?:\.[0-9]+)?)/);
+    if (!match) return null;
+    const parsed = Number(match[1]);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function buildInfrastructurePlanFromProjection(
+    projected: InfrastructurePredictionData
+): AutomationInfrastructurePlan {
+    const monthlyCost = parseMonthlyCost(projected.costProjection ?? "");
+    const confidence =
+        projected.confidenceScore >= 80 ? "HIGH" :
+            projected.confidenceScore >= 50 ? "MEDIUM" : "LOW";
+
+    return {
+        detectedPatterns: [],
+        architectureNotes: projected.impactSummary?.join("\n") ?? "",
+        costForecast: monthlyCost == null ? null : {
+            totalMonthlyCostUsd: monthlyCost,
+            totalYearlyCostUsd: Number((monthlyCost * 12).toFixed(2)),
+            currency: "USD",
+            confidence,
+            breakdown: [],
+            environmentMultiplier: 1,
+            forecastedAt: new Date().toISOString(),
+        },
+        terraformCode: projected.iacCode ?? null,
+        hasInfraChanges: (projected.impactSummary?.length ?? 0) > 0,
+        impactSummary: projected.impactSummary ?? [],
+        costProjection: projected.costProjection ?? null,
+        confidenceScore: projected.confidenceScore ?? null,
+    };
+}
+
+function buildProjectedInfraPrompt(combinedContent: string, sentinelResult: any): string {
+    const actions: string[] = Array.isArray(sentinelResult?.prioritizedActionItems)
+        ? sentinelResult.prioritizedActionItems
+            .filter((x: unknown) => typeof x === "string")
+            .map((x: string) => x)
+            .slice(0, 20)
+        : [];
+
+    const findings = Array.isArray(sentinelResult?.findings)
+        ? sentinelResult.findings.slice(0, 20).map((finding: any, idx: number) => {
+            const severity = String(finding?.severity ?? "unknown");
+            const title = String(finding?.title ?? "Untitled finding");
+            const fix = finding?.suggestedFix ? ` | suggestedFix: ${String(finding.suggestedFix)}` : "";
+            return `${idx + 1}. [${severity}] ${title}${fix}`;
+        })
+        : [];
+
+    return [
+        "Project a future infrastructure plan after Sentinel's recommendations are implemented.",
+        "Use the current repository code as baseline context and adjust for the proposed fixes below.",
+        "",
+        "Sentinel prioritized action items:",
+        actions.length > 0 ? actions.map((a, idx) => `${idx + 1}. ${a}`).join("\n") : "None",
+        "",
+        "Sentinel key findings:",
+        findings.length > 0 ? findings.join("\n") : "None",
+        "",
+        "Current repository code context:",
+        combinedContent,
+    ].join("\n");
 }
 
 // ── Main handler ─────────────────────────────────────────────────────────────
@@ -241,7 +333,8 @@ async function runAutomationPipeline(ctx: {
     // Step 4: Run all three agents
     let sentinelResult: any = null;
     let fortressResult: string | null = null;
-    let infraResult: any = null;
+    let infraResult: IacGenerationResult | null = null;
+    let projectedInfraResult: InfrastructurePredictionData | null = null;
 
     // Phase A: Sentinel deep review
     logger.info({ msg: "Phase A: Running Sentinel deep review", repoId });
@@ -255,7 +348,7 @@ async function runAutomationPipeline(ctx: {
             accessToken: githubToken,
             reviewDepth: "deep",
         });
-        sentinelResult = reviewResult?.reviewResult ?? reviewResult;
+        sentinelResult = (reviewResult as any)?.reviewResult ?? reviewResult;
         logger.info({ msg: "Sentinel complete", repoId, overallRisk: sentinelResult?.overallRisk });
     } catch (err) {
         logger.error({ msg: "Sentinel failed", repoId, error: String(err) });
@@ -289,7 +382,50 @@ async function runAutomationPipeline(ctx: {
         logger.error({ msg: "Infrastructure Predictor failed", repoId, error: String(err) });
     }
 
+    // Phase D: Projected infrastructure if Sentinel suggestions are applied
+    const hasSentinelSuggestions =
+        Array.isArray(sentinelResult?.prioritizedActionItems) && sentinelResult.prioritizedActionItems.length > 0;
+    const hasSentinelFindings =
+        Array.isArray(sentinelResult?.findings) && sentinelResult.findings.length > 0;
+
+    if (hasSentinelSuggestions || hasSentinelFindings) {
+        logger.info({ msg: "Phase D: Running projected Infrastructure plan (after Sentinel changes)", repoId });
+        try {
+            const projectedPrompt = buildProjectedInfraPrompt(combinedContent, sentinelResult);
+            projectedInfraResult = await predictInfrastructureFromCodeContent(projectedPrompt);
+            logger.info({ msg: "Projected Infrastructure plan complete", repoId });
+        } catch (err) {
+            logger.warn({
+                msg: "Projected Infrastructure plan failed; saving baseline plan only",
+                repoId,
+                error: String(err),
+            });
+            projectedInfraResult = null;
+        }
+    }
+
     // Step 5: Save full report
+    const beforeChangesPlan = infraResult ? buildInfrastructurePlanFromIacResult(infraResult) : null;
+    const afterSentinelChangesPlan = projectedInfraResult
+        ? buildInfrastructurePlanFromProjection(projectedInfraResult)
+        : null;
+
+    const infrastructureReport =
+        beforeChangesPlan || afterSentinelChangesPlan
+            ? {
+                // Backward-compatible fields mapped from beforeChanges baseline.
+                detectedPatterns: beforeChangesPlan?.detectedPatterns ?? [],
+                architectureNotes: beforeChangesPlan?.architectureNotes ?? "",
+                costForecast: beforeChangesPlan?.costForecast ?? null,
+                terraformCode: beforeChangesPlan?.terraformCode ?? null,
+                hasInfraChanges: beforeChangesPlan?.hasInfraChanges ?? false,
+                plans: {
+                    beforeChanges: beforeChangesPlan,
+                    afterSentinelChanges: afterSentinelChangesPlan,
+                },
+            }
+            : null;
+
     const report = {
         status: "completed",
         completedAt: new Date().toISOString(),
@@ -320,13 +456,7 @@ async function runAutomationPipeline(ctx: {
             testPlanText: fortressResult,
             testStabilityPct: 100,
         } : null,
-        infrastructure: infraResult?.iacResult ? {
-            detectedPatterns: infraResult.iacResult.detectedPatterns ?? [],
-            architectureNotes: infraResult.iacResult.architectureNotes ?? "",
-            costForecast: infraResult.iacResult.costForecast ?? null,
-            terraformCode: infraResult.iacResult.terraform?.code ?? null,
-            hasInfraChanges: infraResult.iacResult.hasInfraChanges ?? false,
-        } : null,
+        infrastructure: infrastructureReport,
     };
 
     await saveAutomationReport(repo, report);

@@ -4,6 +4,7 @@ import { Search, Home, Star, Sun, Moon, Loader2, LogOut, MoreVertical, Trash2 } 
 import type { DashboardResponse, ActivityEvent, SystemHealth } from '../../lib/api';
 import { deleteRepo } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
+import LoadingAnimation from '../components/LoadingAnimation';
 
 // Default initial values for data while loading or on failure
 const MOCK_ACTIVITY: ActivityEvent[] = [];
@@ -182,6 +183,10 @@ export function DashboardPage() {
   };
 
   const currentDate = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+
+  if (isLoading) {
+    return <LoadingAnimation text="Loading dashboard…" />;
+  }
 
   return (
     <div className={`${themeClass} w-full min-h-screen`}>
@@ -363,12 +368,6 @@ export function DashboardPage() {
 
             {/* REPO GRID */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {isLoading && (
-                <div className="col-span-2 flex items-center justify-center py-20 gap-3 text-zinc-400 dark:text-slate-500">
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  <span className="text-sm font-medium">Loading dashboard…</span>
-                </div>
-              )}
               {!isLoading && dashboardData?.repos?.length === 0 && (
                 <div className="col-span-2 flex flex-col items-center justify-center py-20 gap-3 text-zinc-400 dark:text-slate-500">
                   <span className="text-sm font-medium">No repositories installed yet.</span>

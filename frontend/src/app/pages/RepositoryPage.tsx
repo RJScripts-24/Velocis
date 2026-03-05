@@ -17,6 +17,7 @@ function authFetch(url: string): Promise<Response> {
   return fetch(url, { credentials: 'include', headers });
 }
 import { CommitBarChart } from './DashboardPage';
+import LoadingAnimation from '../components/LoadingAnimation';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
@@ -298,12 +299,7 @@ export function RepositoryPage() {
 
 
   if (isLoading || !repo) {
-    return (
-      <div className="w-full min-h-screen flex flex-col items-center justify-center bg-[#f6f7fb] dark:bg-[#0A0A0E] gap-3">
-        <Loader2 className="w-7 h-7 animate-spin text-indigo-500" />
-        <span className="text-sm text-zinc-400">Loading repositoryâ€¦</span>
-      </div>
-    );
+    return <LoadingAnimation text="Loading repository…" />;
   }
 
   if (error) {

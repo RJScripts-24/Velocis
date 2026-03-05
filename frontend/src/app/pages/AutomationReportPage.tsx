@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router';
-import { ChevronLeft, Shield, TestTube2, Cloud, AlertCircle, Loader2, Bot, ChevronDown, ChevronUp, FileCode, Zap } from 'lucide-react';
+import { ChevronLeft, Shield, TestTube2, Cloud, AlertCircle, Loader2, Bot, ChevronDown, ChevronUp, FileCode, Zap, RotateCcw } from 'lucide-react';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
@@ -23,6 +23,24 @@ interface SentinelFinding {
     estimatedFixEffort?: string;
 }
 
+interface InfraCostForecast {
+    totalMonthlyCostUsd?: number;
+    totalYearlyCostUsd?: number;
+    confidence?: string;
+    [key: string]: any;
+}
+
+interface InfrastructurePlan {
+    detectedPatterns: any[];
+    architectureNotes: string;
+    costForecast: InfraCostForecast | null;
+    terraformCode: string | null;
+    hasInfraChanges: boolean;
+    impactSummary?: string[];
+    costProjection?: string | null;
+    confidenceScore?: number | null;
+}
+
 interface AutomationReportData {
     status: string;
     sentinel: {
@@ -43,9 +61,13 @@ interface AutomationReportData {
     infrastructure: {
         detectedPatterns: any[];
         architectureNotes: string;
-        costForecast: any;
+        costForecast: InfraCostForecast | null;
         terraformCode: string | null;
         hasInfraChanges: boolean;
+        plans?: {
+            beforeChanges: InfrastructurePlan | null;
+            afterSentinelChanges: InfrastructurePlan | null;
+        } | null;
     } | null;
     lastUpdatedAt: string | null;
 }
@@ -132,12 +154,117 @@ function FindingCard({ finding, index }: { finding: SentinelFinding; index: numb
     );
 }
 
+function InfrastructurePlanView({
+    title,
+    plan,
+}: {
+    title: string;
+    plan: InfrastructurePlan;
+}) {
+    return (
+        <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 overflow-hidden">
+            <div className="px-4 py-3 bg-zinc-50 dark:bg-zinc-800/70 border-b border-zinc-100 dark:border-zinc-700">
+                <h3 className="text-sm font-bold text-zinc-800 dark:text-zinc-100 uppercase tracking-wide">{title}</h3>
+            </div>
+            <div className="p-4 space-y-5">
+                {plan.architectureNotes && (
+                    <div className="bg-zinc-50 dark:bg-zinc-900/50 p-3 rounded-lg border border-zinc-100 dark:border-zinc-800">
+                        <h4 className="text-xs font-bold text-zinc-600 dark:text-zinc-300 mb-1 uppercase tracking-wide">Architecture Analysis</h4>
+                        <p className="text-sm text-zinc-600 dark:text-zinc-400 whitespace-pre-wrap">{plan.architectureNotes}</p>
+                    </div>
+                )}
+
+                {plan.impactSummary && plan.impactSummary.length > 0 && (
+                    <div>
+                        <h4 className="text-xs font-bold text-zinc-600 dark:text-zinc-300 mb-2 uppercase tracking-wide">Projected Impact Summary</h4>
+                        <div className="space-y-2">
+                            {plan.impactSummary.map((item, idx) => (
+                                <div key={idx} className="text-sm text-zinc-700 dark:text-zinc-300 bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-100 dark:border-zinc-800 rounded-lg px-3 py-2">
+                                    {item}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {plan.detectedPatterns?.length > 0 && (
+                    <div>
+                        <h4 className="text-xs font-bold text-zinc-600 dark:text-zinc-300 mb-2 uppercase tracking-wide">Detected AWS Resources</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {plan.detectedPatterns.map((pattern: any, idx: number) => (
+                                <div key={idx} className="p-3 bg-white dark:bg-zinc-800 rounded-lg border border-zinc-100 dark:border-zinc-700 flex justify-between items-center">
+                                    <div>
+                                        <span className="text-sm text-zinc-800 dark:text-zinc-200 font-medium">{pattern.service ?? pattern.resourceType ?? pattern.name ?? 'Unknown'}</span>
+                                        {pattern.detectedInFile && (
+                                            <div className="text-[11px] font-mono text-zinc-400 mt-0.5">{pattern.detectedInFile}</div>
+                                        )}
+                                    </div>
+                                    <span className={`text-xs px-2 py-1 rounded-md font-bold uppercase tracking-wider ${pattern.isNew ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'}`}>
+                                        {pattern.isNew ? 'NEW' : 'EXISTING'}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {(plan.costForecast || plan.costProjection || plan.confidenceScore != null) && (
+                    <div className="bg-emerald-50 dark:bg-emerald-900/10 rounded-xl border border-emerald-100 dark:border-emerald-800/30 p-4">
+                        <h4 className="text-xs font-bold text-emerald-700 dark:text-emerald-400 mb-3 uppercase tracking-wide">Cost Forecast</h4>
+                        {plan.costForecast && (
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <div className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">
+                                        ${(plan.costForecast.totalMonthlyCostUsd ?? 0).toFixed(2)}
+                                    </div>
+                                    <div className="text-xs text-emerald-600 dark:text-emerald-500 mt-1">Estimated Monthly</div>
+                                </div>
+                                <div>
+                                    <div className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">
+                                        ${(plan.costForecast.totalYearlyCostUsd ?? 0).toFixed(2)}
+                                    </div>
+                                    <div className="text-xs text-emerald-600 dark:text-emerald-500 mt-1">Estimated Yearly</div>
+                                </div>
+                            </div>
+                        )}
+                        {plan.costProjection && (
+                            <div className="mt-3 text-xs text-emerald-700 dark:text-emerald-400">
+                                Projection: <strong>{plan.costProjection}</strong>
+                            </div>
+                        )}
+                        {plan.costForecast?.confidence && (
+                            <div className="mt-2 text-xs text-emerald-600 dark:text-emerald-500">
+                                Confidence: <strong>{plan.costForecast.confidence}</strong>
+                            </div>
+                        )}
+                        {plan.confidenceScore != null && (
+                            <div className="mt-2 text-xs text-emerald-600 dark:text-emerald-500">
+                                Model confidence score: <strong>{plan.confidenceScore}%</strong>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {plan.terraformCode && (
+                    <div>
+                        <h4 className="text-xs font-bold text-zinc-600 dark:text-zinc-300 mb-2 uppercase tracking-wide">Generated Terraform</h4>
+                        <pre className="font-mono text-sm bg-zinc-950 text-emerald-400 p-4 rounded-lg overflow-x-auto whitespace-pre-wrap max-h-[320px] overflow-y-auto border border-zinc-800">
+                            {plan.terraformCode}
+                        </pre>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
 export function AutomationReportPage() {
     const { id = '' } = useParams();
     const navigate = useNavigate();
     const [report, setReport] = useState<AutomationReportData | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [isRestarting, setIsRestarting] = useState(false);
 
     const fetchReport = useCallback(async () => {
         try {
@@ -164,6 +291,36 @@ export function AutomationReportPage() {
     useEffect(() => {
         fetchReport();
     }, [fetchReport]);
+
+    const handleRestart = useCallback(async () => {
+        if (!id || isRestarting) return;
+
+        setIsRestarting(true);
+        try {
+            const res = await fetch(`${BACKEND_URL}/api/repos/${id}/trigger-automation`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+            });
+
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status}`);
+            }
+
+            setError(null);
+            setReport({
+                status: 'running',
+                sentinel: null,
+                fortress: null,
+                infrastructure: null,
+                lastUpdatedAt: new Date().toISOString(),
+            });
+        } catch (err: any) {
+            setError(err.message || 'Failed to restart automation');
+        } finally {
+            setIsRestarting(false);
+        }
+    }, [id, isRestarting]);
 
     // Auto-poll while pipeline is running
     useEffect(() => {
@@ -256,11 +413,21 @@ export function AutomationReportPage() {
                             Comprehensive AI-driven analysis of your repository by Sentinel, Fortress, and Infrastructure agents.
                         </p>
                     </div>
-                    {report.lastUpdatedAt && (
-                        <div className="text-xs font-medium text-zinc-400 bg-white dark:bg-zinc-900 px-3 py-1.5 rounded-full border border-zinc-200 dark:border-zinc-800">
-                            {new Date(report.lastUpdatedAt).toLocaleString()}
-                        </div>
-                    )}
+                    <div className="flex items-center gap-3">
+                        <button
+                            onClick={handleRestart}
+                            disabled={isRestarting}
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                        >
+                            <RotateCcw size={14} className={isRestarting ? 'animate-spin' : ''} />
+                            {isRestarting ? 'Restarting...' : 'Restart'}
+                        </button>
+                        {report.lastUpdatedAt && (
+                            <div className="text-xs font-medium text-zinc-400 bg-white dark:bg-zinc-900 px-3 py-1.5 rounded-full border border-zinc-200 dark:border-zinc-800">
+                                {new Date(report.lastUpdatedAt).toLocaleString()}
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 <div className="space-y-8">
@@ -395,72 +562,91 @@ export function AutomationReportPage() {
                         <div className="p-6">
                             {report.infrastructure ? (
                                 <div className="space-y-6">
-                                    {/* Architecture Notes */}
-                                    {report.infrastructure.architectureNotes && (
-                                        <div className="bg-zinc-50 dark:bg-zinc-900/50 p-4 rounded-xl border border-zinc-100 dark:border-zinc-800">
-                                            <h3 className="text-sm font-bold text-zinc-700 dark:text-zinc-300 mb-2 uppercase tracking-wide">Architecture Analysis</h3>
-                                            <p className="text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed whitespace-pre-wrap">
-                                                {report.infrastructure.architectureNotes}
-                                            </p>
-                                        </div>
-                                    )}
-
-                                    {/* Detected Patterns */}
-                                    {report.infrastructure.detectedPatterns?.length > 0 && (
-                                        <div>
-                                            <h3 className="text-sm font-bold text-zinc-700 dark:text-zinc-300 mb-3 uppercase tracking-wide">Detected AWS Resources</h3>
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                                {report.infrastructure.detectedPatterns.map((pattern: any, idx: number) => (
-                                                    <div key={idx} className="p-3 bg-white dark:bg-zinc-800 rounded-lg border border-zinc-100 dark:border-zinc-700 flex justify-between items-center">
-                                                        <div>
-                                                            <span className="text-sm text-zinc-800 dark:text-zinc-200 font-medium">{pattern.service ?? pattern.resourceType ?? pattern.name ?? 'Unknown'}</span>
-                                                            {pattern.detectedInFile && (
-                                                                <div className="text-[11px] font-mono text-zinc-400 mt-0.5">{pattern.detectedInFile}</div>
-                                                            )}
-                                                        </div>
-                                                        <span className={`text-xs px-2 py-1 rounded-md font-bold uppercase tracking-wider ${pattern.isNew ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'}`}>
-                                                            {pattern.isNew ? 'NEW' : 'EXISTING'}
-                                                        </span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Cost Forecast */}
-                                    {report.infrastructure.costForecast && (
-                                        <div className="bg-emerald-50 dark:bg-emerald-900/10 rounded-xl border border-emerald-100 dark:border-emerald-800/30 p-4">
-                                            <h3 className="text-sm font-bold text-emerald-700 dark:text-emerald-400 mb-3 uppercase tracking-wide">Cost Forecast</h3>
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <div>
-                                                    <div className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">
-                                                        ${(report.infrastructure.costForecast.totalMonthlyCostUsd ?? 0).toFixed(2)}
-                                                    </div>
-                                                    <div className="text-xs text-emerald-600 dark:text-emerald-500 mt-1">Estimated Monthly</div>
-                                                </div>
-                                                <div>
-                                                    <div className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">
-                                                        ${(report.infrastructure.costForecast.totalYearlyCostUsd ?? 0).toFixed(2)}
-                                                    </div>
-                                                    <div className="text-xs text-emerald-600 dark:text-emerald-500 mt-1">Estimated Yearly</div>
-                                                </div>
-                                            </div>
-                                            {report.infrastructure.costForecast.confidence && (
-                                                <div className="mt-3 text-xs text-emerald-600 dark:text-emerald-500">
-                                                    Confidence: <strong>{report.infrastructure.costForecast.confidence}</strong>
+                                    {(report.infrastructure.plans?.beforeChanges || report.infrastructure.plans?.afterSentinelChanges) ? (
+                                        <>
+                                            {report.infrastructure.plans?.beforeChanges && (
+                                                <InfrastructurePlanView
+                                                    title="Before Changes"
+                                                    plan={report.infrastructure.plans.beforeChanges}
+                                                />
+                                            )}
+                                            {report.infrastructure.plans?.afterSentinelChanges ? (
+                                                <InfrastructurePlanView
+                                                    title="After Sentinel Changes"
+                                                    plan={report.infrastructure.plans.afterSentinelChanges}
+                                                />
+                                            ) : (
+                                                <div className="rounded-xl border border-dashed border-zinc-300 dark:border-zinc-700 px-4 py-4 text-sm text-zinc-500 dark:text-zinc-400">
+                                                    A projected post-Sentinel infrastructure plan was not generated for this run.
                                                 </div>
                                             )}
-                                        </div>
-                                    )}
+                                        </>
+                                    ) : (
+                                        <>
+                                            {report.infrastructure.architectureNotes && (
+                                                <div className="bg-zinc-50 dark:bg-zinc-900/50 p-4 rounded-xl border border-zinc-100 dark:border-zinc-800">
+                                                    <h3 className="text-sm font-bold text-zinc-700 dark:text-zinc-300 mb-2 uppercase tracking-wide">Architecture Analysis</h3>
+                                                    <p className="text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed whitespace-pre-wrap">
+                                                        {report.infrastructure.architectureNotes}
+                                                    </p>
+                                                </div>
+                                            )}
 
-                                    {/* Terraform Code */}
-                                    {report.infrastructure.terraformCode && (
-                                        <div>
-                                            <h3 className="text-sm font-bold text-zinc-700 dark:text-zinc-300 mb-2 uppercase tracking-wide">Generated Terraform</h3>
-                                            <pre className="font-mono text-sm bg-zinc-950 text-emerald-400 p-5 rounded-xl border border-zinc-800 overflow-x-auto whitespace-pre-wrap max-h-[400px] overflow-y-auto">
-                                                {report.infrastructure.terraformCode}
-                                            </pre>
-                                        </div>
+                                            {report.infrastructure.detectedPatterns?.length > 0 && (
+                                                <div>
+                                                    <h3 className="text-sm font-bold text-zinc-700 dark:text-zinc-300 mb-3 uppercase tracking-wide">Detected AWS Resources</h3>
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                        {report.infrastructure.detectedPatterns.map((pattern: any, idx: number) => (
+                                                            <div key={idx} className="p-3 bg-white dark:bg-zinc-800 rounded-lg border border-zinc-100 dark:border-zinc-700 flex justify-between items-center">
+                                                                <div>
+                                                                    <span className="text-sm text-zinc-800 dark:text-zinc-200 font-medium">{pattern.service ?? pattern.resourceType ?? pattern.name ?? 'Unknown'}</span>
+                                                                    {pattern.detectedInFile && (
+                                                                        <div className="text-[11px] font-mono text-zinc-400 mt-0.5">{pattern.detectedInFile}</div>
+                                                                    )}
+                                                                </div>
+                                                                <span className={`text-xs px-2 py-1 rounded-md font-bold uppercase tracking-wider ${pattern.isNew ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'}`}>
+                                                                    {pattern.isNew ? 'NEW' : 'EXISTING'}
+                                                                </span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {report.infrastructure.costForecast && (
+                                                <div className="bg-emerald-50 dark:bg-emerald-900/10 rounded-xl border border-emerald-100 dark:border-emerald-800/30 p-4">
+                                                    <h3 className="text-sm font-bold text-emerald-700 dark:text-emerald-400 mb-3 uppercase tracking-wide">Cost Forecast</h3>
+                                                    <div className="grid grid-cols-2 gap-4">
+                                                        <div>
+                                                            <div className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">
+                                                                ${(report.infrastructure.costForecast.totalMonthlyCostUsd ?? 0).toFixed(2)}
+                                                            </div>
+                                                            <div className="text-xs text-emerald-600 dark:text-emerald-500 mt-1">Estimated Monthly</div>
+                                                        </div>
+                                                        <div>
+                                                            <div className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">
+                                                                ${(report.infrastructure.costForecast.totalYearlyCostUsd ?? 0).toFixed(2)}
+                                                            </div>
+                                                            <div className="text-xs text-emerald-600 dark:text-emerald-500 mt-1">Estimated Yearly</div>
+                                                        </div>
+                                                    </div>
+                                                    {report.infrastructure.costForecast.confidence && (
+                                                        <div className="mt-3 text-xs text-emerald-600 dark:text-emerald-500">
+                                                            Confidence: <strong>{report.infrastructure.costForecast.confidence}</strong>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+
+                                            {report.infrastructure.terraformCode && (
+                                                <div>
+                                                    <h3 className="text-sm font-bold text-zinc-700 dark:text-zinc-300 mb-2 uppercase tracking-wide">Generated Terraform</h3>
+                                                    <pre className="font-mono text-sm bg-zinc-950 text-emerald-400 p-5 rounded-xl border border-zinc-800 overflow-x-auto whitespace-pre-wrap max-h-[400px] overflow-y-auto">
+                                                        {report.infrastructure.terraformCode}
+                                                    </pre>
+                                                </div>
+                                            )}
+                                        </>
                                     )}
                                 </div>
                             ) : (
