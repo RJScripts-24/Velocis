@@ -31,6 +31,7 @@ export function PrimaryButton({
         rounded-[10px] cursor-pointer select-none
         bg-[--cta-primary] text-[--cta-text]
         v-btn-hover hover:bg-[--cta-primary-hover] hover:shadow-lg
+        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[--cta-primary]
         disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none
         ${sizeMap[size]}
         ${fullWidth ? 'w-full' : ''}

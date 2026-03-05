@@ -26,7 +26,8 @@ export function GhostButton({
         rounded-[10px] cursor-pointer select-none
         text-[--text-secondary] bg-transparent
         hover:text-[--text-primary] hover:bg-[--bg-soft]
-        transition-colors duration-[--duration-fast]
+        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[--text-secondary]
+        transition-colors duration-200
         disabled:opacity-50 disabled:cursor-not-allowed
         ${sizeMap[size]}
         ${className}

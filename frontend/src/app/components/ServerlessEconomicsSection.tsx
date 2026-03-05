@@ -40,8 +40,9 @@ export function ServerlessEconomicsSection() {
                   initial={{ opacity: 0, y: 20 }}
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true }}
+                  whileHover={{ scale: 1.02 }}
                   transition={{ duration: 0.5, delay: index * 0.1 }}
-                  className="flex items-start gap-3"
+                  className="flex items-start gap-4 p-4 -ml-4 rounded-xl hover:bg-[--bg-hover] transition-colors cursor-default"
                 >
                   <div className="w-10 h-10 rounded-[--radius-md] flex items-center justify-center flex-shrink-0 bg-[--accent-blue-soft]">
                     <benefit.icon className="w-5 h-5 text-[--accent-blue]" strokeWidth={2} />
@@ -64,7 +65,7 @@ export function ServerlessEconomicsSection() {
             className="flex justify-center lg:justify-end"
           >
             <div className="w-full max-w-[480px]">
-              <div className="rounded-[--radius-2xl] border border-[--border-subtle] p-8 bg-white">
+              <div className="rounded-[--radius-2xl] border border-[--border-subtle] p-8 glass-card shadow-xl bg-white/70">
                 <p className="text-xs font-bold tracking-wide uppercase mb-8 text-[--text-primary] opacity-60">
                   Monthly Infrastructure Cost
                 </p>

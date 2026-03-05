@@ -135,8 +135,8 @@ export function ProductDeepDiveSection() {
             whileInView={{ opacity: 1, x: 0 }}
             viewport={{ once: true, margin: "-100px" }}
             transition={{ duration: 0.7 }}
-            whileHover={{ y: -3 }}
-            className="rounded-[--radius-2xl] border-2 border-[--border-subtle] overflow-hidden shadow-2xl bg-white"
+            whileHover={{ y: -6, boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.12)" }}
+            className="rounded-[--radius-2xl] border border-[--border-subtle] overflow-hidden shadow-xl glass-card bg-white/70"
           >
             <WindowChrome label={sentinelRow.placeholderLabel} />
             <div className="aspect-[16/10] flex items-center justify-center relative bg-[#fafafa]">
@@ -189,8 +189,8 @@ export function ProductDeepDiveSection() {
             whileInView={{ opacity: 1, x: 0 }}
             viewport={{ once: true, margin: "-100px" }}
             transition={{ duration: 0.7 }}
-            whileHover={{ y: -3 }}
-            className="rounded-[--radius-2xl] border-2 border-[--border-subtle] overflow-hidden shadow-2xl bg-white lg:order-2"
+            whileHover={{ y: -6, boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.12)" }}
+            className="rounded-[--radius-2xl] border border-[--border-subtle] overflow-hidden shadow-xl glass-card bg-white/70 lg:order-2"
           >
             <WindowChrome label={fortressRow.placeholderLabel} />
             <div className="aspect-[16/10] flex items-center justify-center relative bg-[#fafafa]">
@@ -240,8 +240,8 @@ export function ProductDeepDiveSection() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: "-100px" }}
           transition={{ duration: 0.7, delay: 0.2 }}
-          whileHover={{ y: -4 }}
-          className="rounded-[--radius-2xl] border-2 border-green-500/30 overflow-hidden shadow-2xl bg-[#0a0a0a]"
+          whileHover={{ y: -6, boxShadow: "0 25px 50px -12px rgba(47, 182, 124, 0.15)" }}
+          className="rounded-[--radius-2xl] border border-green-500/30 overflow-hidden shadow-2xl bg-[#0a0a0a] transition-all"
         >
           <div className="border-b border-white/10 px-4 py-3.5 flex items-center gap-2 bg-[#111]/80">
             <div className="w-3 h-3 rounded-full bg-red-500" />
