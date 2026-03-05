@@ -2,6 +2,7 @@
 
 import React, { useRef, useEffect, useState } from "react";
 import { motion, useInView, AnimatePresence } from "framer-motion";
+import { useNavigate } from 'react-router';
 import {
     Shield, Lock, Network, Zap, Brain, GitMerge, ArrowDown, Check, X,
     Github, ChevronRight, Eye, Code2, TestTube2, Map, Webhook, Cpu,
@@ -238,7 +239,7 @@ const StickyNav: React.FC<{ visible: boolean }> = ({ visible }) => {
                     </a>
                     <div className="hidden md:flex items-center gap-8">
                         {links.map((l) => (
-                            <a key={l.href} href={l.href} className="nav-link-light">{l.label}</a>
+                            <a key={l.href} href={l.href} className="nav-link-light" onClick={(e) => { if (l.href.startsWith('/')) { e.preventDefault(); window.location.href = l.href; } }}>{l.label}</a>
                         ))}
                     </div>
                     <motion.a
@@ -246,7 +247,7 @@ const StickyNav: React.FC<{ visible: boolean }> = ({ visible }) => {
                         className="hidden md:flex items-center gap-2 font-inter font-semibold"
                         style={{
                             background: "#16141A", color: "#fff", borderRadius: 8,
-                            fontSize: 13, padding: "9px 18px", textDecoration: "none", cursor: 'none'
+                            fontSize: 13, padding: "9px 18px", textDecoration: "none"
                         }}
                         whileHover={{ y: -1, background: "#1A7F3C", boxShadow: "0 4px 12px rgba(26,127,60,0.25)", transition: { duration: 0.22, ease: [0.34, 1.56, 0.64, 1] } }}
                     >
@@ -1138,7 +1139,9 @@ const CTASection: React.FC = () => (
 );
 
 // ─── FOOTER ───────────────────────────────────────────────────────────────────
-const Footer: React.FC = () => (
+const Footer: React.FC = () => {
+    const navigate = useNavigate();
+    return (
     <footer className="font-inter" style={{
         background: "#FFFFFF", borderTop: "1px solid #E8E5DF",
         padding: "32px 48px", display: "flex", alignItems: "center",
@@ -1155,7 +1158,8 @@ const Footer: React.FC = () => (
         </div>
         <div style={{ display: "flex", gap: 32 }}>
             {["About Us", "Product", "Twitter", "GitHub"].map((l) => (
-                <a key={l} href="#" style={{ fontSize: 14, fontWeight: 500, color: "#6B6778", textDecoration: "none", transition: "color 150ms ease" }}
+                <a key={l} href={l === 'About Us' ? '/about' : '#'} style={{ fontSize: 14, fontWeight: 500, color: "#6B6778", textDecoration: "none", transition: "color 150ms ease" }}
+                    onClick={(e) => { if (l === 'About Us') { e.preventDefault(); window.open('/about', '_blank', 'noopener,noreferrer'); } }}
                     onMouseEnter={e => e.currentTarget.style.color = '#16141A'}
                     onMouseLeave={e => e.currentTarget.style.color = '#6B6778'}
                 >
@@ -1164,7 +1168,8 @@ const Footer: React.FC = () => (
             ))}
         </div>
     </footer>
-);
+    );
+};
 
 export function CareerPage() {
     const [navVisible, setNavVisible] = useState(false);
@@ -1199,7 +1204,7 @@ export function CareerPage() {
     }, []);
 
     return (
-        <div className="font-inter" style={{ background: "#fff", color: "#16141A", minHeight: "100vh", cursor: 'none', overflowX: 'hidden' }}>
+        <div className="font-inter" style={{ background: "#fff", color: "#16141A", minHeight: "100vh", overflowX: 'hidden' }}>
             <FontStyle />
             <GrainOverlay />
             <div className="scroll-progress" style={{ width: `${scrollPct}%` }} />

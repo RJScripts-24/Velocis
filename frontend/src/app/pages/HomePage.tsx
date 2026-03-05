@@ -1301,21 +1301,21 @@ function CTA() {
                 </div>
                 <div className="flex flex-col gap-4">
                     <h4 className="font-bold text-textInverse">Resources</h4>
-                    {['Documentation', 'API Reference', 'Blog', 'System Status'].map(l => (
-                        <a key={l} href="#" className="text-textInverse/60 hover:text-primary transition-colors">{l}</a>
+                    {[{ label: 'Documentation', href: '#' }, { label: 'API Reference', href: '#' }, { label: 'Blog', href: '/blog' }, { label: 'System Status', href: '#' }].map(l => (
+                        <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer" className="text-textInverse/60 hover:text-primary transition-colors" onClick={(e) => { if (l.href.startsWith('/')) { e.preventDefault(); window.open(l.href, '_blank', 'noopener,noreferrer'); } }}>{l.label}</a>
                     ))}
                 </div>
                 <div className="flex flex-col gap-4">
                     <h4 className="font-bold text-textInverse">Company</h4>
-                    {['About Us', 'Careers', 'Contact', 'Security'].map(l => (
-                        <a key={l} href="#" className="text-textInverse/60 hover:text-primary transition-colors">{l}</a>
+                    {[{ label: 'About Us', href: '/about' }, { label: 'Careers', href: '/careers' }, { label: 'Contact', href: '/contact' }, { label: 'Security', href: '/security' }].map(l => (
+                        <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer" className="text-textInverse/60 hover:text-primary transition-colors" onClick={(e) => { if (l.href.startsWith('/')) { e.preventDefault(); window.open(l.href, '_blank', 'noopener,noreferrer'); } }}>{l.label}</a>
                     ))}
                 </div>
             </div>
             <div className="max-w-[1200px] w-full mx-auto px-8 pt-[80px] mt-[80px] border-t border-borderInv flex flex-col sm:flex-row justify-between items-center text-sm text-textInverse/40">
                 <p>© 2026 Velocis. All rights reserved.</p>
                 <div className="flex gap-6 mt-4 sm:mt-0">
-                    {['Privacy', 'Terms', 'Security'].map(l => <a key={l} href="#" className="hover:text-textInverse transition-colors">{l}</a>)}
+                    {[{ label: 'Privacy', href: '#' }, { label: 'Terms', href: '#' }, { label: 'Security', href: '/security' }].map(l => <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer" className="hover:text-textInverse transition-colors" onClick={(e) => { if (l.href.startsWith('/')) { e.preventDefault(); window.open(l.href, '_blank', 'noopener,noreferrer'); } }}>{l.label}</a>)}
                 </div>
             </div>
         </footer>

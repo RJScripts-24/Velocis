@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence, useScroll, useSpring } from 'framer-motion';
+import { useNavigate } from 'react-router';
 import { Clock, X, Users, Shield, Info, ArrowRight, Mail, Check, ArrowUpRight, Copy, ChevronLeft, ChevronRight, BookOpen } from 'lucide-react';
 
 interface BlogPost { id: string; slug: string; title: string; subtitle: string; category: string; categoryColor: string; readTime: string; date: string; author: { name: string; initials: string; role: string; ringColor: string; }; excerpt: string; tags: string[]; featured: boolean; coverPattern: string; content: string; }
@@ -49,7 +50,7 @@ const POSTS: BlogPost[] = [
 const GStyle = () => (
   <style>{`
     @import url('https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-    *{box-sizing:border-box;cursor:none!important;}
+    *{box-sizing:border-box;}
     html{scroll-behavior:smooth;}
     body{font-family:'Inter',sans-serif;background:#fff;color:#16141A;font-feature-settings:"kern"1,"liga"1,"calt"1;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased;}
     ::selection{background:rgba(26,127,60,0.15);color:#16141A;}
@@ -119,6 +120,7 @@ const Frags = ({ s }: { s: 'left' | 'right' }) => {
 };
 
 const Nav = () => {
+  const navigate = useNavigate();
   const [sc, setSc] = useState(false);
   useEffect(() => { const h = () => setSc(window.scrollY > 80); window.addEventListener('scroll', h); return () => window.removeEventListener('scroll', h); }, []);
   return (
@@ -126,7 +128,7 @@ const Nav = () => {
       <div className="flex items-center gap-2"><span className="fb font-bold text-[18px]">Velocis.</span><div className="w-[2px] h-[13px] bg-[#1A7F3C] animate-[blink_1.1s_step-end_infinite]" /></div>
       <div className="hidden md:flex items-center gap-8 font-[500] text-[14px] text-[#4B4856]">
         {[['About', '/about'], ['Careers', '/careers'], ['Blog', '/blog'], ['Security', '/security'], ['Contact', '/contact']].map(([x, href]) => (
-          <a key={x} href={href} className={`relative group transition-colors ${x === 'Blog' ? 'text-[#16141A] font-semibold' : 'hover:text-[#16141A]'}`}>{x}<span className={`absolute -bottom-1 left-0 w-full h-[1px] bg-[#1A7F3C] origin-left transition-transform duration-200 ${x === 'Blog' ? 'scale-x-100' : 'scale-x-0 group-hover:scale-x-100'}`} /></a>
+          <a key={x} href={href} target="_blank" rel="noopener noreferrer" className={`relative group transition-colors ${x === 'Blog' ? 'text-[#16141A] font-semibold' : 'hover:text-[#16141A]'}`} onClick={(e) => { if (href.startsWith('/')) { e.preventDefault(); window.open(href, '_blank', 'noopener,noreferrer'); } }}>{x}<span className={`absolute -bottom-1 left-0 w-full h-[1px] bg-[#1A7F3C] origin-left transition-transform duration-200 ${x === 'Blog' ? 'scale-x-100' : 'scale-x-0 group-hover:scale-x-100'}`} /></a>
         ))}
       </div>
       <motion.button whileHover={{ y: -1, backgroundColor: '#1A7F3C', boxShadow: '0 4px 12px rgba(26,127,60,0.25)' }} className="bg-[#16141A] text-white px-[18px] py-[9px] rounded-[8px] font-semibold text-[13px]">Connect GitHub</motion.button>
@@ -184,6 +186,7 @@ const CircuitBg = () => {
 
 // ─── MAIN BLOG PAGE ─────────────────────────────────────────────────────────
 export default function BlogPage() {
+  const navigate = useNavigate();
   const [activeCategory, setActiveCategory] = useState('All');
   const [selectedPost, setSelectedPost] = useState<BlogPost | null>(null);
   const [newsletterEmail, setNewsletterEmail] = useState('');
@@ -426,7 +429,7 @@ export default function BlogPage() {
             { icon: <Users size={22} />, title: 'We are hiring', body: 'Three open roles on the Velocis team. Build what you read about.', link: 'See open roles', href: '/careers' },
             { icon: <Shield size={22} />, title: 'How we handle security', body: 'Our read-only OAuth model, AWS infrastructure, and responsible disclosure policy.', link: 'Security overview', href: '/security' },
           ].map((c, i) => (
-            <motion.a key={i} href={c.href} initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: .5, delay: i * .1 }} whileHover={{ y: -3, boxShadow: '0 8px 28px rgba(22,20,26,0.08)', borderColor: 'rgba(26,127,60,0.25)' }} className="bg-[#F7F6F3] border border-[#E8E5DF] rounded-[14px] p-6 flex items-start gap-4 group">
+            <motion.a key={i} href={c.href} target="_blank" rel="noopener noreferrer" onClick={(e) => { if (c.href.startsWith('/')) { e.preventDefault(); window.open(c.href, '_blank', 'noopener,noreferrer'); } }} initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: .5, delay: i * .1 }} whileHover={{ y: -3, boxShadow: '0 8px 28px rgba(22,20,26,0.08)', borderColor: 'rgba(26,127,60,0.25)' }} className="bg-[#F7F6F3] border border-[#E8E5DF] rounded-[14px] p-6 flex items-start gap-4 group">
               <div className="w-12 h-12 rounded-full bg-[#F0FDF4] border border-[rgba(26,127,60,0.12)] flex items-center justify-center text-[#1A7F3C] flex-shrink-0 group-hover:bg-[#DCFCE7] transition-colors">{c.icon}</div>
               <div><h4 className="font-bold text-[15px] text-[#16141A] mb-1">{c.title}</h4><p className="text-[13px] text-[#6B6778] leading-relaxed mb-3">{c.body}</p><span className="font-semibold text-[13px] text-[#1A7F3C] inline-flex items-center gap-1 group/l">{c.link}<ArrowRight size={13} className="group-hover/l:translate-x-1 transition-transform" /></span></div>
             </motion.a>
@@ -472,7 +475,7 @@ export default function BlogPage() {
       <footer className="border-t border-[#E8E5DF] py-10 px-8 bg-white">
         <div className="max-w-[1080px] mx-auto flex flex-col md:flex-row justify-between items-center gap-6 text-[#9B97A8] text-[14px]">
           <div className="flex items-baseline gap-4"><span className="fb font-bold text-[19px] text-[#16141A]">Velocis.</span><span>© 2025 Velocis · Built by <span className="text-[#16141A] font-semibold">Merge Conflict</span></span></div>
-          <div className="flex gap-7 font-medium">{['About Us', 'Blog', 'Security', 'GitHub'].map(l => <a key={l} href="#" className="hover:text-[#16141A] transition-colors">{l}</a>)}</div>
+          <div className="flex gap-7 font-medium">{[['About Us', '/about'], ['Blog', '/blog'], ['Security', '/security'], ['GitHub', '#']].map(([l, href]) => <a key={l} href={href} target="_blank" rel="noopener noreferrer" className="hover:text-[#16141A] transition-colors" onClick={(e) => { if (href.startsWith('/')) { e.preventDefault(); window.open(href, '_blank', 'noopener,noreferrer'); } }}>{l}</a>)}</div>
         </div>
       </footer>
 

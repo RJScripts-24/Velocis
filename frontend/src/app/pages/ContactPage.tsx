@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence, useScroll, useSpring } from 'framer-motion';
+import { useNavigate } from 'react-router';
 import { Mail, Github, MessageCircle, Copy, Check, ChevronDown, ExternalLink, Send, Shield, Lock, ArrowUpRight } from 'lucide-react';
 
 interface FormState { name: string; email: string; subject: string; message: string; githubUrl: string; }
@@ -11,7 +12,7 @@ const GStyle = () => (
   <style>{`
     @import url('https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
     :root{--g:#1A7F3C;--gb:#2EA44F;--dk:#16141A;--s:#6B6778;--m:#9B97A8;--bd:#E8E5DF;--b2:#F7F6F3;}
-    *{box-sizing:border-box;cursor:none!important;}
+    *{box-sizing:border-box;}
     html{scroll-behavior:smooth;}
     body{font-family:'Inter',sans-serif;background:#fff;color:#16141A;font-feature-settings:"kern"1,"liga"1,"calt"1;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased;}
     ::selection{background:rgba(26,127,60,0.15);color:#16141A;}
@@ -88,6 +89,7 @@ const Lbl = ({ children, pill, color = '#1A7F3C' }: { children: React.ReactNode;
 );
 
 const Nav = () => {
+  const navigate = useNavigate();
   const [sc, setSc] = useState(false);
   useEffect(() => { const h = () => setSc(window.scrollY > 80); window.addEventListener('scroll', h); return () => window.removeEventListener('scroll', h); }, []);
   return (
@@ -95,8 +97,7 @@ const Nav = () => {
       <div className="flex items-center gap-2"><span className="fb font-bold text-[18px]">Velocis.</span><div className="w-[2px] h-[13px] bg-[#1A7F3C] animate-[blink_1.1s_step-end_infinite]" /></div>
       <div className="hidden md:flex items-center gap-8 font-[500] text-[14px] text-[#4B4856]">
         {[['About', '/about'], ['Careers', '/careers'], ['Contact', '/contact']].map(([x, href]) => (
-          <a key={x} href={href} className={`relative group transition-colors ${x === 'Contact' ? 'text-[#16141A] font-semibold' : 'hover:text-[#16141A]'}`}>
-            {x}<span className={`absolute -bottom-1 left-0 w-full h-[1px] bg-[#1A7F3C] origin-left transition-transform duration-200 ${x === 'Contact' ? 'scale-x-100' : 'scale-x-0 group-hover:scale-x-100'}`} />
+          <a key={x} href={href} target="_blank" rel="noopener noreferrer" className={`relative group transition-colors ${x === 'Contact' ? 'text-[#16141A] font-semibold' : 'hover:text-[#16141A]'}`} onClick={(e) => { if (href.startsWith('/')) { e.preventDefault(); window.open(href, '_blank', 'noopener,noreferrer'); } }}>\n            {x}<span className={`absolute -bottom-1 left-0 w-full h-[1px] bg-[#1A7F3C] origin-left transition-transform duration-200 ${x === 'Contact' ? 'scale-x-100' : 'scale-x-0 group-hover:scale-x-100'}`} />
           </a>
         ))}
       </div>
@@ -420,14 +421,17 @@ const CTA = () => (
   </section>
 );
 
-const Foot = () => (
-  <footer className="border-t border-[#E8E5DF] py-12 px-8 bg-white">
-    <div className="max-w-[1080px] mx-auto flex flex-col md:flex-row justify-between items-center gap-6 text-[#9B97A8] text-[14px]">
-      <div className="flex items-baseline gap-4"><span className="fb font-bold text-[19px] text-[#16141A]">Velocis.</span><span>© 2025 Velocis · Built by <span className="text-[#16141A] font-semibold">Merge Conflict</span></span></div>
-      <div className="flex gap-7 font-medium">{['About Us', 'Blog', 'Twitter', 'GitHub'].map(l => <a key={l} href="#" className="hover:text-[#16141A] transition-colors">{l}</a>)}</div>
-    </div>
-  </footer>
-);
+const Foot = () => {
+  const navigate = useNavigate();
+  return (
+    <footer className="border-t border-[#E8E5DF] py-12 px-8 bg-white">
+      <div className="max-w-[1080px] mx-auto flex flex-col md:flex-row justify-between items-center gap-6 text-[#9B97A8] text-[14px]">
+        <div className="flex items-baseline gap-4"><span className="fb font-bold text-[19px] text-[#16141A]">Velocis.</span><span>© 2025 Velocis · Built by <span className="text-[#16141A] font-semibold">Merge Conflict</span></span></div>
+        <div className="flex gap-7 font-medium">{[['About Us', '/about'], ['Blog', '/blog'], ['Twitter', '#'], ['GitHub', '#']].map(([l, href]) => <a key={l} href={href} target="_blank" rel="noopener noreferrer" className="hover:text-[#16141A] transition-colors" onClick={(e) => { if (href.startsWith('/')) { e.preventDefault(); window.open(href, '_blank', 'noopener,noreferrer'); } }}>{l}</a>)}</div>
+      </div>
+    </footer>
+  );
+};
 
 export default function ContactPage() {
   return (

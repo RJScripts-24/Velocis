@@ -363,7 +363,7 @@ const StickyNav: React.FC<{ visible: boolean }> = ({ visible }) => {
                     </a>
                     <div className="hidden md:flex items-center gap-8">
                         {links.map((l) => (
-                            <a key={l.href} href={l.href} className="nav-link-light">{l.label}</a>
+                            <a key={l.href} href={l.href} className="nav-link-light" onClick={(e) => { if (l.href.startsWith('/')) { e.preventDefault(); window.location.href = l.href; } }}>{l.label}</a>
                         ))}
                     </div>
                     <a
