@@ -1,11 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import React from 'react';
 import { useNavigate } from 'react-router';
 import Lenis from '@studio-freight/lenis';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { MotionPathPlugin } from 'gsap/MotionPathPlugin';
-import { Renderer, Program, Mesh, Color, Triangle } from 'ogl';
 import {
     Github, Play, Shield, Zap, Map,
     Clock, AlertTriangle, UserX,
@@ -95,206 +94,22 @@ const LANDING_CSS = `
     opacity: 1;
     transform: translateY(0);
 }
-`;
-
-// ─────────────────────────────────────────────
-// Aurora (WebGL animated gradient background)
-// ─────────────────────────────────────────────
-const VERT = `#version 300 es
-in vec2 position;
-void main() {
-  gl_Position = vec4(position, 0.0, 1.0);
+.setup path[fill="white"], .build path[fill="white"], .ship path[fill="white"],
+.create path[fill="white"], .publish path[fill="white"], .automate path[fill="white"] {
+    visibility: hidden;
+}
+.timeline-step-label {
+    position: absolute;
+    transform: translate(-50%, -50%) rotate(-30deg);
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+    pointer-events: none;
+    font-size: clamp(8px, 1vw, 14px);
+    text-shadow: 0 1px 3px rgba(0,0,0,0.6);
 }
 `;
-
-const FRAG = `#version 300 es
-precision highp float;
-
-uniform float uTime;
-uniform float uAmplitude;
-uniform vec3 uColorStops[3];
-uniform vec2 uResolution;
-uniform float uBlend;
-
-out vec4 fragColor;
-
-vec3 permute(vec3 x) {
-  return mod(((x * 34.0) + 1.0) * x, 289.0);
-}
-
-float snoise(vec2 v){
-  const vec4 C = vec4(
-      0.211324865405187, 0.366025403784439,
-      -0.577350269189626, 0.024390243902439
-  );
-  vec2 i  = floor(v + dot(v, C.yy));
-  vec2 x0 = v - i + dot(i, C.xx);
-  vec2 i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
-  vec4 x12 = x0.xyxy + C.xxzz;
-  x12.xy -= i1;
-  i = mod(i, 289.0);
-
-  vec3 p = permute(
-      permute(i.y + vec3(0.0, i1.y, 1.0))
-    + i.x + vec3(0.0, i1.x, 1.0)
-  );
-
-  vec3 m = max(
-      0.5 - vec3(
-          dot(x0, x0),
-          dot(x12.xy, x12.xy),
-          dot(x12.zw, x12.zw)
-      ),
-      0.0
-  );
-  m = m * m;
-  m = m * m;
-
-  vec3 x = 2.0 * fract(p * C.www) - 1.0;
-  vec3 h = abs(x) - 0.5;
-  vec3 ox = floor(x + 0.5);
-  vec3 a0 = x - ox;
-  m *= 1.79284291400159 - 0.85373472095314 * (a0*a0 + h*h);
-
-  vec3 g;
-  g.x  = a0.x  * x0.x  + h.x  * x0.y;
-  g.yz = a0.yz * x12.xz + h.yz * x12.yw;
-  return 130.0 * dot(m, g);
-}
-
-struct ColorStop {
-  vec3 color;
-  float position;
-};
-
-#define COLOR_RAMP(colors, factor, finalColor) {              \\
-  int index = 0;                                            \\
-  for (int i = 0; i < 2; i++) {                               \\
-     ColorStop currentColor = colors[i];                    \\
-     bool isInBetween = currentColor.position <= factor;    \\
-     index = int(mix(float(index), float(i), float(isInBetween))); \\
-  }                                                         \\
-  ColorStop currentColor = colors[index];                   \\
-  ColorStop nextColor = colors[index + 1];                  \\
-  float range = nextColor.position - currentColor.position; \\
-  float lerpFactor = (factor - currentColor.position) / range; \\
-  finalColor = mix(currentColor.color, nextColor.color, lerpFactor); \\
-}
-
-void main() {
-  vec2 uv = gl_FragCoord.xy / uResolution;
-
-  ColorStop colors[3];
-  colors[0] = ColorStop(uColorStops[0], 0.0);
-  colors[1] = ColorStop(uColorStops[1], 0.5);
-  colors[2] = ColorStop(uColorStops[2], 1.0);
-
-  vec3 rampColor;
-  COLOR_RAMP(colors, uv.x, rampColor);
-
-  float height = snoise(vec2(uv.x * 2.0 + uTime * 0.1, uTime * 0.25)) * 0.5 * uAmplitude;
-  height = exp(height);
-  height = (uv.y * 2.0 - height + 0.2);
-  float intensity = 0.6 * height;
-
-  float midPoint = 0.20;
-  float auroraAlpha = smoothstep(midPoint - uBlend * 0.5, midPoint + uBlend * 0.5, intensity);
-
-  vec3 auroraColor = intensity * rampColor;
-
-  fragColor = vec4(auroraColor * auroraAlpha, auroraAlpha);
-}
-`;
-
-interface AuroraProps {
-    colorStops?: string[];
-    amplitude?: number;
-    blend?: number;
-    time?: number;
-    speed?: number;
-}
-
-function Aurora(props: AuroraProps) {
-    const { colorStops = ['#5227FF', '#7cff67', '#5227FF'], amplitude = 1.0, blend = 0.5 } = props;
-    const propsRef = useRef<AuroraProps>(props);
-    propsRef.current = props;
-
-    const ctnDom = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        const ctn = ctnDom.current;
-        if (!ctn) return;
-
-        const renderer = new Renderer({ alpha: true, premultipliedAlpha: true, antialias: true });
-        const gl = renderer.gl;
-        gl.clearColor(0, 0, 0, 0);
-        gl.enable(gl.BLEND);
-        gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-        gl.canvas.style.backgroundColor = 'transparent';
-
-        let program: Program | undefined;
-
-        function resize() {
-            if (!ctn) return;
-            const width = ctn.offsetWidth;
-            const height = ctn.offsetHeight;
-            renderer.setSize(width, height);
-            if (program) program.uniforms.uResolution.value = [width, height];
-        }
-        window.addEventListener('resize', resize);
-
-        const geometry = new Triangle(gl);
-        if (geometry.attributes.uv) delete geometry.attributes.uv;
-
-        const colorStopsArray = colorStops.map(hex => {
-            const c = new Color(hex);
-            return [c.r, c.g, c.b];
-        });
-
-        program = new Program(gl, {
-            vertex: VERT,
-            fragment: FRAG,
-            uniforms: {
-                uTime: { value: 0 },
-                uAmplitude: { value: amplitude },
-                uColorStops: { value: colorStopsArray },
-                uResolution: { value: [ctn.offsetWidth, ctn.offsetHeight] },
-                uBlend: { value: blend }
-            }
-        });
-
-        const mesh = new Mesh(gl, { geometry, program });
-        ctn.appendChild(gl.canvas);
-
-        let animateId = 0;
-        const update = (t: number) => {
-            animateId = requestAnimationFrame(update);
-            const { time = t * 0.01, speed = 1.0 } = propsRef.current;
-            if (program) {
-                program.uniforms.uTime.value = time * speed * 0.1;
-                program.uniforms.uAmplitude.value = propsRef.current.amplitude ?? 1.0;
-                program.uniforms.uBlend.value = propsRef.current.blend ?? blend;
-                const stops = propsRef.current.colorStops ?? colorStops;
-                program.uniforms.uColorStops.value = stops.map((hex: string) => {
-                    const c = new Color(hex);
-                    return [c.r, c.g, c.b];
-                });
-                renderer.render({ scene: mesh });
-            }
-        };
-        animateId = requestAnimationFrame(update);
-        resize();
-
-        return () => {
-            cancelAnimationFrame(animateId);
-            window.removeEventListener('resize', resize);
-            if (ctn && gl.canvas.parentNode === ctn) ctn.removeChild(gl.canvas);
-            gl.getExtension('WEBGL_lose_context')?.loseContext();
-        };
-    }, [amplitude]);
-
-    return <div ref={ctnDom} className="w-full h-full" />;
-}
 
 // ─────────────────────────────────────────────
 // TextGenerate animation
@@ -343,7 +158,7 @@ function TextGenerate({ children, className = "", delay = 0, stagger = 0.05, dur
         return () => ctx.revert();
     }, [delay, duration, stagger]);
 
-    return <div ref={containerRef} className={className}>{renderWords()}</div>;
+    return <span ref={containerRef} className={className}>{renderWords()}</span>;
 }
 
 // ─────────────────────────────────────────────
@@ -354,9 +169,10 @@ interface CardGenerateProps {
     className?: string;
     delay?: number;
     duration?: number;
+    triggerEl?: Element | null;
 }
 
-function CardGenerate({ children, className = "", delay = 0, duration = 1.2 }: CardGenerateProps) {
+function CardGenerate({ children, className = "", delay = 0, duration = 1.2, triggerEl }: CardGenerateProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const contentRef = useRef<HTMLDivElement>(null);
 
@@ -369,16 +185,17 @@ function CardGenerate({ children, className = "", delay = 0, duration = 1.2 }: C
         gsap.set(content, { opacity: 0, y: 20 });
 
         const ctx = gsap.context(() => {
+            const trigger = triggerEl ?? container;
             const tl = gsap.timeline({
-                scrollTrigger: { trigger: container, start: "top 80%", once: true },
+                scrollTrigger: { trigger, start: "top 80%", once: true },
                 delay
             });
-            tl.to(container, { clipPath: 'circle(150% at 0% 0%)', opacity: 1, duration, ease: 'power2.out' });
-            tl.to(content, { opacity: 1, y: 0, duration: 0.6, ease: 'back.out(1.5)' }, `-=${duration * 0.4}`);
+            tl.to(container, { clipPath: 'circle(150% at 0% 0%)', opacity: 1, duration: 0.7, ease: 'power2.out' });
+            tl.to(content, { opacity: 1, y: 0, duration: 0.5, ease: 'back.out(1.5)' }, `-=${0.7 * 0.4}`);
         }, containerRef);
 
         return () => ctx.revert();
-    }, [delay, duration]);
+    }, [delay, duration, triggerEl]);
 
     return (
         <div ref={containerRef} className={`${className} relative`}>
@@ -417,17 +234,18 @@ function Hero() {
     }, []);
 
     return (
-        <section ref={containerRef} className="relative pt-[80px] pb-[40px] flex flex-col items-center overflow-hidden">
+        <section ref={containerRef} className="relative pt-[80px] pb-[40px] flex flex-col items-center overflow-hidden pointer-events-none">
+
             <style>{`.hero-svg-wrapper svg { width: 100%; height: auto; }`}</style>
 
-            <div className="absolute left-0 top-[15%] hidden lg:block hero-anim transition-all duration-500 hover:scale-105 z-0">
-                <div className="hero-svg-wrapper left-graphic w-[320px] xl:w-[450px] drop-shadow-2xl" dangerouslySetInnerHTML={{ __html: heroLeft }} />
+            <div className="absolute left-0 top-[15%] hidden lg:block hero-anim transition-all duration-500 hover:scale-105 z-0 pointer-events-auto">
+                <div className="hero-svg-wrapper left-graphic w-[220px] xl:w-[320px] drop-shadow-2xl" dangerouslySetInnerHTML={{ __html: heroLeft }} />
             </div>
-            <div className="absolute right-0 top-[10%] hidden lg:block hero-anim transition-all duration-500 hover:scale-105 z-0">
-                <div className="hero-svg-wrapper right-graphic w-[320px] xl:w-[450px] drop-shadow-2xl" dangerouslySetInnerHTML={{ __html: heroRight }} />
+            <div className="absolute right-0 top-[10%] hidden lg:block hero-anim transition-all duration-500 hover:scale-105 z-0 pointer-events-auto">
+                <div className="hero-svg-wrapper right-graphic w-[220px] xl:w-[320px] drop-shadow-2xl" dangerouslySetInnerHTML={{ __html: heroRight }} />
             </div>
 
-            <div className="max-w-[1200px] w-full px-8 flex flex-col items-center z-10 text-center">
+            <div className="max-w-[1200px] w-full px-8 flex flex-col items-center z-10 text-center pointer-events-auto">
                 <div className="hero-anim inline-flex items-center gap-2 bg-surface px-4 py-2 rounded-pill mb-8 border border-borderSubtle">
                     <div className="w-2 h-2 rounded-full bg-primary relative">
                         <div className="absolute inset-0 bg-primary rounded-full animate-ping opacity-75"></div>
@@ -481,11 +299,109 @@ function Hero() {
 // LogoCarousel
 // ─────────────────────────────────────────────
 const logos = [
-    { name: 'Unmind', svg: (<svg viewBox="0 0 120 40" fill="currentColor" className="h-8 w-auto px-4 text-gray-400 hover:text-gray-900 transition-colors"><text x="0" y="28" fontFamily="serif" fontSize="26" fontWeight="bold">Unmind</text></svg>) },
-    { name: 'Glovo', svg: (<svg viewBox="0 0 100 40" fill="currentColor" className="h-8 w-auto px-4 text-gray-400 hover:text-gray-900 transition-colors"><text x="0" y="28" fontFamily="sans-serif" fontSize="26" fontWeight="bold" letterSpacing="-1">Glovo</text><circle cx="85" cy="12" r="4" fill="currentColor" /></svg>) },
-    { name: 'texthelp', svg: (<svg viewBox="0 0 130 40" fill="currentColor" className="h-8 w-auto px-4 text-gray-400 hover:text-gray-900 transition-colors"><path d="M5 10 h15 v12 h-15 z" fill="currentColor" /><text x="25" y="26" fontFamily="sans-serif" fontSize="24" fontWeight="600" letterSpacing="-0.5">texthelp</text></svg>) },
-    { name: 'paddle', svg: (<svg viewBox="0 0 110 40" fill="currentColor" className="h-8 w-auto px-4 text-gray-400 hover:text-gray-900 transition-colors"><text x="0" y="28" fontFamily="sans-serif" fontSize="25" fontWeight="500">paddle</text></svg>) },
-    { name: 'Qonto', svg: (<svg viewBox="0 0 100 40" fill="currentColor" className="h-8 w-auto px-4 text-gray-400 hover:text-gray-900 transition-colors"><text x="0" y="28" fontFamily="sans-serif" fontSize="26" fontWeight="bold">Qonto</text></svg>) },
+    {
+        name: 'AWS Lambda',
+        svg: (
+            <div className="flex flex-row items-center gap-2 px-6 group cursor-default text-gray-400 hover:text-gray-900 transition-colors">
+                <svg viewBox="0 0 40 40" className="h-6 w-6 shrink-0" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M10 30 L17 10 L21 10 L17.5 19 L26 30 L22 30 L18.5 23 L15 30 Z" fill="currentColor"/>
+                </svg>
+                <span className="text-[17px] font-bold whitespace-nowrap">AWS Lambda</span>
+            </div>
+        )
+    },
+    {
+        name: 'DynamoDB',
+        svg: (
+            <div className="flex flex-row items-center gap-2 px-6 group cursor-default text-gray-400 hover:text-gray-900 transition-colors">
+                <svg viewBox="0 0 40 40" className="h-6 w-6 shrink-0" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <ellipse cx="20" cy="11" rx="10" ry="4" fill="currentColor" fillOpacity="0.9"/>
+                    <rect x="10" y="11" width="20" height="14" fill="currentColor" fillOpacity="0.3"/>
+                    <ellipse cx="20" cy="25" rx="10" ry="4" fill="currentColor" fillOpacity="0.9"/>
+                    <ellipse cx="20" cy="18" rx="10" ry="4" fill="currentColor" fillOpacity="0.6"/>
+                </svg>
+                <span className="text-[17px] font-bold whitespace-nowrap">DynamoDB</span>
+            </div>
+        )
+    },
+    {
+        name: 'API Gateway',
+        svg: (
+            <div className="flex flex-row items-center gap-2 px-6 group cursor-default text-gray-400 hover:text-gray-900 transition-colors">
+                <svg viewBox="0 0 40 40" className="h-6 w-6 shrink-0" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="20" cy="20" r="9" stroke="currentColor" strokeWidth="2" fill="none"/>
+                    <path d="M8 20 H32" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                    <path d="M20 8 V32" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                    <path d="M14 14 L26 26M26 14 L14 26" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeOpacity="0.5"/>
+                </svg>
+                <span className="text-[17px] font-bold whitespace-nowrap">API Gateway</span>
+            </div>
+        )
+    },
+    {
+        name: 'React',
+        svg: (
+            <div className="flex flex-row items-center gap-2 px-6 group cursor-default text-gray-400 hover:text-gray-900 transition-colors">
+                <svg viewBox="0 0 40 40" className="h-6 w-6 shrink-0" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <ellipse cx="20" cy="20" rx="14" ry="5.5" stroke="currentColor" strokeWidth="1.8" fill="none"/>
+                    <ellipse cx="20" cy="20" rx="14" ry="5.5" stroke="currentColor" strokeWidth="1.8" fill="none" transform="rotate(60 20 20)"/>
+                    <ellipse cx="20" cy="20" rx="14" ry="5.5" stroke="currentColor" strokeWidth="1.8" fill="none" transform="rotate(120 20 20)"/>
+                    <circle cx="20" cy="20" r="2.5" fill="currentColor"/>
+                </svg>
+                <span className="text-[17px] font-bold whitespace-nowrap">React</span>
+            </div>
+        )
+    },
+    {
+        name: 'TypeScript',
+        svg: (
+            <div className="flex flex-row items-center gap-2 px-6 group cursor-default text-gray-400 hover:text-gray-900 transition-colors">
+                <svg viewBox="0 0 40 40" className="h-6 w-6 shrink-0" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="4" y="4" width="32" height="32" rx="4" fill="currentColor"/>
+                    <path d="M11 16.5 H22 M16.5 16.5 V29" stroke="white" strokeWidth="2.2" strokeLinecap="round"/>
+                    <path d="M24 23 C24 21.5 25 20.5 27 20.5 C29 20.5 30 21.5 30 23 C30 25.5 26 26.5 26 29" stroke="white" strokeWidth="1.8" strokeLinecap="round" fill="none"/>
+                    <circle cx="28" cy="29.5" r="1" fill="white"/>
+                </svg>
+                <span className="text-[17px] font-bold whitespace-nowrap">TypeScript</span>
+            </div>
+        )
+    },
+    {
+        name: 'Tailwind CSS',
+        svg: (
+            <div className="flex flex-row items-center gap-2 px-6 group cursor-default text-gray-400 hover:text-gray-900 transition-colors">
+                <svg viewBox="0 0 40 40" className="h-6 w-6 shrink-0" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M7 17 C9 13, 13 13, 15 17 C17 21, 21 21, 23 17 C25 13, 29 13, 31 17" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" fill="none"/>
+                    <path d="M7 23 C9 19, 13 19, 15 23 C17 27, 21 27, 23 23 C25 19, 29 19, 31 23" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" fill="none"/>
+                </svg>
+                <span className="text-[17px] font-bold whitespace-nowrap">Tailwind CSS</span>
+            </div>
+        )
+    },
+    {
+        name: 'Node.js',
+        svg: (
+            <div className="flex flex-row items-center gap-2 px-6 group cursor-default text-gray-400 hover:text-gray-900 transition-colors">
+                <svg viewBox="0 0 40 40" className="h-6 w-6 shrink-0" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M20 7 L31 13.5 V26.5 L20 33 L9 26.5 V13.5 Z" stroke="currentColor" strokeWidth="2" fill="none"/>
+                    <path d="M20 13 L20 27 M15 16 L20 13 L25 16" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+                </svg>
+                <span className="text-[17px] font-bold whitespace-nowrap">Node.js</span>
+            </div>
+        )
+    },
+    {
+        name: 'GitHub Actions',
+        svg: (
+            <div className="flex flex-row items-center gap-2 px-6 group cursor-default text-gray-400 hover:text-gray-900 transition-colors">
+                <svg viewBox="0 0 40 40" className="h-6 w-6 shrink-0" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="20" cy="20" r="11" stroke="currentColor" strokeWidth="2" fill="none"/>
+                    <path d="M17 14.5 L28 20 L17 25.5 Z" fill="currentColor"/>
+                </svg>
+                <span className="text-[17px] font-bold whitespace-nowrap">GitHub Actions</span>
+            </div>
+        )
+    },
 ];
 
 function LogoCarousel() {
@@ -494,7 +410,7 @@ function LogoCarousel() {
         <section className="w-full bg-white py-6 overflow-hidden">
             <div className="max-w-[1200px] mx-auto px-4 mb-4 text-center reveal">
                 <p className="text-[17px] font-semibold text-[#151515]">
-                    Teams use Prismic's headless CMS and landing page builder to build and automate websites that convert.
+                    Engineering teams use Velocis to automate code reviews, testing, and continuous delivery.
                 </p>
             </div>
             <div className="logo-carousel-container relative w-full flex overflow-hidden reveal delay-2">
@@ -502,7 +418,7 @@ function LogoCarousel() {
                 <div className="absolute right-0 top-0 bottom-0 w-32 bg-gradient-to-l from-white to-transparent z-10 pointer-events-none"></div>
                 <div className="logo-carousel-track flex items-center min-w-max">
                     {carouselLogos.map((logo, index) => (
-                        <div key={index} className="flex-none mx-5 transition-transform duration-300 hover:scale-105">{logo.svg}</div>
+                        <div key={index} className="flex-none">{logo.svg}</div>
                     ))}
                 </div>
             </div>
@@ -513,8 +429,15 @@ function LogoCarousel() {
 // ─────────────────────────────────────────────
 // TimelineSvg  (placed ABOVE Problem)
 // ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// TimelineSvg  (placed ABOVE Problem)
+// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// TimelineSvg  (placed ABOVE Problem)
+// ─────────────────────────────────────────────
 function TimelineSvg() {
     const containerRef = useRef<HTMLElement>(null);
+    const sweepTailRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         if (!containerRef.current) return;
@@ -541,78 +464,125 @@ function TimelineSvg() {
             tl.to('#timeline-ball', { fill: 'rgb(2, 132, 199)', duration: 0.5 }, 2.5)
                 .to('#timeline-ball', { fill: 'rgb(37, 99, 235)', duration: 0.5 }, 3.5)
                 .to('#timeline-ball', { fill: 'rgb(16, 185, 129)', duration: 0.5 }, 4.5);
+
+            // Animate sweep tail: 5% solid reveal, trailing edge fades gracefully down
+            if (sweepTailRef.current) {
+                // We use a proxy object to tween custom values efficiently because GSAP + CSS Custom Properties usually works best this way
+                const maskProxy = { top: 0, gradientEnd: 0 };
+
+                gsap.to(maskProxy, {
+                    top: 5,        // Top firm wipe drops down to 5% instantly
+                    gradientEnd: 150, // The transparent edge pushes all the way past 100% downward slowly
+                    duration: 1.5,
+                    ease: 'power2.inOut',
+                    onUpdate: () => {
+                        if (sweepTailRef.current) {
+                            sweepTailRef.current.style.setProperty('--mask-top', `${maskProxy.top}%`);
+                            sweepTailRef.current.style.setProperty('--mask-bot', `${maskProxy.gradientEnd}%`);
+                        }
+                    },
+                    scrollTrigger: {
+                        trigger: sweepTailRef.current,
+                        start: 'top 80%',
+                        toggleActions: "play none none none"
+                    }
+                });
+            }
         }, containerRef);
         return () => { ctx.revert(); };
     }, []);
 
     return (
-        <section className="features-section bg-[#151515]" ref={containerRef}>
-            <div className="timeline-bridge-wrapper w-full flex justify-center" dangerouslySetInnerHTML={{ __html: timelineBridgeRaw }} />
+        <section className="features-section bg-[#151515] pb-[200px]" ref={containerRef}>
+            <div className="timeline-bridge-wrapper w-full flex justify-center" style={{ position: 'relative' }}>
+                <div className="w-full" dangerouslySetInnerHTML={{ __html: timelineBridgeRaw }} />
+                <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+                    {[
+                        { label: 'Connect',  left: '24.7%', top: '58.5%' },
+                        { label: 'Analyze',  left: '31.0%', top: '71.2%' },
+                        { label: 'Test',     left: '45.6%', top: '76.5%' },
+                        { label: 'Map',      left: '61.5%', top: '59.6%' },
+                        { label: 'Deploy',   left: '70.8%', top: '72.5%' },
+                        { label: 'Monitor',  left: '80.6%', top: '51.2%' },
+                    ].map(({ label, left, top }) => (
+                        <span key={label} className="timeline-step-label" style={{ left, top }}>{label}</span>
+                    ))}
+                </div>
+            </div>
             <div className="max-w-[1200px] w-full mx-auto px-8">
                 <div className="split-feature-container" style={{ marginTop: '-4px' }}>
                     {/* Left Column: Engineering Teams */}
-                    <CardGenerate delay={0} duration={2.0} className="w-[100%] md:w-1/2 mt-0">
+                    <div className="w-[100%] md:w-1/2 mt-0">
                         <div className="feature-half developer-feature pl-4 md:pl-16 pr-8 pt-10 pb-20 bg-transparent flex flex-col items-start justify-start relative z-10 w-full h-full">
                             <h2 className="text-[1.75rem] leading-tight font-bold mb-4 tracking-tight max-w-[400px]">
-                                <span className="text-purple-500 font-semibold mb-1 block text-sm tracking-wider uppercase"><TextGenerate delay={1.2}>Engineering Teams</TextGenerate></span>
-                                <span className="text-white"><TextGenerate delay={1.4}>Reclaim your team's engineering velocity</TextGenerate></span>
+                                <span className="text-purple-500 font-semibold mb-1 block text-sm tracking-wider uppercase"><TextGenerate delay={0}>Engineering Teams</TextGenerate></span>
+                                <span className="text-white"><TextGenerate delay={0.1}>Reclaim your team's engineering velocity</TextGenerate></span>
                             </h2>
                             <p className="text-gray-400 text-lg mb-8 max-w-[400px] leading-relaxed">
-                                <TextGenerate delay={1.5}>Stop using your senior engineers as syntax checkers. Velocis automates code reviews and triaging so your team can focus on building features.</TextGenerate>
+                                <TextGenerate delay={0.2}>Stop using your senior engineers as syntax checkers. Velocis automates code reviews and triaging so your team can focus on building features.</TextGenerate>
                             </p>
                             <ul className="text-white space-y-6 mb-10 w-full max-w-[400px]">
                                 <li className="flex items-start gap-4">
                                     <div className="text-purple-500 mt-1"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L14.4 9.6L22 12L14.4 14.4L12 22L9.6 14.4L2 12L9.6 9.6L12 2Z"></path></svg></div>
-                                    <span className="font-medium text-lg leading-snug"><TextGenerate delay={1.6}>Automate repetitive review chores</TextGenerate></span>
+                                    <span className="font-medium text-lg leading-snug"><TextGenerate delay={0.3}>Automate repetitive review chores</TextGenerate></span>
                                 </li>
                                 <li className="flex items-start gap-4">
                                     <div className="text-purple-500 mt-1"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></div>
-                                    <span className="font-medium text-lg leading-snug"><TextGenerate delay={1.7}>Catch deep logic flaws before production</TextGenerate></span>
+                                    <span className="font-medium text-lg leading-snug"><TextGenerate delay={0.4}>Catch deep logic flaws before production</TextGenerate></span>
                                 </li>
                                 <li className="flex items-start gap-4">
                                     <div className="text-purple-500 mt-1"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></div>
-                                    <span className="font-medium text-lg leading-snug"><TextGenerate delay={1.8}>Provide instant mentorship to junior devs</TextGenerate></span>
+                                    <span className="font-medium text-lg leading-snug"><TextGenerate delay={0.5}>Provide instant mentorship to junior devs</TextGenerate></span>
                                 </li>
                             </ul>
                             <button className="bg-white text-black hover:bg-gray-100 transition-colors rounded-full px-7 py-3.5 font-semibold text-[15px] inline-flex items-center shadow-lg">
-                                <TextGenerate delay={1.9}>Explore Velocis for Teams</TextGenerate>
+                                <TextGenerate delay={0.6}>Explore Velocis for Teams</TextGenerate>
                             </button>
                         </div>
-                    </CardGenerate>
+                    </div>
 
                     {/* Right Column: Developers */}
-                    <CardGenerate delay={0.6} duration={2.0} className="w-[100%] md:w-1/2 mt-8 md:mt-32">
+                    <div className="w-[100%] md:w-1/2 mt-8 md:mt-32">
                         <div className="feature-half marketer-feature pr-4 md:pr-16 pl-8 pt-10 pb-20 relative z-20 w-full flex flex-col items-start justify-start marketer-tail-card">
                             <h2 className="text-[1.75rem] leading-tight font-bold mb-4 tracking-tight max-w-[400px]">
-                                <span className="text-blue-500 font-semibold mb-1 block text-sm tracking-wider uppercase"><TextGenerate delay={1.8}>Developers</TextGenerate></span>
-                                <span className="text-[#151515]"><TextGenerate delay={2.0}>Ship confident code without the wait</TextGenerate></span>
+                                <span className="text-blue-500 font-semibold mb-1 block text-sm tracking-wider uppercase"><TextGenerate delay={0}>Developers</TextGenerate></span>
+                                <span className="text-[#151515]"><TextGenerate delay={0.1}>Ship confident code without the wait</TextGenerate></span>
                             </h2>
                             <p className="text-gray-600 text-lg mb-8 max-w-[400px] leading-relaxed">
-                                <TextGenerate delay={2.1}>Stop waiting days for a code review. Velocis provides instant feedback, suggests fixes, and helps you merge your PRs in hours instead of days.</TextGenerate>
+                                <TextGenerate delay={0.2}>Stop waiting days for a code review. Velocis provides instant feedback, suggests fixes, and helps you merge your PRs in hours instead of days.</TextGenerate>
                             </p>
                             <ul className="text-[#151515] space-y-6 mb-10 w-full max-w-[400px]">
                                 <li className="flex items-start gap-4">
                                     <div className="text-blue-500 mt-1"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><rect x="2" y="5" width="20" height="6" rx="2"></rect><rect x="2" y="13" width="20" height="6" rx="2"></rect></svg></div>
-                                    <span className="font-medium text-lg leading-snug"><TextGenerate delay={2.2}>Reduce merge times with instant AI feedback</TextGenerate></span>
+                                    <span className="font-medium text-lg leading-snug"><TextGenerate delay={0.3}>Reduce merge times with instant AI feedback</TextGenerate></span>
                                 </li>
                                 <li className="flex items-start gap-4">
                                     <div className="text-blue-500 mt-1"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18"></path><path d="M18 17V9a2 2 0 0 0-2-2H8"></path></svg></div>
-                                    <span className="font-medium text-lg leading-snug"><TextGenerate delay={2.3}>Learn best practices through in-line suggestions</TextGenerate></span>
+                                    <span className="font-medium text-lg leading-snug"><TextGenerate delay={0.4}>Learn best practices through in-line suggestions</TextGenerate></span>
                                 </li>
                                 <li className="flex items-start gap-4">
                                     <div className="text-blue-500 mt-1"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></div>
-                                    <span className="font-medium text-lg leading-snug"><TextGenerate delay={2}>Focus on solving hard problems, not formatting</TextGenerate></span>
+                                    <span className="font-medium text-lg leading-snug"><TextGenerate delay={0.5}>Focus on solving hard problems, not formatting</TextGenerate></span>
                                 </li>
                             </ul>
                             <button className="bg-[#151515] text-white hover:bg-black transition-colors rounded-full px-7 py-3.5 font-semibold text-[15px] inline-flex items-center shadow-lg relative z-20">
-                                <TextGenerate delay={2.39}>Start moving faster today</TextGenerate>
+                                <TextGenerate delay={0.6}>Start moving faster today</TextGenerate>
                             </button>
                             {/* Seamless Sweep Tail */}
-                            <div className="absolute top-full left-1/2 -translate-x-1/2 w-[250%] h-[200px] -z-10 pointer-events-none translate-y-[-1px]">
-                                <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full overflow-visible">
+                            <div
+                                ref={sweepTailRef}
+                                className="absolute top-full left-1/2 -translate-x-1/2 w-[250%] h-[200px] -z-10 pointer-events-none translate-y-[-1px]"
+                                style={{
+                                    '--mask-top': '0%',
+                                    '--mask-bot': '0%',
+                                    WebkitMaskImage: 'linear-gradient(to bottom, black 0%, black var(--mask-top), transparent var(--mask-bot), transparent 100%)',
+                                    maskImage: 'linear-gradient(to bottom, black 0%, black var(--mask-top), transparent var(--mask-bot), transparent 100%)'
+                                } as React.CSSProperties}
+                            >
+                                <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute top-0 left-0 w-full h-[200px] overflow-visible">
                                     <defs>
                                         <linearGradient id="sweepGradient" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="0%" stopColor="#F7F7F7" /><stop offset="60%" stopColor="#FFFFFF" /><stop offset="100%" stopColor="#FFFFFF" />
+                                            <stop offset="0%" stopColor="#F7F7F7" /><stop offset="60%" stopColor="#F7F7F7" /><stop offset="100%" stopColor="#FFFFFF" />
                                         </linearGradient>
                                         <filter id="sweepShadow" x="-20%" y="-30%" width="140%" height="140%">
                                             <feDropShadow dx="0" dy="8" stdDeviation="20" floodColor="#000000" floodOpacity="0.04" />
@@ -622,7 +592,7 @@ function TimelineSvg() {
                                 </svg>
                             </div>
                         </div>
-                    </CardGenerate>
+                    </div>
                 </div>
             </div>
         </section>
@@ -646,23 +616,23 @@ function Problem() {
                 {/* Left Column */}
                 <div>
                     <span className="font-mono text-sm tracking-widest uppercase text-primary font-bold mb-4 block">
-                        <TextGenerate>The Problem</TextGenerate>
+                        The Problem
                     </span>
-                    <h2 className="font-display text-[clamp(32px,4.5vw,56px)] font-bold tracking-tight leading-[1.05] mb-12">
-                        <TextGenerate delay={0.2}>Teams ship bugs.</TextGenerate>
-                        <TextGenerate delay={0.4}>Not features.</TextGenerate>
+                    <h2 className="font-display text-[clamp(32px,4.5vw,56px)] font-bold tracking-tight leading-[1.05] mb-12 flex flex-col gap-2">
+                        <span>Teams ship bugs.</span>
+                        <span>Not features.</span>
                     </h2>
                     <div className="flex flex-col gap-10">
                         {problems.map((prob, i) => (
-                            <CardGenerate key={i} delay={0.4} duration={2.0} className="flex gap-6">
+                            <div key={i} className="flex gap-6">
                                 <div className="w-12 h-12 rounded-xl bg-surface flex-shrink-0 flex items-center justify-center text-dark">
                                     <prob.icon size={24} />
                                 </div>
                                 <div>
-                                    <h3 className="font-bold text-xl mb-2"><TextGenerate delay={1.4}>{prob.title}</TextGenerate></h3>
-                                    <p className="text-textMuted text-lg leading-relaxed"><TextGenerate delay={1.6}>{prob.desc}</TextGenerate></p>
+                                    <h3 className="font-bold text-xl mb-2">{prob.title}</h3>
+                                    <p className="text-textMuted text-lg leading-relaxed">{prob.desc}</p>
                                 </div>
-                            </CardGenerate>
+                            </div>
                         ))}
                     </div>
                 </div>
@@ -670,44 +640,44 @@ function Problem() {
                 {/* Right Column (Sticky) */}
                 <div className="relative">
                     <div className="sticky top-[120px] flex flex-col gap-8">
-                        <CardGenerate delay={0.4} duration={2.0}>
+                        <div>
                             <div className="bg-surface rounded-card p-10 flex flex-col gap-4 transition-transform duration-300 hover:-translate-y-1">
-                                <span className="text-textMuted font-medium text-lg"><TextGenerate delay={1.4}>Avg Time to Merge PR</TextGenerate></span>
-                                <div className="font-display font-bold text-6xl text-dark"><TextGenerate delay={1.6}>4.7 Days</TextGenerate></div>
+                                <span className="text-textMuted font-medium text-lg">Avg Time to Merge PR</span>
+                                <div className="font-display font-bold text-6xl text-dark">4.7 Days</div>
                                 <div className="mt-4 bg-primary/10 text-primary font-mono text-sm font-bold uppercase tracking-wide py-2 px-4 rounded-pill self-start overflow-hidden">
-                                    <TextGenerate delay={1.8}>With Velocis: &lt; 4 Hours</TextGenerate>
+                                    With Velocis: &lt; 4 Hours
                                 </div>
                             </div>
-                        </CardGenerate>
+                        </div>
 
-                        <CardGenerate delay={0.8} duration={2.0}>
+                        <div>
                             <div className="bg-surface rounded-card p-10 transition-transform duration-300 hover:-translate-y-1">
-                                <span className="text-textMuted font-medium text-lg mb-6 block"><TextGenerate delay={1.8}>Senior Engineer Time Breakdown</TextGenerate></span>
+                                <span className="text-textMuted font-medium text-lg mb-6 block">Senior Engineer Time Breakdown</span>
                                 <div className="flex flex-col gap-4 w-full">
                                     <div className="flex flex-col gap-1">
                                         <div className="flex justify-between text-sm font-medium">
-                                            <TextGenerate delay={2.0}>Code Reviews</TextGenerate>
-                                            <span className="text-textMuted cursor-default"><TextGenerate delay={2.0}>38%</TextGenerate></span>
+                                            <span>Code Reviews</span>
+                                            <span className="text-textMuted cursor-default">38%</span>
                                         </div>
                                         <div className="h-4 w-full bg-borderSubtle rounded-pill overflow-hidden"><div className="h-full bg-dark w-[38%] rounded-pill"></div></div>
                                     </div>
                                     <div className="flex flex-col gap-1">
                                         <div className="flex justify-between text-sm font-medium">
-                                            <TextGenerate delay={2.2}>Bug Triage</TextGenerate>
-                                            <span className="text-textMuted cursor-default"><TextGenerate delay={2.2}>24%</TextGenerate></span>
+                                            <span>Bug Triage</span>
+                                            <span className="text-textMuted cursor-default">24%</span>
                                         </div>
                                         <div className="h-4 w-full bg-borderSubtle rounded-pill overflow-hidden"><div className="h-full bg-dark w-[24%] rounded-pill opacity-80"></div></div>
                                     </div>
                                     <div className="flex flex-col gap-1">
                                         <div className="flex justify-between text-sm font-medium">
-                                            <TextGenerate delay={2.4}>Building Features</TextGenerate>
-                                            <span className="text-textMuted cursor-default text-primary"><TextGenerate delay={2.4}>6%</TextGenerate></span>
+                                            <span>Building Features</span>
+                                            <span className="text-textMuted cursor-default text-primary">6%</span>
                                         </div>
                                         <div className="h-4 w-full bg-borderSubtle rounded-pill overflow-hidden"><div className="h-full bg-primary w-[6%] rounded-pill"></div></div>
                                     </div>
                                 </div>
                             </div>
-                        </CardGenerate>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -729,24 +699,24 @@ function BentoGrid() {
         <section className="py-[120px] bg-background">
             <div className="max-w-[1200px] w-full mx-auto px-8">
                 <div className="text-center mb-16">
-                    <h2 className="font-display text-[clamp(28px,4vw,48px)] font-bold tracking-tight leading-[1.05]">
-                        <TextGenerate>Three Agents.</TextGenerate>
+                    <h2 className="font-display text-[clamp(28px,4vw,48px)] font-bold tracking-tight leading-[1.05] flex flex-col gap-2">
+                        <TextGenerate delay={0}>Three Agents.</TextGenerate>
                         <TextGenerate delay={0.2}>One Unified Team.</TextGenerate>
                     </h2>
                 </div>
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     {agents.map((agent, i) => (
-                        <CardGenerate key={i} delay={-0.15 + (i * 0.15)} duration={1} className="bg-surface rounded-card p-10 flex flex-col items-start transition-all duration-300 hover:-translate-y-2 hover:shadow-xl relative overflow-hidden group">
+                        <CardGenerate key={i} delay={i * 0.15} className="glass-card bg-surface/70 backdrop-blur-sm rounded-card p-10 transition-all duration-500 hover:-translate-y-3 hover:shadow-2xl hover:bg-surface/90 overflow-hidden group">
                             <div className="absolute inset- border-[1px] pointer-events-none opacity-20 group-hover:opacity-40 transition-opacity duration-300 rounded-card" style={{ borderColor: agent.color }} />
                             <div className="w-16 h-16 rounded-full flex items-center justify-center mb-6 text-white" style={{ backgroundColor: agent.color }}><agent.icon size={28} /></div>
                             <div className="font-mono text-sm tracking-widest font-bold mb-2 uppercase" style={{ color: agent.color }}>{agent.role}</div>
-                            <h3 className="font-display text-3xl font-bold mb-4"><TextGenerate delay={0.8 + (i * 0.15)}>{agent.name}</TextGenerate></h3>
-                            <p className="text-textMuted text-lg mb-8 leading-relaxed flex-grow"><TextGenerate delay={1.0 + (i * 0.15)}>{agent.desc}</TextGenerate></p>
+                            <h3 className="font-display text-3xl font-bold mb-4">{agent.name}</h3>
+                            <p className="text-textMuted text-lg mb-8 leading-relaxed flex-grow">{agent.desc}</p>
                             <ul className="flex flex-col gap-3 w-full">
                                 {agent.features.map((feat, j) => (
                                     <li key={j} className="flex items-center gap-3 text-sm font-medium">
                                         <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: agent.color }}></div>
-                                        <TextGenerate delay={1.1 + (i * 0.15) + (j * 0.1)}>{feat}</TextGenerate>
+                                        {feat}
                                     </li>
                                 ))}
                             </ul>
@@ -775,6 +745,12 @@ const capabilities = [
 function HorizontalCarousel() {
     const sectionRef = useRef<HTMLElement>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const [sectionEl, setSectionEl] = useState<HTMLElement | null>(null);
+
+    const sectionCallbackRef = useCallback((el: HTMLElement | null) => {
+        sectionRef.current = el;
+        setSectionEl(el);
+    }, []);
 
     useEffect(() => {
         if (!sectionRef.current || !scrollContainerRef.current) return;
@@ -797,26 +773,26 @@ function HorizontalCarousel() {
     }, []);
 
     return (
-        <section ref={sectionRef} className="h-screen flex items-center text-white overflow-hidden py-20 relative bg-[#151515]">
+        <section ref={sectionCallbackRef} className="h-screen flex items-center text-white overflow-hidden py-20 relative bg-[#151515]">
             <div className="min-w-[400px] w-[400px] self-stretch z-20 flex flex-col justify-center bg-[#151515] relative">
                 <div className="absolute top-0 -right-[200px] bottom-0 w-[200px] bg-gradient-to-r from-[#151515] to-transparent pointer-events-none"></div>
                 <div className="px-12 md:px-20 relative z-10">
-                    <span className="font-mono text-primary text-sm tracking-widest uppercase font-bold mb-4 block"><TextGenerate>Platform Capabilities</TextGenerate></span>
+                    <span className="font-mono text-primary text-sm tracking-widest uppercase font-bold mb-4 block">Platform Capabilities</span>
                     <h2 className="font-display text-[clamp(40px,5vw,64px)] font-bold tracking-tight leading-[1]">
-                        <TextGenerate delay={0.2}>Built to Act,</TextGenerate><br /><TextGenerate delay={0.4}>Not Wait.</TextGenerate>
+                        Built to Act,<br />Not Wait.
                     </h2>
                     <p className="mt-8 text-lg text-textInverse/60 max-w-sm">
-                        <TextGenerate delay={0.6}>A granular look into the features powering Velocis. Keep scrolling to explore the capabilities.</TextGenerate>
+                        A granular look into the features powering Velocis. Keep scrolling to explore the capabilities.
                     </p>
                 </div>
             </div>
             <div ref={scrollContainerRef} className="flex gap-6 pl-20 pr-[20vw] relative items-center">
                 {capabilities.map((cap, i) => (
-                    <CardGenerate key={i} delay={0.6 + (i * 0.1)} duration={0.7} className="w-[350px] h-[350px] flex-shrink-0 bg-[#222] border border-white/10 rounded-card p-10 hover:bg-[#2A2A2A] transition-colors">
+                    <CardGenerate key={i} delay={i * 0.1} duration={0.7} triggerEl={sectionEl} className="w-[350px] h-[350px] flex-shrink-0 bg-[#222] border border-white/10 rounded-card p-10 hover:bg-[#2A2A2A] transition-colors">
                         <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center text-primary mb-6"><cap.icon size={32} /></div>
                         <div>
-                            <h3 className="font-display text-2xl font-bold mb-3"><TextGenerate delay={0.8 + (i * 0.1)}>{cap.title}</TextGenerate></h3>
-                            <p className="text-textInverse/60 text-lg leading-relaxed"><TextGenerate delay={1.0 + (i * 0.1)}>{cap.desc}</TextGenerate></p>
+                            <h3 className="font-display text-2xl font-bold mb-3"><TextGenerate delay={i * 0.1}>{cap.title}</TextGenerate></h3>
+                            <p className="text-textInverse/60 text-lg leading-relaxed"><TextGenerate delay={0.15 + i * 0.1}>{cap.desc}</TextGenerate></p>
                         </div>
                         <div className="flex font-mono text-xs opacity-30 mt-4 tracking-widest text-[#FFF]">CAP.0{i + 1}</div>
                     </CardGenerate>
@@ -852,9 +828,9 @@ const HIW_ROAD_D = `
 // [left%, top%, 'right'|'left']  (node center in SVG coordinate space)
 const HIW_NODES = [
     { xl: 72.86, yt: 12.50, side: 'right' as const },  // (510, 200)
-    { xl: 27.14, yt: 30.63, side: 'left'  as const },  // (190, 490)
+    { xl: 27.14, yt: 30.63, side: 'left' as const },  // (190, 490)
     { xl: 72.86, yt: 48.75, side: 'right' as const },  // (510, 780)
-    { xl: 27.14, yt: 66.88, side: 'left'  as const },  // (190, 1070)
+    { xl: 27.14, yt: 66.88, side: 'left' as const },  // (190, 1070)
     { xl: 72.86, yt: 85.00, side: 'right' as const },  // (510, 1360)
 ];
 
@@ -862,25 +838,25 @@ const HIW_NODES = [
 const HIW_NODE_T = [1.4, 3.1, 4.8, 6.5, 8.2];
 
 function HowItWorks() {
-    const sectionRef  = useRef<HTMLElement>(null);
-    const roadRef     = useRef<SVGPathElement>(null);
-    const nodeRefs    = useRef<(HTMLDivElement | null)[]>([]);
-    const labelRefs   = useRef<(HTMLDivElement | null)[]>([]);
-    const startRef    = useRef<HTMLDivElement>(null);
-    const goalRef     = useRef<HTMLDivElement>(null);
+    const sectionRef = useRef<HTMLElement>(null);
+    const roadRef = useRef<SVGPathElement>(null);
+    const nodeRefs = useRef<(HTMLDivElement | null)[]>([]);
+    const labelRefs = useRef<(HTMLDivElement | null)[]>([]);
+    const startRef = useRef<HTMLDivElement>(null);
+    const goalRef = useRef<HTMLDivElement>(null);
 
     const steps = [
-        { Icon: Github,      num: '01', title: 'Connect Repository', desc: 'Securely link GitHub, GitLab, or Bitbucket in under 60 seconds via OAuth.' },
-        { Icon: Activity,    num: '02', title: 'Webhook Listening',  desc: 'Velocis quietly observes all commits, branches, and PRs in real time.' },
-        { Icon: Cpu,         num: '03', title: 'Agents Activate',    desc: 'Sentinel, Fortress, and Visual Cortex run concurrently on every push.' },
-        { Icon: ShieldCheck, num: '04', title: 'Issues Resolved',    desc: 'Bugs are auto-fixed when possible, or flagged with deep context when not.' },
-        { Icon: Settings,    num: '05', title: 'Artifacts Update',   desc: 'Tests, docs, and architecture maps stay perpetually current.' },
+        { Icon: Github, num: '01', title: 'Connect Repository', desc: 'Securely link GitHub, GitLab, or Bitbucket in under 60 seconds via OAuth.' },
+        { Icon: Activity, num: '02', title: 'Webhook Listening', desc: 'Velocis quietly observes all commits, branches, and PRs in real time.' },
+        { Icon: Cpu, num: '03', title: 'Agents Activate', desc: 'Sentinel, Fortress, and Visual Cortex run concurrently on every push.' },
+        { Icon: ShieldCheck, num: '04', title: 'Issues Resolved', desc: 'Bugs are auto-fixed when possible, or flagged with deep context when not.' },
+        { Icon: Settings, num: '05', title: 'Artifacts Update', desc: 'Tests, docs, and architecture maps stay perpetually current.' },
     ];
 
     useEffect(() => {
         if (!sectionRef.current || !roadRef.current) return;
 
-        const road     = roadRef.current;
+        const road = roadRef.current;
         const totalLen = road.getTotalLength();
 
         // Hide road completely via dashoffset
@@ -893,31 +869,64 @@ function HowItWorks() {
             const dx = HIW_NODES[i].side === 'right' ? -30 : 30;
             gsap.set(l, { opacity: 0, x: dx });
         });
-        if (startRef.current) gsap.set(startRef.current, { opacity: 0, y: -12 });
-        if (goalRef.current)  gsap.set(goalRef.current,  { opacity: 0, y:  12 });
+        if (startRef.current) gsap.set(startRef.current, { opacity: 0, xPercent: -50, yPercent: -50 });
+        if (goalRef.current) gsap.set(goalRef.current, { opacity: 0, y: 12 });
 
         const ctx = gsap.context(() => {
             const tl = gsap.timeline({
                 scrollTrigger: {
                     trigger: sectionRef.current,
-                    start: 'top 65%',
-                    end:   'bottom 35%',
-                    scrub: 2,
-                },
+                    start: 'top 50%',
+                    end: 'bottom 85%',
+                    scrub: 0.5,
+                    onUpdate: (self) => {
+                        const prog = self.progress;
+                        // Stickman only moves after 15% of the scroll timeline has passed. (1.5 duration out of 10)
+                        const startDelay = 0.15;
+
+                        if (prog <= startDelay || prog >= 1) {
+                            gsap.set('.stick-walk-leg1, .stick-walk-leg2, .stick-walk-arm1, .stick-walk-arm2', { rotation: 0 });
+                            return;
+                        }
+
+                        // normalize progress to calculate frequency
+                        const activeProg = (prog - startDelay) / (1 - startDelay);
+                        const freq = Math.PI * 50;
+                        const angleA = Math.sin(activeProg * freq) * 45;
+                        const angleB = Math.sin(activeProg * freq + Math.PI) * 45;
+
+                        gsap.set('.stick-walk-leg1', { rotation: angleA, svgOrigin: '23 28' });
+                        gsap.set('.stick-walk-leg2', { rotation: angleB, svgOrigin: '23 28' });
+                        gsap.set('.stick-walk-arm1', { rotation: angleB, svgOrigin: '23 14' });
+                        gsap.set('.stick-walk-arm2', { rotation: angleA, svgOrigin: '23 14' });
+                    }
+                }
             });
 
             // START marker
-            tl.to(startRef.current, { opacity: 1, y: 0, duration: 0.5, ease: 'power2.out' }, 0);
+            tl.to(startRef.current, { opacity: 1, duration: 0.5, ease: 'power2.out' }, 0);
 
-            // Draw the road
-            tl.to(road, { strokeDashoffset: 0, duration: 10, ease: 'none' }, 0);
+            // Move marker along the road
+            tl.to(startRef.current, {
+                motionPath: {
+                    path: road,
+                    align: road,
+                    alignOrigin: [0.5, 0.7],
+                    autoRotate: false
+                },
+                duration: 8.5,
+                ease: 'none'
+            }, 1.5); // Starts at 1.5s (15% of 10s total)
+
+            // Draw the road along with the marker
+            tl.to(road, { strokeDashoffset: 0, duration: 8.5, ease: 'none' }, 1.5);
 
             // Nodes + labels
             HIW_NODE_T.forEach((t, i) => {
                 const n = nodeRefs.current[i];
                 const l = labelRefs.current[i];
                 if (n) tl.to(n, { scale: 1, opacity: 1, duration: 0.45, ease: 'back.out(2.2)' }, t);
-                if (l) tl.to(l, { opacity: 1, x: 0,  duration: 0.4,  ease: 'power3.out' },       t + 0.3);
+                if (l) tl.to(l, { opacity: 1, x: 0, duration: 0.4, ease: 'power3.out' }, t + 0.3);
             });
 
             // GOAL marker
@@ -948,20 +957,21 @@ function HowItWorks() {
                 <div
                     ref={startRef}
                     className="absolute z-30 flex flex-col items-center gap-1 pointer-events-none"
-                    style={{ left: '28.6%', top: '0%', transform: 'translate(-50%, -80%)' }}
+                    style={{ left: 0, top: 0 }}
                 >
                     {/* running person */}
                     <svg width="46" height="46" viewBox="0 0 46 46" fill="none">
-                        <circle cx="23" cy="6" r="5.5" fill="#151515"/>
+                        <circle cx="23" cy="6" r="5.5" fill="#FFFFFF" />
                         {/* body */}
-                        <line x1="23" y1="12" x2="23" y2="28" stroke="#151515" strokeWidth="3.5" strokeLinecap="round"/>
+                        <line x1="23" y1="12" x2="23" y2="28" stroke="#FFFFFF" strokeWidth="3.5" strokeLinecap="round" />
                         {/* legs */}
-                        <line x1="23" y1="22" x2="12" y2="38" stroke="#151515" strokeWidth="3"   strokeLinecap="round"/>
-                        <line x1="23" y1="22" x2="34" y2="32" stroke="#151515" strokeWidth="3"   strokeLinecap="round"/>
+                        <line className="stick-walk-leg1" x1="23" y1="28" x2="23" y2="44" stroke="#FFFFFF" strokeWidth="3" strokeLinecap="round" />
+                        <line className="stick-walk-leg2" x1="23" y1="28" x2="23" y2="44" stroke="#FFFFFF" strokeWidth="3" strokeLinecap="round" />
                         {/* arms */}
-                        <line x1="10" y1="17" x2="25" y2="13" stroke="#151515" strokeWidth="3"   strokeLinecap="round"/>
+                        <line className="stick-walk-arm1" x1="23" y1="14" x2="23" y2="26" stroke="#FFFFFF" strokeWidth="3" strokeLinecap="round" />
+                        <line className="stick-walk-arm2" x1="23" y1="14" x2="23" y2="26" stroke="#FFFFFF" strokeWidth="3" strokeLinecap="round" />
                     </svg>
-                    <span className="font-display font-bold text-[13px] tracking-[0.15em] text-[#151515]">START</span>
+                    <span className="font-display font-bold text-[13px] tracking-[0.15em] text-[#FFFFFF]">START</span>
                 </div>
 
                 {/* ── SVG Road ── */}
@@ -973,30 +983,30 @@ function HowItWorks() {
                 >
                     <defs>
                         <linearGradient id="hiw-ng" x1="0%" y1="0%" x2="100%" y2="100%">
-                            <stop offset="0%"   stopColor="#A855F7"/>
-                            <stop offset="100%" stopColor="#7C3AED"/>
+                            <stop offset="0%" stopColor="#A855F7" />
+                            <stop offset="100%" stopColor="#7C3AED" />
                         </linearGradient>
                     </defs>
 
                     {/* Subtle road shadow */}
                     <path d={HIW_ROAD_D} fill="none" stroke="rgba(0,0,0,0.18)"
-                          strokeWidth="76" strokeLinecap="round" strokeLinejoin="round"
-                          style={{ filter: 'blur(10px)' }}/>
+                        strokeWidth="76" strokeLinecap="round" strokeLinejoin="round"
+                        style={{ filter: 'blur(10px)' }} />
 
                     {/* Road surface (animated) */}
                     <path ref={roadRef} d={HIW_ROAD_D} fill="none"
-                          stroke="#1c1c1c" strokeWidth="66"
-                          strokeLinecap="round" strokeLinejoin="round"/>
+                        stroke="#1c1c1c" strokeWidth="66"
+                        strokeLinecap="round" strokeLinejoin="round" />
 
                     {/* Road edge highlight */}
                     <path d={HIW_ROAD_D} fill="none"
-                          stroke="rgba(255,255,255,0.06)" strokeWidth="68"
-                          strokeLinecap="round" strokeLinejoin="round"/>
+                        stroke="rgba(255,255,255,0.06)" strokeWidth="68"
+                        strokeLinecap="round" strokeLinejoin="round" />
 
                     {/* Centre dashes — static, appear with section */}
                     <path d={HIW_ROAD_D} fill="none"
-                          stroke="rgba(255,255,255,0.45)" strokeWidth="4"
-                          strokeDasharray="28 22" strokeLinecap="round"/>
+                        stroke="rgba(255,255,255,0.45)" strokeWidth="4"
+                        strokeDasharray="28 22" strokeLinecap="round" />
                 </svg>
 
                 {/* ── Node circles ── */}
@@ -1011,7 +1021,7 @@ function HowItWorks() {
                         >
                             {/* outer glow ring */}
                             <div className="absolute inset-0 rounded-full"
-                                 style={{ background: 'radial-gradient(circle, rgba(168,85,247,0.35) 0%, transparent 70%)', transform: 'scale(1.8)' }} />
+                                style={{ background: 'radial-gradient(circle, rgba(168,85,247,0.35) 0%, transparent 70%)', transform: 'scale(1.8)' }} />
                             {/* icon circle */}
                             <div
                                 className="relative w-[78px] h-[78px] rounded-full flex items-center justify-center"
@@ -1020,7 +1030,7 @@ function HowItWorks() {
                                     boxShadow: '0 6px 28px rgba(124,58,237,0.5), 0 0 0 5px rgba(168,85,247,0.22)',
                                 }}
                             >
-                                <step.Icon size={30} className="text-white" strokeWidth={1.8}/>
+                                <step.Icon size={30} className="text-white" strokeWidth={1.8} />
                             </div>
                             {/* step number badge */}
                             <div className="absolute -top-1.5 -right-1.5 w-[22px] h-[22px] rounded-full bg-white border-2 border-primary flex items-center justify-center shadow">
@@ -1044,13 +1054,14 @@ function HowItWorks() {
                                 transform: 'translateY(-50%)',
                                 ...(isRight
                                     ? { left: '2%', right: '34%', textAlign: 'right' as const }
-                                    : { left: '34%', right: '2%', textAlign: 'left'  as const }),
+                                    : { left: '34%', right: '2%', textAlign: 'left' as const }),
                             }}
                         >
                             <div
-                                className="inline-block bg-white/80 backdrop-blur-sm rounded-2xl px-5 py-4 shadow-md border border-white"
+                                className="inline-block bg-white/80 backdrop-blur-sm rounded-2xl px-5 py-4 shadow-md border hover:scale-105 hover:shadow-xl transition-all duration-300 relative group"
                                 style={{ borderColor: 'rgba(168,85,247,0.15)' }}
                             >
+                                <div className="absolute inset-0 bg-gradient-to-r from-purple-500/0 to-purple-500/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl pointer-events-none"></div>
                                 <h3 className="font-display font-bold text-[15px] leading-snug text-[#151515] mb-1">
                                     {step.title}
                                 </h3>
@@ -1067,8 +1078,8 @@ function HowItWorks() {
                     style={{ left: '77.1%', top: '97%', transform: 'translate(-50%, -20%)' }}
                 >
                     <svg width="34" height="44" viewBox="0 0 34 44" fill="none">
-                        <line x1="7" y1="2" x2="7" y2="42" stroke="#151515" strokeWidth="3" strokeLinecap="round"/>
-                        <path d="M7 3 L31 11 L7 19 Z" fill="#3BBB96" stroke="#151515" strokeWidth="1.5" strokeLinejoin="round"/>
+                        <line x1="7" y1="2" x2="7" y2="42" stroke="#151515" strokeWidth="3" strokeLinecap="round" />
+                        <path d="M7 3 L31 11 L7 19 Z" fill="#3BBB96" stroke="#151515" strokeWidth="1.5" strokeLinejoin="round" />
                     </svg>
                     <span className="font-display font-bold text-[13px] tracking-[0.15em] text-[#151515]">GOAL</span>
                 </div>
@@ -1101,8 +1112,9 @@ function TechStack() {
                 </p>
                 <div className="flex flex-wrap justify-center gap-4 max-w-[900px]">
                     {chips.map((chip, i) => (
-                        <CardGenerate key={i} delay={0.8 + (i * 0.05)} duration={0.6} className="bg-surface text-textMain border border-borderSubtle px-6 py-4 rounded-pill font-mono text-sm tracking-wide font-medium transition-colors hover:bg-dark hover:text-textInverse cursor-default">
-                            {chip}
+                        <CardGenerate key={i} delay={0.8 + (i * 0.05)} duration={0.6} className="bg-surface/50 backdrop-blur-md text-textMain border border-borderSubtle px-6 py-4 rounded-pill font-mono text-sm tracking-wide font-medium transition-all hover:bg-dark hover:text-textInverse hover:scale-105 hover:shadow-lg cursor-default hover:border-primary/50 relative overflow-hidden group">
+                            <div className="absolute inset-0 bg-gradient-to-r from-primary/0 via-primary/5 to-primary/0 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                            <span className="relative z-10">{chip}</span>
                         </CardGenerate>
                     ))}
                 </div>
@@ -1139,19 +1151,19 @@ function Stats() {
         <section ref={sectionRef} className="py-[160px] bg-surface relative overflow-hidden">
             <div className="max-w-[1200px] w-full mx-auto px-8 grid grid-cols-1 md:grid-cols-2 gap-[80px]">
                 <div>
-                    <span className="font-mono text-primary text-sm tracking-widest uppercase font-bold mb-4 block"><TextGenerate>What Teams Gain</TextGenerate></span>
-                    <h2 className="font-display text-[clamp(40px,5vw,64px)] font-bold tracking-tight leading-[1]">
-                        <TextGenerate delay={0.2}>Production Quality.</TextGenerate><br />
-                        <TextGenerate delay={0.4}>Without the Overhead.</TextGenerate>
+                    <span className="font-mono text-primary text-sm tracking-widest uppercase font-bold mb-4 block">What Teams Gain</span>
+                    <h2 className="font-display text-[clamp(40px,5vw,64px)] font-bold tracking-tight leading-[1] flex flex-col gap-1">
+                        <span>Production Quality.</span>
+                        <span>Without the Overhead.</span>
                     </h2>
                     <p className="mt-8 text-lg text-textMuted max-w-sm mb-16 leading-relaxed">
-                        <TextGenerate delay={0.6}>Stop waiting on massive PR reviews. Velocis ensures the codebase is always ready to merge.</TextGenerate>
+                        Stop waiting on massive PR reviews. Velocis ensures the codebase is always ready to merge.
                     </p>
                     <div className="grid grid-cols-2 gap-x-8 gap-y-16">
-                        <div><h3 ref={el => { numsRef.current[0] = el }} data-target="80" data-suffix="%" className="font-display text-5xl font-bold text-primary mb-2">0%</h3><p className="font-medium text-textMain"><TextGenerate delay={0.8}>Reduction in manual review time</TextGenerate></p></div>
-                        <div><h3 ref={el => { numsRef.current[1] = el }} data-target="3" data-suffix="×" className="font-display text-5xl font-bold text-primary mb-2">0×</h3><p className="font-medium text-textMain"><TextGenerate delay={0.9}>Faster junior developer growth</TextGenerate></p></div>
-                        <div><h3 ref={el => { numsRef.current[2] = el }} data-target="94" data-suffix="%" className="font-display text-5xl font-bold text-primary mb-2">0%</h3><p className="font-medium text-textMain"><TextGenerate delay={1.0}>Vulnerabilities caught pre-production</TextGenerate></p></div>
-                        <div><h3 ref={el => { numsRef.current[3] = el }} data-target="2" data-suffix="h" className="font-display text-5xl font-bold text-primary mb-2">0</h3><p className="font-medium text-textMain"><TextGenerate delay={1.1}>Average codebase onboarding time</TextGenerate></p></div>
+                        <div><h3 ref={el => { numsRef.current[0] = el }} data-target="80" data-suffix="%" className="font-display text-5xl font-bold text-primary mb-2">0%</h3><p className="font-medium text-textMain">Reduction in manual review time</p></div>
+                        <div><h3 ref={el => { numsRef.current[1] = el }} data-target="3" data-suffix="×" className="font-display text-5xl font-bold text-primary mb-2">0×</h3><p className="font-medium text-textMain">Faster junior developer growth</p></div>
+                        <div><h3 ref={el => { numsRef.current[2] = el }} data-target="94" data-suffix="%" className="font-display text-5xl font-bold text-primary mb-2">0%</h3><p className="font-medium text-textMain">Vulnerabilities caught pre-production</p></div>
+                        <div><h3 ref={el => { numsRef.current[3] = el }} data-target="2" data-suffix="h" className="font-display text-5xl font-bold text-primary mb-2">0</h3><p className="font-medium text-textMain">Average codebase onboarding time</p></div>
                     </div>
                 </div>
                 <div className="flex flex-col justify-center gap-6">
@@ -1161,13 +1173,13 @@ function Stats() {
                         { icon: ShieldCheck, title: "Ship Secure Software automatically", desc: "OWASP-compliant from day one." },
                         { icon: Clock, title: "Ship Features 3x Faster", desc: "Automate tests, docs, and boring chores forever." }
                     ].map((item, i) => (
-                        <CardGenerate key={i} delay={1.2 + (i * 0.2)} duration={1.2} className="flex items-start gap-6 bg-background rounded-card p-8 transition-transform hover:-translate-y-1 shadow-sm">
-                            <div className="w-12 h-12 bg-surface text-primary rounded-full flex items-center justify-center flex-shrink-0"><item.icon size={24} /></div>
+                        <div key={i} className="flex items-start gap-6 glass-card bg-background/80 rounded-card p-8 transition-all hover:scale-[1.02] hover:-translate-y-2 hover:shadow-2xl cursor-default group">
+                            <div className="w-12 h-12 bg-surface text-primary rounded-full flex items-center justify-center flex-shrink-0 group-hover:bg-primary group-hover:text-dark transition-colors duration-300"><item.icon size={24} /></div>
                             <div>
-                                <h4 className="font-display font-bold text-xl mb-2"><TextGenerate delay={1.4 + (i * 0.2)}>{item.title}</TextGenerate></h4>
-                                <p className="text-textMuted text-base"><TextGenerate delay={1.6 + (i * 0.2)}>{item.desc}</TextGenerate></p>
+                                <h4 className="font-display font-bold text-xl mb-2">{item.title}</h4>
+                                <p className="text-textMuted text-base">{item.desc}</p>
                             </div>
-                        </CardGenerate>
+                        </div>
                     ))}
                 </div>
             </div>
@@ -1237,8 +1249,8 @@ function CTA() {
                 </p>
                 <TextGenerate delay={0.8}>
                     <div className="flex flex-col sm:flex-row gap-4">
-                        <button onClick={() => navigate('/auth')} className="bg-primary text-dark px-10 py-5 rounded-button font-bold text-lg hover:bg-primary/90 transition-colors">Connect Repository Free</button>
-                        <button className="bg-transparent text-textInverse border border-borderInv px-10 py-5 rounded-button font-bold text-lg hover:bg-white/5 transition-colors">Read the Docs</button>
+                        <button onClick={() => navigate('/auth')} className="bg-primary text-dark px-10 py-5 rounded-button font-bold text-lg hover:brightness-110 hover:scale-105 active:scale-95 shadow-lg shadow-primary/20 transition-all cursor-pointer">Connect Repository Free</button>
+                        <button className="bg-transparent text-textInverse border border-borderInv px-10 py-5 rounded-button font-bold text-lg hover:bg-white/5 hover:scale-105 active:scale-95 transition-all cursor-pointer">Read the Docs</button>
                     </div>
                 </TextGenerate>
             </div>
@@ -1321,19 +1333,6 @@ export function HomePage() {
         <div className="bg-background min-h-screen font-body flex flex-col text-textMain relative" style={{ backgroundColor: 'var(--color-background)' }}>
             {/* Inject global CSS */}
             <style>{LANDING_CSS}</style>
-
-            {/* Aurora Background glow */}
-            <div
-                className="absolute top-0 left-0 w-full h-[350px] z-0 pointer-events-none opacity-70"
-                style={{
-                    maskImage: 'linear-gradient(to bottom, white 0%, white 50%, transparent 100%)',
-                    WebkitMaskImage: 'linear-gradient(to bottom, white 0%, white 50%, transparent 100%)'
-                }}
-            >
-                <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-                    <Aurora colorStops={["#8d5cf6", "#38bdf8", "#3bbb96"]} amplitude={1.5} blend={0.8} />
-                </div>
-            </div>
 
             {/* Navigation */}
             <header className={`sticky top-0 z-50 border-b transition-all duration-300 ${isScrolled ? 'bg-white/70 backdrop-blur-md border-borderSubtle' : 'bg-transparent border-transparent'}`}>
