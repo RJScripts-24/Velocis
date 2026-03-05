@@ -90,7 +90,7 @@ export function VibeCodingSection() {
             transition={{ duration: 0.6 }}
             className="flex justify-center lg:justify-end"
           >
-            <div className="w-full max-w-[520px] rounded-[--radius-2xl] border border-[--border-subtle] overflow-hidden shadow-2xl bg-[--bg-primary]">
+            <div className="w-full max-w-[520px] rounded-[--radius-2xl] border border-[--border-subtle] overflow-hidden shadow-2xl glass-card bg-white/70">
               {/* Window header */}
               <div className="border-b border-[--border-subtle] px-4 py-3.5 flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -160,10 +160,10 @@ export function VibeCodingSection() {
                   </div>
 
                   <div className="flex gap-2 mt-4">
-                    <button className="flex-1 px-3 py-2 rounded-[--radius-md] text-[11px] font-semibold bg-[--cta-primary] text-[--cta-text]">
+                    <button className="flex-1 px-3 py-2 rounded-[--radius-md] text-[11px] font-semibold bg-[--cta-primary] text-[--cta-text] hover:bg-[--cta-primary-hover] transition-colors cursor-pointer">
                       Apply
                     </button>
-                    <button className="px-3 py-2 rounded-[--radius-md] text-[11px] font-medium bg-white text-[--text-secondary]">
+                    <button className="px-3 py-2 rounded-[--radius-md] text-[11px] font-medium bg-white text-[--text-secondary] border border-[--border-subtle] hover:bg-[--bg-soft] hover:text-[--text-primary] transition-colors cursor-pointer">
                       Explain
                     </button>
                   </div>

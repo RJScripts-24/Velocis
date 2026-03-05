@@ -77,12 +77,18 @@ export function DarkBreakSection() {
       ([[0, 1], [1, 2], [1, 4], [3, 4], [4, 5]] as const).forEach(([i, j]) => {
         const x1 = nodes[i].x * w, y1 = nodes[i].y * h;
         const x2 = nodes[j].x * w, y2 = nodes[j].y * h;
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
-        ctx.lineWidth = 1;
+
+        ctx.shadowColor = 'rgba(47, 182, 124, 0.4)';
+        ctx.shadowBlur = 8;
+
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+        ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.moveTo(x1, y1);
         ctx.lineTo(x2, y2);
         ctx.stroke();
+
+        ctx.shadowBlur = 0;
       });
 
       nodes.forEach((node) => {
@@ -99,10 +105,15 @@ export function DarkBreakSection() {
           ctx.fill();
         }
 
-        ctx.fillStyle = node.status === 'error' ? '#ef4444' : 'rgba(47, 182, 124, 0.8)';
+        ctx.shadowColor = node.status === 'error' ? 'rgba(239, 68, 68, 0.6)' : 'rgba(47, 182, 124, 0.6)';
+        ctx.shadowBlur = 12 * pulse;
+
+        ctx.fillStyle = node.status === 'error' ? '#ef4444' : 'rgba(47, 182, 124, 0.9)';
         ctx.beginPath();
         ctx.arc(x, y, node.size * pulse, 0, Math.PI * 2);
         ctx.fill();
+
+        ctx.shadowBlur = 0;
 
         ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
         ctx.beginPath();
@@ -251,8 +262,9 @@ export function DarkBreakSection() {
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
+              whileHover={{ y: -4, scale: 1.02 }}
               transition={{ duration: 0.5, delay: index * 0.1 }}
-              className="rounded-[--radius-xl] p-5 border border-white/[0.08] bg-white/[0.03]"
+              className="rounded-[--radius-xl] p-5 border border-white/[0.08] bg-white/[0.03] hover:border-green-500/30 hover:bg-white/[0.05] transition-colors cursor-pointer"
             >
               <div className="w-10 h-10 rounded-[--radius-md] flex items-center justify-center mb-3 bg-[rgba(47,182,124,0.15)]">
                 <feature.icon className="w-5 h-5 text-[--accent-green]" strokeWidth={2} />

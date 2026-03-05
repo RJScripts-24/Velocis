@@ -33,27 +33,27 @@
     /* Removed glow */
 
     /* Text */
-    --text-auth-primary: #151515;
-    --text-auth-secondary: #505050;
+    --text-auth-primary: #0f172a;
+    --text-auth-secondary: #475569;
     --text-auth-muted: #ACACAC;
     --text-auth-placeholder: #ACACAC;
     --text-auth-error: #EC4899;
     --text-auth-success: #3BBB96;
-    --text-auth-link: #151515;
+    --text-auth-link: #0f172a;
 
     /* Status */
     --status-success: #3BBB96;
     --status-error: #EC4899;
 
     /* Type Scale */
-    --text-display: 800 36px/42px 'Inter', sans-serif;
-    --text-h2: 700 22px/28px 'Inter', sans-serif;
-    --text-body: 400 14px/22px 'Inter', sans-serif;
-    --text-label: 500 13px/18px 'Inter', sans-serif;
-    --text-input: 400 15px/22px 'Inter', sans-serif;
-    --text-link: 500 13px/18px 'Inter', sans-serif;
-    --text-btn: 700 14px/1 'Inter', sans-serif;
-    --text-badge: 500 11px/14px 'Inter', sans-serif;
+    --text-display: 800 36px/42px 'JetBrains Mono', monospace;
+    --text-h2: 700 22px/28px 'JetBrains Mono', monospace;
+    --text-body: 400 14px/22px 'DM Sans', sans-serif;
+    --text-label: 500 13px/18px 'DM Sans', sans-serif;
+    --text-input: 400 15px/22px 'DM Sans', sans-serif;
+    --text-link: 500 13px/18px 'DM Sans', sans-serif;
+    --text-btn: 700 14px/1 'DM Sans', sans-serif;
+    --text-badge: 500 11px/14px 'DM Sans', sans-serif;
     --text-mono: 400 12px/20px 'JetBrains Mono', monospace;
 }
 
@@ -66,7 +66,7 @@
     border: 1px solid var(--border-default);
     border-radius: 8px;
     /* Updated Prismic border-radius */
-    font: 400 15px/22px 'Inter', sans-serif;
+    font: 400 15px/22px 'DM Sans', sans-serif;
     color: var(--text-auth-primary);
     outline: none;
     transition: border-color 150ms ease, box-shadow 150ms ease;
@@ -99,7 +99,7 @@
     border-radius: 8px;
     /* Prismic border-radius */
     color: var(--text-auth-primary);
-    font: 700 14px/1 'Inter', sans-serif;
+    font: 700 14px/1 'DM Sans', sans-serif;
     /* Prismic button font weight and size */
     cursor: pointer;
     transition: background 150ms, border-color 150ms, color 150ms;
@@ -123,7 +123,7 @@
     text-align: center;
     padding: 9px;
     border-radius: 6px;
-    font: 700 14px/1 'Inter', sans-serif;
+    font: 700 14px/1 'DM Sans', sans-serif;
     /* Prismic matching */
     cursor: pointer;
     transition: all 200ms ease;

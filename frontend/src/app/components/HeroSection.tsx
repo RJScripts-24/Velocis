@@ -20,9 +20,9 @@ interface EdgeSlabProps {
 function EdgeSlab({ color, className = "", yOffset = 0, duration = 9 }: EdgeSlabProps) {
   return (
     <motion.div
-      className={`absolute ${className} pointer-events-none`}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1, y: [0, -yOffset, 0] }}
+      className={`absolute ${className} pointer-events-none origin-center`}
+      initial={{ opacity: 0, scale: 0.6 }}
+      animate={{ opacity: 1, y: [0, -yOffset, 0], scale: 0.6 }}
       transition={{
         opacity: { duration: 0.8, delay: 0.3 },
         y: { duration, repeat: Infinity, ease: "easeInOut", delay: 0.3 },
@@ -61,9 +61,9 @@ function IsometricPlatform({
 }: IsometricPlatformProps) {
   return (
     <motion.div
-      className={`absolute ${className}`}
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: [0, -yOffset, 0] }}
+      className={`absolute ${className} origin-center`}
+      initial={{ opacity: 0, y: 20, scale: 0.6 }}
+      animate={{ opacity: 1, y: [0, -yOffset, 0], scale: 0.6 }}
       transition={{
         opacity: { duration: 0.8, delay: 0.6 + delay },
         y: { duration, repeat: Infinity, ease: "easeInOut", delay: 0.6 + delay },
