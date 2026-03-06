@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChevronDown, Shield, Send, Paperclip, FileCode, Sun, Moon, AlertCircle, Lightbulb, Info, Home, Folder, Sparkles, Zap, CheckCircle2, Activity, Search, History, Clock, MessageSquare, Plus, GitBranch, Upload } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router';
@@ -160,6 +160,7 @@ export function WorkspacePage() {
   const [annotations, setAnnotations] = useState<{ line: number; type: string; message: string }[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [isReviewing, setIsReviewing] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const [allFiles, setAllFiles] = useState<WorkspaceFile[]>([]);
   const [selectedFile, setSelectedFile] = useState<string>('');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -200,6 +201,11 @@ export function WorkspacePage() {
       return next;
     });
   };
+
+  // Auto-scroll to bottom when messages update or typing indicator shows
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, isSending, isReviewing]);
 
   // Persist unsaved edits to localStorage whenever they change
   useEffect(() => {
@@ -1256,6 +1262,28 @@ export function WorkspacePage() {
                   </motion.div>
                 ))}
               </AnimatePresence>
+
+              {/* Typing indicator */}
+              <AnimatePresence>
+                {(isSending || isReviewing) && (
+                  <motion.div
+                    key="typing-indicator"
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 8 }}
+                    transition={{ duration: 0.2 }}
+                    className="flex justify-start"
+                  >
+                    <div className="bg-white dark:bg-slate-800 rounded-2xl rounded-tl-sm px-4 py-3 shadow-[0_2px_10px_rgba(0,0,0,0.03)] border border-zinc-100/80 dark:border-slate-700/80 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-zinc-900 dark:bg-white animate-bounce [animation-delay:0ms]" />
+                      <span className="w-2 h-2 rounded-full bg-zinc-900 dark:bg-white animate-bounce [animation-delay:150ms]" />
+                      <span className="w-2 h-2 rounded-full bg-zinc-900 dark:bg-white animate-bounce [animation-delay:300ms]" />
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              <div ref={messagesEndRef} />
             </div>
 
             {/* Chat Input */}

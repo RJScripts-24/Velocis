@@ -441,6 +441,19 @@ async function resolveRepoName(repoId: string): Promise<string | null> {
   }
 }
 
+/** Resolves both repoName and repoOwner from DynamoDB in one lookup. */
+async function resolveRepoCreds(repoId: string): Promise<{ repoName: string | null; repoOwner: string | null }> {
+  try {
+    const rec = await dynamoClient.get<{ repoName?: string; repoOwner?: string }>({
+      tableName: DYNAMO_TABLES.REPOSITORIES,
+      key: { repoId },
+    });
+    return { repoName: rec?.repoName ?? null, repoOwner: rec?.repoOwner ?? null };
+  } catch {
+    return { repoName: null, repoOwner: null };
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // HANDLER: GET /repos/:repoId/workspace/branches
 // ─────────────────────────────────────────────────────────────────────────────
@@ -690,69 +703,78 @@ export const sendChatMessage = async (
     let autoFix: WorkspaceAutoFix | null = null;
     const selectedRef = context?.ref ?? "main";
     const normalizedFilePath = context?.file_path?.startsWith("/") ? context.file_path : context?.file_path ? `/${context.file_path}` : undefined;
-    const wantsEdit = Boolean(normalizedFilePath) && isEditIntent(message);
-    let currentFileContent = ""; // hoisted so buildAppendedContent can access it after Bedrock call
+    let wantsEdit = Boolean(normalizedFilePath) && isEditIntent(message);
+    let currentFileContent = "";
 
     if (wantsEdit && normalizedFilePath) {
       let fetchedOwner = event.headers?.["x-repo-owner"] ?? "";
       const headerName = event.headers?.["x-repo-name"] ?? "";
-      const name = headerName || (await resolveRepoName(repoId)) || repoId;
+      let name = headerName;
+      if (!name || !fetchedOwner) {
+        const creds = await resolveRepoCreds(repoId);
+        if (!name) name = creds.repoName ?? repoId;
+        if (!fetchedOwner) fetchedOwner = creds.repoOwner ?? (await getGitHubLogin(user.githubToken)) ?? "";
+      }
       if (!fetchedOwner) {
-        const inferredOwner = await getGitHubLogin(user.githubToken);
-        if (inferredOwner) fetchedOwner = inferredOwner;
-        else return errors.badRequest("Missing x-repo-owner header and could not infer owner.");
+        logger.warn({ repoId, msg: "sendChatMessage: could not resolve repo owner, falling back to conversational mode" });
+        wantsEdit = false;
       }
 
-      try {
-        currentFileContent = await fetchFileContent(
-          fetchedOwner,
-          name,
-          normalizedFilePath.replace(/^\//, ""),
-          user.githubToken,
-          selectedRef
-        );
-      } catch (fileErr: any) {
-        logger.warn({
-          repoId,
-          filePath: normalizedFilePath,
-          ref: selectedRef,
-          msg: "sendChatMessage: file fetch for edit failed",
-          error: fileErr?.message,
-        });
-        return errors.notFound(`File '${normalizedFilePath}' not found on ref '${selectedRef}'.`);
+      if (wantsEdit) {
+        try {
+          currentFileContent = await fetchFileContent(
+            fetchedOwner,
+            name,
+            normalizedFilePath.replace(/^\//, ""),
+            user.githubToken,
+            selectedRef
+          );
+        } catch (fileErr: any) {
+          logger.warn({
+            repoId,
+            filePath: normalizedFilePath,
+            ref: selectedRef,
+            msg: "sendChatMessage: file fetch for edit failed — falling back to conversational mode",
+            error: fileErr?.message,
+          });
+          wantsEdit = false;
+        }
       }
 
-      systemPrompt = [
-        "You are Sentinel, an autonomous coding assistant in Velocis Workspace.",
-        "The user wants you to add or change something in the file shown below.",
-        "",
-        "Return ONLY the NEW code to be appended — do NOT repeat the existing file content.",
-        "Respond using EXACTLY this format:",
-        "",
-        "<SENTINEL_REPLY>",
-        "One or two sentences explaining what you added/changed.",
-        "</SENTINEL_REPLY>",
-        "<SENTINEL_FILE path=\"<exact file path from the request>\">",
-        "<only the new code / additions here — no repetition of existing content>",
-        "</SENTINEL_FILE>",
-        "",
-        "Rules:",
-        "- Do NOT repeat or include any existing file content in SENTINEL_FILE.",
-        "- Do NOT wrap anything in markdown code fences inside SENTINEL_FILE.",
-        "- Do NOT include any text outside the two XML blocks above.",
-        "- The path attribute must match the target file path exactly.",
-      ].join("\n");
+      if (wantsEdit) {
+        systemPrompt = [
+          "You are Sentinel, an autonomous coding assistant in Velocis Workspace.",
+          "Apply the user's requested change to the file shown below and return the COMPLETE modified file.",
+          "",
+          "Respond using EXACTLY this format:",
+          "",
+          "<SENTINEL_REPLY>",
+          "One or two sentences explaining what you changed.",
+          "</SENTINEL_REPLY>",
+          "<SENTINEL_FILE path=\"<exact file path from the request>\">",
+          "<complete modified file content — ALL original code with your changes applied>",
+          "</SENTINEL_FILE>",
+          "",
+          "Rules:",
+          "- Return the FULL file content inside SENTINEL_FILE — not just the changed parts.",
+          "- Do NOT wrap the code inside SENTINEL_FILE in markdown fences.",
+          "- Do NOT include any text outside the two XML blocks above.",
+          "- The path attribute must match the target file path exactly.",
+        ].join("\n");
 
-      userPrompt = [
-        `Target file: ${normalizedFilePath}`,
-        `Branch/ref: ${selectedRef}`,
-        "",
-        `User request: ${message}`,
-        "",
-        "Existing file content (do NOT repeat this — append new code only):",
-        currentFileContent,
-      ].join("\n");
-    } else if (context?.file_path) {
+        userPrompt = [
+          `Target file: ${normalizedFilePath}`,
+          `Branch/ref: ${selectedRef}`,
+          "",
+          `User request: ${message}`,
+          "",
+          "Existing file content:",
+          currentFileContent,
+        ].join("\n");
+      }
+    }
+
+    if (!wantsEdit && context?.file_path) {
       userPrompt = `[File: ${context.file_path}${context.line ? ` line ${context.line}` : ""}]\n\n${message}`;
     }
 
@@ -764,7 +786,7 @@ export const sendChatMessage = async (
         system: [{ text: systemPrompt }],
         messages: [{ role: "user", content: [{ text: userPrompt }] }],
         inferenceConfig: {
-          maxTokens: wantsEdit ? 3072 : 1024,
+          maxTokens: wantsEdit ? 8192 : 1024,
           temperature: 0.3,
           topP: 0.9,
         },
@@ -789,15 +811,6 @@ export const sendChatMessage = async (
         const chatResult = parseChatOutput(rawOutput, normalizedFilePath);
         responseContent = chatResult.reply;
         autoFix = chatResult.auto_fix;
-
-        // Append new code to original file content with a "Sentinel changes" comment header
-        if (autoFix && currentFileContent) {
-          autoFix.fixed_code = buildAppendedContent(
-            currentFileContent,
-            autoFix.fixed_code,
-            normalizedFilePath
-          );
-        }
 
         logger.info({
           repoId,
