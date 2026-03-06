@@ -2,10 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ChevronDown, Shield, Send, Paperclip, FileCode, Sun, Moon, AlertCircle, Lightbulb, Info, Home, Folder, Sparkles, Zap, CheckCircle2, Activity, Search, History, Clock, MessageSquare, Plus, GitBranch } from 'lucide-react';
+import { ChevronDown, Shield, Send, Paperclip, FileCode, Sun, Moon, AlertCircle, Lightbulb, Info, Home, Folder, Sparkles, Zap, CheckCircle2, Activity, Search, History, Clock, MessageSquare, Plus, GitBranch, Upload } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router';
 import Editor from '@monaco-editor/react';
-import { getWorkspaceFiles, WorkspaceFile, getFileContent, getAnnotations, postChatMessage, getChatHistory, reviewWorkspaceCode, getRepo, getWorkspaceBranches } from '../../lib/api';
+import { getWorkspaceFiles, WorkspaceFile, getFileContent, getAnnotations, postChatMessage, getChatHistory, reviewWorkspaceCode, getRepo, getWorkspaceBranches, pushWorkspaceFile, ApiError } from '../../lib/api';
 import { useTheme } from '../../lib/theme';
 import { translateText } from '../../lib/translate';
 import lightLogoImg from '../../../LightLogo.png';
@@ -170,12 +170,50 @@ export function WorkspacePage() {
   const [repoName, setRepoName] = useState<string>('');
   const [branches, setBranches] = useState<string[]>([]);
   const [selectedBranch, setSelectedBranch] = useState<string>('');
+  const [baseFileContents, setBaseFileContents] = useState<Record<string, string>>({});
+  const [editedFiles, setEditedFiles] = useState<Record<string, string>>(() => {
+    if (!id) return {};
+    try {
+      const saved = localStorage.getItem(`velocis:workspace:edits:${id}`);
+      return saved ? JSON.parse(saved) : {};
+    } catch { return {}; }
+  });
+  const [isPushing, setIsPushing] = useState(false);
+  const [showCommitDialog, setShowCommitDialog] = useState(false);
+  const [commitMessage, setCommitMessage] = useState('');
+  const [pushAuthError, setPushAuthError] = useState('');
+  const [installAppUrl, setInstallAppUrl] = useState('');
 
   // Dark mode state
   const { isDarkMode, setIsDarkMode } = useTheme();
 
   // Apply dark class to an enclosing wrapper
   const themeClass = isDarkMode ? 'dark' : '';
+
+  const registerLoadedFileContent = (filePath: string, content: string) => {
+    setCodeContent(content);
+    setBaseFileContents(prev => ({ ...prev, [filePath]: content }));
+    setEditedFiles(prev => {
+      if (!(filePath in prev)) return prev;
+      const next = { ...prev };
+      delete next[filePath];
+      return next;
+    });
+  };
+
+  // Persist unsaved edits to localStorage whenever they change
+  useEffect(() => {
+    if (!id) return;
+    if (Object.keys(editedFiles).length === 0) {
+      localStorage.removeItem(`velocis:workspace:edits:${id}`);
+    } else {
+      try {
+        localStorage.setItem(`velocis:workspace:edits:${id}`, JSON.stringify(editedFiles));
+      } catch { /* storage full */ }
+    }
+  }, [id, editedFiles]);
+
+  const isSelectedFileDirty = !!selectedFile && editedFiles[selectedFile] !== undefined;
 
   // ─ Fetch initial data on mount ───────────────────────────────────────────────────────
   // Fetch repo metadata and chat history on mount
@@ -255,6 +293,9 @@ export function WorkspacePage() {
     setIsLoadingFile(true);
     setIsDropdownOpen(false);
     setFileSearchQuery('');
+    setEditedFiles({});
+    setBaseFileContents({});
+    if (id) localStorage.removeItem(`velocis:workspace:edits:${id}`);
 
     getWorkspaceFiles(id, '/', true, selectedBranch)
       .then(async (wsRes) => {
@@ -282,7 +323,7 @@ export function WorkspacePage() {
 
         if (cancelled) return;
 
-        if (fileRes) setCodeContent(fileRes.content);
+        if (fileRes) registerLoadedFileContent(targetFile, fileRes.content);
         else setCodeContent('// Failed to load file content');
 
         if (annotRes) {
@@ -320,7 +361,7 @@ export function WorkspacePage() {
         getFileContent(id, filePath, selectedBranch || 'main').catch(() => null),
         getAnnotations(id, filePath, selectedBranch || 'main').catch(() => null)
       ]);
-      if (fileRes) setCodeContent(fileRes.content);
+      if (fileRes) registerLoadedFileContent(filePath, fileRes.content);
       else setCodeContent('// Failed to load file content');
 
       if (annotRes) {
@@ -377,7 +418,11 @@ export function WorkspacePage() {
     setInputValue('');
     setIsSending(true);
     try {
-      const res = await postChatMessage(id, { message: text, context: { file_path: selectedFile }, language });
+      const res = await postChatMessage(id, {
+        message: text,
+        context: { file_path: selectedFile, ref: selectedBranch || 'main' },
+        language,
+      });
       let replyContent = res.content;
       if (language !== 'en' && replyContent) {
         replyContent = await translateText(replyContent, language);
@@ -410,6 +455,7 @@ export function WorkspacePage() {
           reason: res.auto_fix.reason,
           fixedCode: res.auto_fix.fixed_code,
         } : undefined,
+        autoFixApplied: !!res.auto_fix,
         timestamp: res.timestamp_ago,
       };
       setMessages(prev => {
@@ -418,6 +464,26 @@ export function WorkspacePage() {
         return updated;
       });
       setAllHistoryMessages(prev => [...prev, reply]);
+
+      // Auto-apply edit responses directly into the editor.
+      if (reply.autoFix?.filePath && reply.autoFix.fixedCode) {
+        const fixedPath = reply.autoFix.filePath;
+        setSelectedFile(fixedPath);
+        setCodeContent(reply.autoFix.fixedCode);
+        setAnnotations([]);
+        setEditedFiles(prev => ({ ...prev, [fixedPath]: reply.autoFix!.fixedCode }));
+
+        if (!allFiles.some(f => f.path === fixedPath)) {
+          setAllFiles(prev => [
+            ...prev,
+            {
+              name: fixedPath.split('/').pop() || fixedPath,
+              type: 'file',
+              path: fixedPath,
+            },
+          ]);
+        }
+      }
     } catch {
       setMessages(prev => [...prev, { role: 'sentinel', content: 'Failed to get response. Please try again.', timestamp: 'Just now' }]);
     } finally {
@@ -482,6 +548,7 @@ export function WorkspacePage() {
     setSelectedFile(fix.filePath);
     setCodeContent(fix.fixedCode);
     setAnnotations([]);
+    setEditedFiles(prev => ({ ...prev, [fix.filePath]: fix.fixedCode }));
 
     if (!allFiles.some(f => f.path === fix.filePath)) {
       setAllFiles(prev => [
@@ -505,6 +572,75 @@ export function WorkspacePage() {
     setMessages([]);
     setIsHistoryOpen(false);
     try { localStorage.setItem(`velocis:workspace:chat:${id}`, JSON.stringify({ messages: [] })); } catch { }
+  };
+
+  const handlePushChanges = () => {
+    const filesToPush = Object.entries(editedFiles);
+    if (!id || filesToPush.length === 0 || isPushing) return;
+    const defaultMsg = filesToPush.length === 1
+      ? `Velocis: update ${filesToPush[0][0].split('/').pop()}`
+      : `Velocis: update ${filesToPush.length} files`;
+    setCommitMessage(defaultMsg);
+    setPushAuthError('');
+    setInstallAppUrl('');
+    setShowCommitDialog(true);
+  };
+
+  const executePush = async () => {
+    const filesToPush = Object.entries(editedFiles);
+    if (!id || filesToPush.length === 0 || isPushing) return;
+    setPushAuthError('');
+    setInstallAppUrl('');
+    setShowCommitDialog(false);
+    setIsPushing(true);
+    try {
+      const results: string[] = [];
+      for (const [filePath, content] of filesToPush) {
+        const res = await pushWorkspaceFile(id, {
+          file_path: filePath,
+          content,
+          branch: selectedBranch || 'main',
+          commit_message: commitMessage.trim() || undefined,
+        });
+        results.push(res.message);
+        setBaseFileContents(prev => ({ ...prev, [filePath]: content }));
+        setEditedFiles(prev => {
+          const next = { ...prev };
+          delete next[filePath];
+          return next;
+        });
+      }
+
+      const pushMsg: Message = {
+        role: 'sentinel',
+        content: results.length === 1
+          ? results[0]
+          : `Successfully pushed ${results.length} files to ${selectedBranch || 'main'}.`,
+        timestamp: 'Just now',
+      };
+      setMessages(prev => [...prev, pushMsg]);
+      setAllHistoryMessages(prev => [...prev, pushMsg]);
+    } catch (e: any) {
+      if (e instanceof ApiError && e.code === 'APP_NOT_INSTALLED') {
+        setInstallAppUrl(e.installUrl ?? 'https://github.com/apps');
+        setShowCommitDialog(true);
+        return;
+      }
+      const apiMsg: string = e?.message ?? 'Failed to push. Please try again.';
+      const isAuthError = apiMsg.includes('403') || apiMsg.toLowerCase().includes('not accessible') ||
+        apiMsg.toLowerCase().includes('forbidden') || apiMsg.toLowerCase().includes('token') ||
+        apiMsg.toLowerCase().includes('authentication') || apiMsg.toLowerCase().includes('unauthorized');
+      if (isAuthError) {
+        // Show reconnect dialog instead of pushing PAT complexity onto the user
+        setPushAuthError(apiMsg);
+        setShowCommitDialog(true);
+      } else {
+        setMessages(prev => [...prev, { role: 'sentinel', content: apiMsg, timestamp: 'Just now' }]);
+        setAllHistoryMessages(prev => [...prev, { role: 'sentinel', content: apiMsg, timestamp: 'Just now' }]);
+      }
+    } finally {
+      setIsPushing(false);
+    }
   };
 
   return (
@@ -677,6 +813,30 @@ export function WorkspacePage() {
                 </select>
               </div>
               <button
+                onClick={handlePushChanges}
+                disabled={Object.keys(editedFiles).length === 0 || isPushing}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors flex items-center gap-1.5 relative ${
+                  Object.keys(editedFiles).length > 0
+                    ? 'bg-zinc-900 text-white border-zinc-900 hover:bg-zinc-800 dark:bg-slate-100 dark:text-slate-900 dark:border-slate-100 dark:hover:bg-white'
+                    : 'bg-zinc-100 text-zinc-400 border-zinc-200 dark:bg-slate-800 dark:text-slate-500 dark:border-slate-700 cursor-not-allowed'
+                }`}
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>
+                  {isPushing
+                    ? 'Pushing...'
+                    : Object.keys(editedFiles).length > 1
+                      ? `Push All (${Object.keys(editedFiles).length})`
+                      : 'Push'
+                  }
+                </span>
+                {Object.keys(editedFiles).length > 0 && !isPushing && (
+                  <span className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 rounded-full bg-amber-400 dark:bg-amber-500 text-[9px] font-bold text-white flex items-center justify-center">
+                    {Object.keys(editedFiles).length}
+                  </span>
+                )}
+              </button>
+              <button
                 onClick={() => setIsDarkMode(!isDarkMode)}
                 className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-slate-800 transition-colors text-zinc-500 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-slate-100 hidden sm:block"
               >
@@ -716,9 +876,13 @@ export function WorkspacePage() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <div className="px-2.5 py-1 rounded-md text-[11px] font-bold uppercase tracking-wider bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border border-emerald-100/50 dark:border-emerald-800/30 flex items-center gap-1.5 shadow-sm transition-colors">
+                <div className={`px-2.5 py-1 rounded-md text-[11px] font-bold uppercase tracking-wider border flex items-center gap-1.5 shadow-sm transition-colors ${
+                  isSelectedFileDirty
+                    ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-100/50 dark:border-amber-800/30'
+                    : 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border-emerald-100/50 dark:border-emerald-800/30'
+                }`}>
                   <CheckCircle2 className="w-3.5 h-3.5" />
-                  Saved
+                  {isSelectedFileDirty ? 'Modified' : 'Saved'}
                 </div>
               </div>
             </div>
@@ -732,7 +896,21 @@ export function WorkspacePage() {
                 theme={isDarkMode ? 'velocis-dark' : 'light'}
                 beforeMount={handleEditorWillMount}
                 value={codeContent}
-                onChange={(value) => setCodeContent(value ?? '')}
+                onChange={(value) => {
+                  const next = value ?? '';
+                  setCodeContent(next);
+                  if (!selectedFile) return;
+                  const base = baseFileContents[selectedFile];
+                  setEditedFiles(prev => {
+                    const nextMap = { ...prev };
+                    if (base !== undefined && base === next) {
+                      delete nextMap[selectedFile];
+                    } else {
+                      nextMap[selectedFile] = next;
+                    }
+                    return nextMap;
+                  });
+                }}
                 options={{
                   fontFamily: 'JetBrains Mono, monospace',
                   fontSize: 13,
@@ -1015,6 +1193,48 @@ export function WorkspacePage() {
                               </button>
                             </div>
                           </div>
+                        ) : message.autoFix && message.autoFixApplied ? (
+                          /* File Edit Applied Card */
+                          <div className="w-full space-y-2">
+                            {message.content && (
+                              <div className="bg-white dark:bg-slate-800 rounded-2xl rounded-tl-sm px-4 py-3 shadow-[0_2px_10px_rgba(0,0,0,0.03)] border border-zinc-100/80 dark:border-slate-700/80 transition-colors">
+                                <p className="text-[13px] text-zinc-700 dark:text-slate-300 leading-relaxed whitespace-pre-line">
+                                  {message.content}
+                                </p>
+                              </div>
+                            )}
+                            <div className="bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-800/40 rounded-xl overflow-hidden shadow-sm transition-colors">
+                              <div className="flex items-center gap-2.5 px-3.5 py-2.5 border-b border-emerald-200/50 dark:border-emerald-800/30">
+                                <div className="w-6 h-6 rounded-md bg-emerald-500/15 dark:bg-emerald-500/20 flex items-center justify-center shrink-0">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                </div>
+                                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+                                  File Updated
+                                </span>
+                              </div>
+                              <div className="px-3.5 py-2.5 flex items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-1.5 font-['JetBrains_Mono',_monospace] text-[11px] font-semibold text-zinc-800 dark:text-slate-200 truncate">
+                                    <FileCode className="w-3 h-3 text-indigo-500 dark:text-indigo-400 shrink-0" />
+                                    <span className="truncate" title={message.autoFix.filePath}>
+                                      {message.autoFix.filePath}
+                                    </span>
+                                  </div>
+                                  {message.autoFix.reason && (
+                                    <p className="text-[11px] text-zinc-500 dark:text-slate-400 mt-0.5 leading-snug line-clamp-2">
+                                      {message.autoFix.reason}
+                                    </p>
+                                  )}
+                                </div>
+                                <button
+                                  onClick={() => loadFile(message.autoFix!.filePath)}
+                                  className="shrink-0 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-zinc-200 dark:border-slate-600 text-[11px] font-semibold text-zinc-700 dark:text-slate-300 hover:border-indigo-400 dark:hover:border-indigo-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                                >
+                                  View
+                                </button>
+                              </div>
+                            </div>
+                          </div>
                         ) : (
                           /* Standard Sentinel Text */
                           <div className="bg-white dark:bg-slate-800 rounded-2xl rounded-tl-sm px-4 py-3 shadow-[0_2px_10px_rgba(0,0,0,0.03)] border border-zinc-100/80 dark:border-slate-700/80 relative transition-colors">
@@ -1098,6 +1318,160 @@ export function WorkspacePage() {
           </div>
         </div>
       </div>
+
+      {/* ── Commit Message Dialog ─────────────────────────────────────────── */}
+      <AnimatePresence>
+        {showCommitDialog && (
+          <motion.div
+            key="commit-dialog-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+            onClick={(e) => { if (e.target === e.currentTarget) { setShowCommitDialog(false); setPushAuthError(''); setInstallAppUrl(''); } }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 8 }}
+              transition={{ duration: 0.15 }}
+              className="bg-white dark:bg-slate-900 border border-zinc-200 dark:border-slate-700 rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden"
+            >
+              {/* Header */}
+              <div className="px-6 pt-5 pb-4 border-b border-zinc-100 dark:border-slate-800">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-zinc-900 dark:bg-slate-100 flex items-center justify-center">
+                    <Upload className="w-4 h-4 text-white dark:text-slate-900" />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-bold text-zinc-900 dark:text-slate-100">Push to GitHub</h2>
+                    <p className="text-xs text-zinc-500 dark:text-slate-400 mt-0.5">
+                      {Object.keys(editedFiles).length === 1
+                        ? `1 file → ${selectedBranch || 'main'}`
+                        : `${Object.keys(editedFiles).length} files → ${selectedBranch || 'main'}`}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Body */}
+              <div className="px-6 py-4">
+                {/* Auth error banner */}
+                {pushAuthError && (
+                  <div className="mb-4 px-3 py-2.5 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700/50 flex gap-2.5 items-start">
+                    <AlertCircle className="w-4 h-4 text-red-500 dark:text-red-400 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-xs font-semibold text-red-700 dark:text-red-300">Push failed — authentication error</p>
+                      <p className="text-[11px] text-red-600 dark:text-red-400 mt-0.5">{pushAuthError}</p>
+                    </div>
+                  </div>
+                )}
+
+                <label className="block text-xs font-semibold text-zinc-600 dark:text-slate-400 mb-2 uppercase tracking-wide">
+                  Commit message
+                </label>
+                <textarea
+                  autoFocus={!pushAuthError}
+                  rows={3}
+                  value={commitMessage}
+                  onChange={(e) => setCommitMessage(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && commitMessage.trim()) {
+                      executePush();
+                    }
+                  }}
+                  className="w-full px-3 py-2.5 rounded-xl border border-zinc-200 dark:border-slate-700 bg-zinc-50 dark:bg-slate-800 text-sm text-zinc-900 dark:text-slate-100 placeholder-zinc-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 dark:focus:border-indigo-500 resize-none font-['JetBrains_Mono',_monospace] transition-colors"
+                  placeholder="Describe your changes…"
+                />
+                <p className="text-[11px] text-zinc-400 dark:text-slate-500 mt-1.5">
+                  Tip: Ctrl+Enter to push
+                </p>
+              </div>
+
+              {/* Install App banner */}
+              {installAppUrl && (
+                <div className="px-6 pb-4">
+                  <div className="rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50 p-4">
+                    <div className="flex gap-2.5 items-start mb-3">
+                      <AlertCircle className="w-4 h-4 text-amber-500 dark:text-amber-400 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-xs font-bold text-amber-700 dark:text-amber-300">App not installed on this repo</p>
+                        <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-0.5">Install the Velocis GitHub App to grant push access to this repository.</p>
+                      </div>
+                    </div>
+                    <a
+                      href={installAppUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center justify-center gap-2 w-full py-2 rounded-lg bg-zinc-900 dark:bg-slate-100 text-white dark:text-slate-900 text-sm font-semibold hover:bg-zinc-800 dark:hover:bg-white transition-colors"
+                    >
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+                      Install Velocis App on this repo
+                    </a>
+                    <p className="text-[10px] text-amber-500 dark:text-amber-400 mt-2 text-center">After installing, come back and push again.</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Auth error — reconnect banner */}
+              {pushAuthError && (
+                <div className="px-6 pb-4">
+                  <div className="rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700/50 p-4">
+                    <div className="flex gap-2.5 items-start mb-3">
+                      <AlertCircle className="w-4 h-4 text-red-500 dark:text-red-400 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-xs font-bold text-red-700 dark:text-red-300">GitHub authentication expired</p>
+                        <p className="text-[11px] text-red-500 dark:text-red-400 mt-0.5">Your session no longer has write access to this repository.</p>
+                      </div>
+                    </div>
+                    <a
+                      href={`${import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:3001'}/api/auth/github`}
+                      className="flex items-center justify-center gap-2 w-full py-2 rounded-lg bg-zinc-900 dark:bg-slate-100 text-white dark:text-slate-900 text-sm font-semibold hover:bg-zinc-800 dark:hover:bg-white transition-colors"
+                    >
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+                      Reconnect GitHub
+                    </a>
+                    <p className="text-[10px] text-red-400 dark:text-red-500 mt-2 text-center">You'll be redirected back after reconnecting.</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Files preview */}
+              {Object.keys(editedFiles).length > 0 && (
+                <div className="px-6 pb-4">
+                  <p className="text-[11px] font-semibold text-zinc-400 dark:text-slate-500 uppercase tracking-wide mb-1.5">Files</p>
+                  <div className="space-y-1 max-h-28 overflow-y-auto">
+                    {Object.keys(editedFiles).map(fp => (
+                      <div key={fp} className="flex items-center gap-2 text-[12px] text-zinc-600 dark:text-slate-300 font-['JetBrains_Mono',_monospace]">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                        {fp}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Footer buttons */}
+              <div className="px-6 py-4 border-t border-zinc-100 dark:border-slate-800 flex gap-3 justify-end">
+                <button
+                  onClick={() => { setShowCommitDialog(false); setPushAuthError(''); }}
+                  className="px-4 py-2 rounded-lg text-sm font-semibold text-zinc-600 dark:text-slate-300 bg-zinc-100 dark:bg-slate-800 hover:bg-zinc-200 dark:hover:bg-slate-700 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={executePush}
+                  disabled={!commitMessage.trim()}
+                  className="px-4 py-2 rounded-lg text-sm font-semibold bg-zinc-900 dark:bg-slate-100 text-white dark:text-slate-900 hover:bg-zinc-800 dark:hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  Push
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

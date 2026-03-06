@@ -452,6 +452,20 @@ Resources:
             Path:   /repos/{repoId}/workspace/chat
             Method: POST
 
+  WorkspacePushFileFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler:     src/handlers/api/getWorkspaceData.pushWorkspaceFile
+      Description: POST /repos/:repoId/workspace/push
+      Timeout:     60
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref VelocisApi
+            Path:   /repos/{repoId}/workspace/push
+            Method: POST
+
   WorkspaceReviewCodebaseFunction:
     Type: AWS::Serverless::Function
     Properties:

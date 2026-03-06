@@ -62,7 +62,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader(
     "Access-Control-Allow-Headers",
-    "Content-Type,Authorization,x-repo-owner,x-repo-name,x-hub-signature-256,x-github-event,Cookie,X-Requested-With"
+    "Content-Type,Authorization,x-repo-owner,x-repo-name,x-hub-signature-256,x-github-event,x-github-token,Cookie,X-Requested-With"
   );
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
   if (req.method === "OPTIONS") {
@@ -317,6 +317,7 @@ app.get("/api/repos/:repoId/workspace/files", wrap(getWorkspaceData.listFiles as
 app.get("/api/repos/:repoId/workspace/files/content", wrap(getWorkspaceData.getFileContent as LambdaHandler));
 app.get("/api/repos/:repoId/workspace/annotations", wrap(getWorkspaceData.getAnnotations as LambdaHandler));
 app.post("/api/repos/:repoId/workspace/chat", wrap(getWorkspaceData.sendChatMessage as LambdaHandler));
+app.post("/api/repos/:repoId/workspace/push", wrap(getWorkspaceData.pushWorkspaceFile as LambdaHandler));
 app.post("/api/repos/:repoId/workspace/review", wrap(getWorkspaceData.reviewCodebase as LambdaHandler));
 app.get("/api/repos/:repoId/workspace/chat/history", wrap(getWorkspaceData.getChatHistory as LambdaHandler));
 

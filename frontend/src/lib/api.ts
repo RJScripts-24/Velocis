@@ -12,6 +12,19 @@ export const deleteRepo = async (repoId: string): Promise<{ success: boolean }> 
 
 const BASE_URL = (import.meta.env.VITE_BACKEND_URL as string) ?? 'http://localhost:3001';
 
+// ─── Typed API error ─────────────────────────────────────────────────────────
+/** Error thrown by `request()` when the server returns a non-2xx response. */
+export class ApiError extends Error {
+  readonly code?: string;
+  readonly installUrl?: string;
+  constructor(message: string, code?: string, installUrl?: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.code = code;
+    this.installUrl = installUrl;
+  }
+}
+
 // ─── Token helpers ────────────────────────────────────────────────────────────
 export const TOKEN_KEY = 'velocis_token';
 
@@ -48,7 +61,7 @@ async function request<T>(
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     const msg = body?.error?.message ?? `HTTP ${res.status}`;
-    throw new Error(msg);
+    throw new ApiError(msg, body?.error?.code, body?.error?.install_url);
   }
 
   if (res.status === 204) return undefined as unknown as T;
@@ -552,9 +565,18 @@ export const getAnnotations = (
 
 export const postChatMessage = (
   repoId: string,
-  payload: { message: string; context?: { file_path?: string; line?: number; annotation_id?: string }; language?: Language },
+  payload: { message: string; context?: { file_path?: string; line?: number; annotation_id?: string; ref?: string }; language?: Language },
 ): Promise<ChatMessage> =>
   request(`/api/repos/${repoId}/workspace/chat`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+
+export const pushWorkspaceFile = (
+  repoId: string,
+  payload: { file_path: string; content: string; branch: string; commit_message?: string },
+): Promise<{ success: boolean; file_path: string; branch: string; commit_sha: string; message: string }> =>
+  request(`/api/repos/${repoId}/workspace/push`, {
     method: 'POST',
     body: JSON.stringify(payload),
   });

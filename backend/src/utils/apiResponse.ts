@@ -25,7 +25,8 @@ export type ErrorCode =
   | "GITHUB_OAUTH_FAILED"
   | "RATE_LIMITED"
   | "INTERNAL_ERROR"
-  | "AGENT_UNAVAILABLE";
+  | "AGENT_UNAVAILABLE"
+  | "APP_NOT_INSTALLED";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CORS HEADERS
@@ -59,12 +60,13 @@ export function ok(body: unknown, statusCode = 200): APIGatewayProxyResult {
 export function err(
   statusCode: number,
   code: ErrorCode,
-  message: string
+  message: string,
+  extras?: Record<string, unknown>
 ): APIGatewayProxyResult {
   return {
     statusCode,
     headers: CORS_HEADERS,
-    body: JSON.stringify({ error: { code, message, status: statusCode } }),
+    body: JSON.stringify({ error: { code, message, status: statusCode, ...extras } }),
   };
 }
 
@@ -87,6 +89,10 @@ export const errors = {
     err(500, "INTERNAL_ERROR", message),
   agentUnavailable: (agent: string) =>
     err(503, "AGENT_UNAVAILABLE", `${agent} agent is temporarily unavailable.`),
+  appNotInstalled: (installUrl: string) =>
+    err(403, "APP_NOT_INSTALLED",
+      "The Velocis GitHub App is not installed on this repository. Install it to enable pushing.",
+      { install_url: installUrl }),
 };
 
 /** Preflight CORS response for OPTIONS requests */

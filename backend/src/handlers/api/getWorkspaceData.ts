@@ -8,6 +8,7 @@
  *   GET  /repos/:repoId/workspace/files/content   → Raw file content
  *   GET  /repos/:repoId/workspace/annotations     → Sentinel annotations for a file
  *   POST /repos/:repoId/workspace/chat            → Send a message (Sentinel AI)
+ *   POST /repos/:repoId/workspace/push            → Push edited file to GitHub branch
  *   GET  /repos/:repoId/workspace/chat/history    → Chat message history
  *
  * The chat endpoint delegates to the existing mentorChat / analyzeLogic pipeline
@@ -27,19 +28,19 @@ import {
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
   BedrockRuntimeClient,
-  InvokeModelCommand,
+  ConverseCommand,
 } from "@aws-sdk/client-bedrock-runtime";
 import { ok, errors, preflight, extractBearerToken } from "../../utils/apiResponse";
 import { timeAgo } from "./getDashboard";
 import { logger } from "../../utils/logger";
-import { fetchFileContent, fetchRepoTree, listRepoBranches } from "../../services/github/repoOps";
+import { fetchFileContent, fetchRepoTree, listRepoBranches, pushFixCommit } from "../../services/github/repoOps";
 import { translateText } from "../../services/aws/translate";
 import { config } from "../../utils/config";
 import { logActivity } from "../../utils/activityLogger";
 import * as crypto from "crypto";
 import axios from "axios";
 import { dynamoClient, DYNAMO_TABLES } from "../../services/database/dynamoClient";
-import { getUserToken } from "../../services/github/auth";
+import { getUserToken, getInstallationTokenForRepo, getAppInstallUrl } from "../../services/github/auth";
 
 const dynamo = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 // DeepSeek V3.2 on Bedrock — use BEDROCK_REGION (us-east-1), not AWS_REGION (ap-south-1).
@@ -74,6 +75,11 @@ interface WorkspaceReviewResult {
   risk_level: RiskLevel;
   files_reviewed: number;
   findings: WorkspaceReviewFinding[];
+  auto_fix: WorkspaceAutoFix | null;
+}
+
+interface WorkspaceChatResult {
+  reply: string;
   auto_fix: WorkspaceAutoFix | null;
 }
 
@@ -223,6 +229,114 @@ function parseReviewOutput(rawModelOutput: string): Omit<WorkspaceReviewResult, 
     findings,
     auto_fix: autoFix,
   };
+}
+
+// Returns the correct line-comment prefix for a given file extension
+function commentPrefix(filePath: string): string {
+  const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
+  if (["md", "markdown"].includes(ext)) return "<!--";
+  if (["html", "htm", "xml", "svg"].includes(ext)) return "<!--";
+  if (["css", "scss", "sass", "less"].includes(ext)) return "/*";
+  if (["py", "rb", "sh", "bash", "yml", "yaml", "toml"].includes(ext)) return "#";
+  if (["sql"].includes(ext)) return "--";
+  // JS/TS/Go/Rust/Java/C/C++/Swift/Kotlin/PHP/C# and everything else
+  return "//";
+}
+
+function commentLine(filePath: string, text: string): string {
+  const prefix = commentPrefix(filePath);
+  if (prefix === "<!--") return `<!-- ${text} -->`;
+  if (prefix === "/*") return `/* ${text} */`;
+  return `${prefix} ${text}`;
+}
+
+function buildAppendedContent(originalContent: string, newCode: string, filePath: string): string {
+  const separator = commentLine(filePath, "Sentinel changes");
+  const trimmedOriginal = originalContent.trimEnd();
+  const trimmedNew = newCode.trim();
+  return `${trimmedOriginal}\n\n${separator}\n${trimmedNew}\n`;
+}
+
+function isEditIntent(message: string): boolean {
+  return /\b(edit|fix|update|modify|change|refactor|rewrite|implement|add|remove|rename|optimi[sz]e|improve)\b/i.test(
+    message
+  );
+}
+
+/**
+ * Parses Sentinel's edit response using multiple strategies in order of preference.
+ *
+ * Strategy 1 — XML delimiters (primary, accepts both single/double quotes, strips wrapper fences)
+ * Strategy 2 — Largest fenced code block in the response (when model ignores format instructions)
+ * Strategy 3 — JSON fallback (old format)
+ */
+function parseChatOutput(rawModelOutput: string, targetFilePath?: string): WorkspaceChatResult {
+  const fallbackReply = rawModelOutput.trim().slice(0, 3000) || "I could not generate a response.";
+
+  // Strip markdown code fences wrapping the entire response (```xml ... ``` or ```json ... ```)
+  const stripped = rawModelOutput.replace(/^\s*```[\w]*\n([\s\S]*?)```\s*$/i, "$1").trim();
+  const textToSearch = stripped || rawModelOutput;
+
+  // Extract reply block (optional)
+  const replyMatch = textToSearch.match(/<SENTINEL_REPLY>([\s\S]*?)<\/SENTINEL_REPLY>/i);
+  const reply = replyMatch?.[1]?.trim() || fallbackReply;
+
+  // ── Strategy 1: XML delimiters ────────────────────────────────────────────
+  // Accept both single and double quotes on the path attribute
+  const fileMatch = textToSearch.match(/<SENTINEL_FILE\s+path=["']([^"']+)["'][^>]*>([\s\S]*?)<\/SENTINEL_FILE>/i);
+  if (fileMatch) {
+    const filePath = fileMatch[1].trim();
+    // Strip a single leading/trailing newline added by the model
+    const fixedCode = fileMatch[2].replace(/^\n/, "").replace(/\n$/, "");
+    if (filePath && fixedCode.trim().length > 20) {
+      logger.info({ msg: "parseChatOutput: matched XML delimiters", filePath, fixedCodeLength: fixedCode.length });
+      return { reply, auto_fix: { file_path: filePath, reason: reply, fixed_code: fixedCode } };
+    }
+  }
+
+  // ── Strategy 2: Largest fenced code block ────────────────────────────────
+  // Use when model ignores format instructions but still returns a code block
+  if (targetFilePath) {
+    const codeBlocks: string[] = [];
+    const fenceRe = /```(?:[\w.-]*)\n([\s\S]*?)```/g;
+    let m: RegExpExecArray | null;
+    while ((m = fenceRe.exec(textToSearch)) !== null) {
+      codeBlocks.push(m[1]);
+    }
+    const largest = codeBlocks.sort((a, b) => b.length - a.length)[0];
+    if (largest && largest.trim().length > 50) {
+      logger.info({ msg: "parseChatOutput: matched largest code block", targetFilePath, fixedCodeLength: largest.length });
+      return { reply, auto_fix: { file_path: targetFilePath, reason: reply, fixed_code: largest.replace(/\n$/, "") } };
+    }
+  }
+
+  // ── Strategy 3: JSON fallback ─────────────────────────────────────────────
+  const jsonPayload = extractJsonPayload(textToSearch);
+  if (jsonPayload) {
+    try {
+      const parsed = JSON.parse(jsonPayload);
+      const autoFixRaw = parsed.auto_fix_candidate ?? parsed.auto_fix;
+      if (
+        autoFixRaw &&
+        typeof autoFixRaw.file_path === "string" &&
+        typeof autoFixRaw.fixed_code === "string" &&
+        autoFixRaw.fixed_code.trim().length > 20
+      ) {
+        logger.info({ msg: "parseChatOutput: matched JSON fallback", filePath: autoFixRaw.file_path });
+        return {
+          reply: typeof parsed.reply === "string" ? parsed.reply.trim() : reply,
+          auto_fix: {
+            file_path: autoFixRaw.file_path.trim(),
+            reason: (autoFixRaw.reason ?? "").trim(),
+            fixed_code: autoFixRaw.fixed_code,
+          },
+        };
+      }
+    } catch { /* JSON parse failed */ }
+  }
+
+  logger.warn({ msg: "parseChatOutput: all strategies failed", rawOutputLength: rawModelOutput.length, firstChars: rawModelOutput.slice(0, 300) });
+  return { reply, auto_fix: null };
 }
 
 function renderReviewMessage(review: WorkspaceReviewResult): string {
@@ -561,7 +675,7 @@ export const sendChatMessage = async (
 
     const { message, context, language = "en" } = body as {
       message: string;
-      context?: { file_path?: string; line?: number; annotation_id?: string };
+      context?: { file_path?: string; line?: number; annotation_id?: string; ref?: string };
       language?: Language;
     };
 
@@ -570,37 +684,137 @@ export const sendChatMessage = async (
     const messageId = `msg_${randomUUID().replace(/-/g, "").slice(0, 8)}`;
     const now = new Date().toISOString();
 
-    // Build the prompt — include file context if provided
+    // Build the prompt — include current file snapshot for edit requests.
     let systemPrompt = "You are Sentinel, Velocis's AI code review and mentoring assistant. Provide concise, actionable guidance.";
     let userPrompt = message;
-    if (context?.file_path) {
+    let autoFix: WorkspaceAutoFix | null = null;
+    const selectedRef = context?.ref ?? "main";
+    const normalizedFilePath = context?.file_path?.startsWith("/") ? context.file_path : context?.file_path ? `/${context.file_path}` : undefined;
+    const wantsEdit = Boolean(normalizedFilePath) && isEditIntent(message);
+    let currentFileContent = ""; // hoisted so buildAppendedContent can access it after Bedrock call
+
+    if (wantsEdit && normalizedFilePath) {
+      let fetchedOwner = event.headers?.["x-repo-owner"] ?? "";
+      const headerName = event.headers?.["x-repo-name"] ?? "";
+      const name = headerName || (await resolveRepoName(repoId)) || repoId;
+      if (!fetchedOwner) {
+        const inferredOwner = await getGitHubLogin(user.githubToken);
+        if (inferredOwner) fetchedOwner = inferredOwner;
+        else return errors.badRequest("Missing x-repo-owner header and could not infer owner.");
+      }
+
+      try {
+        currentFileContent = await fetchFileContent(
+          fetchedOwner,
+          name,
+          normalizedFilePath.replace(/^\//, ""),
+          user.githubToken,
+          selectedRef
+        );
+      } catch (fileErr: any) {
+        logger.warn({
+          repoId,
+          filePath: normalizedFilePath,
+          ref: selectedRef,
+          msg: "sendChatMessage: file fetch for edit failed",
+          error: fileErr?.message,
+        });
+        return errors.notFound(`File '${normalizedFilePath}' not found on ref '${selectedRef}'.`);
+      }
+
+      systemPrompt = [
+        "You are Sentinel, an autonomous coding assistant in Velocis Workspace.",
+        "The user wants you to add or change something in the file shown below.",
+        "",
+        "Return ONLY the NEW code to be appended — do NOT repeat the existing file content.",
+        "Respond using EXACTLY this format:",
+        "",
+        "<SENTINEL_REPLY>",
+        "One or two sentences explaining what you added/changed.",
+        "</SENTINEL_REPLY>",
+        "<SENTINEL_FILE path=\"<exact file path from the request>\">",
+        "<only the new code / additions here — no repetition of existing content>",
+        "</SENTINEL_FILE>",
+        "",
+        "Rules:",
+        "- Do NOT repeat or include any existing file content in SENTINEL_FILE.",
+        "- Do NOT wrap anything in markdown code fences inside SENTINEL_FILE.",
+        "- Do NOT include any text outside the two XML blocks above.",
+        "- The path attribute must match the target file path exactly.",
+      ].join("\n");
+
+      userPrompt = [
+        `Target file: ${normalizedFilePath}`,
+        `Branch/ref: ${selectedRef}`,
+        "",
+        `User request: ${message}`,
+        "",
+        "Existing file content (do NOT repeat this — append new code only):",
+        currentFileContent,
+      ].join("\n");
+    } else if (context?.file_path) {
       userPrompt = `[File: ${context.file_path}${context.line ? ` line ${context.line}` : ""}]\n\n${message}`;
     }
 
     let responseContent = "";
     try {
-      // DeepSeek V3 uses OpenAI-compatible request format
-      const payload = {
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        max_tokens: 1024,
-        temperature: 0.3,
-        top_p: 0.9,
-      };
-
-      const cmd = new InvokeModelCommand({
+      // DeepSeek V3.2 on Bedrock uses the Converse API (not InvokeModel)
+      const cmd = new ConverseCommand({
         modelId: DEEPSEEK_V3_MODEL_ID,
-        contentType: "application/json",
-        accept: "application/json",
-        body: JSON.stringify(payload),
+        system: [{ text: systemPrompt }],
+        messages: [{ role: "user", content: [{ text: userPrompt }] }],
+        inferenceConfig: {
+          maxTokens: wantsEdit ? 3072 : 1024,
+          temperature: 0.3,
+          topP: 0.9,
+        },
       });
 
       const bedrockRes = await bedrock.send(cmd);
-      const parsed = JSON.parse(new TextDecoder().decode(bedrockRes.body));
-      // DeepSeek V3 response: OpenAI-compatible — choices[0].message.content
-      responseContent = parsed.choices?.[0]?.message?.content ?? "";
+      const rawOutput = bedrockRes.output?.message?.content?.[0] &&
+        "text" in bedrockRes.output.message.content[0]
+        ? (bedrockRes.output.message.content[0] as any).text as string
+        : "";
+
+      logger.info({
+        repoId,
+        msg: "sendChatMessage: model response",
+        wantsEdit,
+        filePath: normalizedFilePath,
+        rawOutputLength: rawOutput.length,
+        rawOutputPreview: rawOutput.slice(0, 200),
+      });
+
+      if (wantsEdit) {
+        const chatResult = parseChatOutput(rawOutput, normalizedFilePath);
+        responseContent = chatResult.reply;
+        autoFix = chatResult.auto_fix;
+
+        // Append new code to original file content with a "Sentinel changes" comment header
+        if (autoFix && currentFileContent) {
+          autoFix.fixed_code = buildAppendedContent(
+            currentFileContent,
+            autoFix.fixed_code,
+            normalizedFilePath
+          );
+        }
+
+        logger.info({
+          repoId,
+          msg: "sendChatMessage: parseChatOutput result",
+          hasAutoFix: !!autoFix,
+          autoFixPath: autoFix?.file_path,
+        });
+
+        if (autoFix) {
+          const normalizedAutoFixPath = autoFix.file_path.startsWith("/")
+            ? autoFix.file_path
+            : `/${autoFix.file_path.replace(/^\/+/, "")}`;
+          autoFix.file_path = normalizedAutoFixPath;
+        }
+      } else {
+        responseContent = rawOutput;
+      }
     } catch (e: any) {
       logger.error({
         repoId,
@@ -634,6 +848,7 @@ export const sendChatMessage = async (
             content: finalContent,
             language,
             context: context ?? null,
+            auto_fix: autoFix,
             timestamp: now,
           },
         })
@@ -660,6 +875,7 @@ export const sendChatMessage = async (
       message_id: messageId,
       role: "sentinel",
       content: finalContent,
+      auto_fix: autoFix,
       timestamp: now,
       timestamp_ago: "Just now",
     });
@@ -811,26 +1027,23 @@ export const reviewCodebase = async (
       repoSnapshot,
     ].join("\n");
 
-    const payload = {
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      max_tokens: 3072,
-      temperature: 0.2,
-      top_p: 0.9,
-    };
-
-    const cmd = new InvokeModelCommand({
+    // DeepSeek V3.2 on Bedrock uses the Converse API (not InvokeModel)
+    const cmd = new ConverseCommand({
       modelId: DEEPSEEK_V3_MODEL_ID,
-      contentType: "application/json",
-      accept: "application/json",
-      body: JSON.stringify(payload),
+      system: [{ text: systemPrompt }],
+      messages: [{ role: "user", content: [{ text: userPrompt }] }],
+      inferenceConfig: {
+        maxTokens: 3072,
+        temperature: 0.2,
+        topP: 0.9,
+      },
     });
 
     const bedrockRes = await bedrock.send(cmd);
-    const parsed = JSON.parse(new TextDecoder().decode(bedrockRes.body));
-    const rawReviewOutput = parsed.choices?.[0]?.message?.content ?? "";
+    const rawReviewOutput = bedrockRes.output?.message?.content?.[0] &&
+      "text" in bedrockRes.output.message.content[0]
+      ? (bedrockRes.output.message.content[0] as any).text as string
+      : "";
 
     const parsedReview = parseReviewOutput(rawReviewOutput);
     const reviewResult: WorkspaceReviewResult = {
@@ -915,6 +1128,130 @@ export const reviewCodebase = async (
 // HANDLER: GET /repos/:repoId/workspace/chat/history
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+// HANDLER: POST /repos/:repoId/workspace/push
+export const pushWorkspaceFile = async (
+  event: APIGatewayProxyEvent
+): Promise<APIGatewayProxyResult> => {
+  if (event.httpMethod === "OPTIONS") return preflight();
+
+  const user = await resolveUser(event);
+  if (!user) return errors.unauthorized();
+
+  const repoId = event.pathParameters?.repoId;
+  if (!repoId) return errors.badRequest("Missing repoId.");
+
+  let body: any = {};
+  try {
+    if (event.body) body = JSON.parse(event.body);
+  } catch {
+    return errors.badRequest("Invalid JSON body.");
+  }
+
+  const { file_path, content, branch = "main", commit_message } = body as {
+    file_path?: string;
+    content?: string;
+    branch?: string;
+    commit_message?: string;
+  };
+
+  if (!file_path || typeof file_path !== "string") return errors.badRequest("file_path is required.");
+  if (typeof content !== "string") return errors.badRequest("content is required.");
+  if (!branch || typeof branch !== "string") return errors.badRequest("branch is required.");
+
+  if (!user.githubToken) {
+    logger.warn({ repoId, msg: "pushWorkspaceFile: stored OAuth token is empty — user needs to re-authenticate" });
+    return errors.forbidden("GitHub authentication required. Please reconnect your GitHub account and try again.");
+  }
+
+  let owner = event.headers?.["x-repo-owner"] ?? "";
+  const headerName = event.headers?.["x-repo-name"] ?? "";
+  const name = headerName || (await resolveRepoName(repoId)) || repoId;
+  if (!owner) {
+    const inferredOwner = await getGitHubLogin(user.githubToken);
+    if (inferredOwner) owner = inferredOwner;
+    else return errors.badRequest("Missing x-repo-owner header and could not infer owner.");
+  }
+
+  // Use App installation token when GitHub App credentials are configured.
+  // When running with a classical OAuth App (no GITHUB_APP_ID), skip this
+  // and use the user's OAuth token directly — it carries `repo` scope for writes.
+  let writeToken = user.githubToken;
+  if (config.GITHUB_APP_ID && config.GITHUB_APP_PRIVATE_KEY) {
+    try {
+      writeToken = await getInstallationTokenForRepo(owner, name);
+      logger.info({ repoId, msg: "pushWorkspaceFile: using installation token", owner, name });
+    } catch (installErr: any) {
+      const installStatus: number | undefined = installErr?.status ?? installErr?.response?.status;
+      if (installStatus === 404) {
+        let installUrl = 'https://github.com/apps';
+        try { installUrl = await getAppInstallUrl(); } catch { /* use fallback */ }
+        logger.warn({ repoId, msg: "pushWorkspaceFile: App not installed on repo", owner, name, installUrl });
+        return errors.appNotInstalled(installUrl);
+      }
+      logger.warn({
+        repoId,
+        msg: "pushWorkspaceFile: installation token unavailable, falling back to user OAuth token",
+        owner, name, error: String(installErr),
+      });
+    }
+  } else {
+    logger.info({ repoId, msg: "pushWorkspaceFile: GitHub App not configured, using user OAuth token", owner, name });
+  }
+
+  const normalizedPath = file_path.startsWith("/") ? file_path : `/${file_path}`;
+  const commitMessage = (commit_message && commit_message.trim())
+    ? commit_message.trim()
+    : `Velocis workspace update: ${normalizedPath}`;
+
+  try {
+    const result = await pushFixCommit(
+      owner,
+      name,
+      normalizedPath.replace(/^\//, ""),
+      content,
+      commitMessage,
+      writeToken,
+      branch
+    );
+
+    return ok({
+      success: true,
+      file_path: normalizedPath,
+      branch,
+      commit_sha: result.sha,
+      message: `Pushed ${normalizedPath} to ${branch}`,
+    });
+  } catch (e: any) {
+    const statusCode: number | undefined = e?.status ?? e?.response?.status;
+    const ghMessage: string = e?.response?.data?.message ?? e?.message ?? String(e);
+    logger.error({
+      repoId,
+      file_path: normalizedPath,
+      branch,
+      owner,
+      name,
+      msg: "pushWorkspaceFile failed",
+      httpStatus: statusCode,
+      error: ghMessage,
+      hint: statusCode === 403
+        ? "403: Check that the OAuth token has 'repo' scope, the branch is not protected, and the app is authorized on this repository."
+        : statusCode === 404
+        ? "404: Repository or branch not found — verify owner/name/branch."
+        : undefined,
+    });
+    if (statusCode === 403) {
+      return errors.forbidden(
+        `GitHub rejected the push (403): ${ghMessage}. ` +
+        "This usually means the repository has branch protection rules, " +
+        "or the OAuth token lacks write permissions. " +
+        "Try pushing to a non-protected branch, or re-authenticate with repo write scope."
+      );
+    }
+    return errors.internal("Failed to push file changes to GitHub.");
+  }
+};
+
+// HANDLER: GET /repos/:repoId/workspace/chat/history
 export const getChatHistory = async (
   event: APIGatewayProxyEvent
 ): Promise<APIGatewayProxyResult> => {
@@ -964,4 +1301,5 @@ export const getChatHistory = async (
     return ok({ messages: [] });
   }
 };
+
 

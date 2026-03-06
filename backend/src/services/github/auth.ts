@@ -34,6 +34,7 @@ export interface OAuthCallbackParams {
 
 export interface OAuthTokenResult {
   accessToken: string;
+  encryptedAccessToken: string;  // AES-256-GCM encrypted — safe to store directly
   tokenType: string;
   scope: string;
   userId: string;
@@ -103,7 +104,14 @@ const STATE_TTL_MS = 10 * 60 * 1000;
 const publicOctokit = new Octokit();
 
 // App-level authenticated client — for installation token generation
+// Only available when GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY are configured.
 function getAppOctokit(): Octokit {
+  if (!config.GITHUB_APP_ID || !config.GITHUB_APP_PRIVATE_KEY) {
+    throw new GitHubAuthError(
+      "GitHub App credentials (GITHUB_APP_ID / GITHUB_APP_PRIVATE_KEY) are not configured. " +
+      "App-level features like installation tokens are unavailable."
+    );
+  }
   return new Octokit({
     authStrategy: createAppAuth,
     auth: {
@@ -281,6 +289,7 @@ export async function handleOAuthCallback(
 
   return {
     accessToken,              // Return plaintext — never stored plaintext
+    encryptedAccessToken: encryptedToken,  // Pre-encrypted — use directly for DynamoDB upserts
     tokenType,
     scope,
     userId: String(githubUser.id),
@@ -361,6 +370,35 @@ export async function getInstallationToken(
       `Failed to generate installation token for installation ${installationId}: ${String(err)}`
     );
   }
+}
+
+/**
+ * Resolves the GitHub App installation for a specific repo and returns
+ * a write-capable installation token. Use this for push/write operations
+ * instead of the user OAuth token, which may lack Contents: write scope.
+ */
+export async function getInstallationTokenForRepo(
+  owner: string,
+  repo: string
+): Promise<string> {
+  const appOctokit = getAppOctokit();
+  const { data } = await appOctokit.apps.getRepoInstallation({ owner, repo });
+  return getInstallationToken(data.id);
+}
+
+/** Cached App slug — set once on first call to `getAppInstallUrl()`. */
+let _cachedAppSlug: string | null = null;
+
+/**
+ * Returns the GitHub App's public installation URL.
+ * Caches the slug after the first successful API call.
+ */
+export async function getAppInstallUrl(): Promise<string> {
+  if (!_cachedAppSlug) {
+    const { data } = await getAppOctokit().apps.getAuthenticated();
+    _cachedAppSlug = (data as any).slug ?? '';
+  }
+  return `https://github.com/apps/${_cachedAppSlug}/installations/new`;
 }
 
 // ─────────────────────────────────────────────

@@ -138,7 +138,7 @@ const ConfigSchema = z.object({
     .string()
     .min(1, "GITHUB_CLIENT_ID is required")
     .refine(
-      (val) => /^Iv[a-zA-Z0-9]{2,}\.?/.test(val) || /^[0-9a-f]{20}$/.test(val),
+      (val) => /^Iv[a-zA-Z0-9]{2,}/.test(val) || /^Ov[a-zA-Z0-9]{2,}/.test(val) || /^[0-9a-f]{20}$/.test(val),
       { message: "GITHUB_CLIENT_ID must be a valid GitHub App or OAuth App client ID" }
     ),
 
@@ -154,11 +154,11 @@ const ConfigSchema = z.object({
   GITHUB_APP_ID: z
     .string()
     .regex(/^\d+$/, "GITHUB_APP_ID must be a numeric string")
-    .transform((val) => parseInt(val, 10)),
+    .transform((val) => parseInt(val, 10))
+    .optional(),
 
   GITHUB_APP_PRIVATE_KEY: z
     .string()
-    .min(1, "GITHUB_APP_PRIVATE_KEY is required")
     .refine(
       (val) =>
         val.includes("-----BEGIN RSA PRIVATE KEY-----") ||
@@ -168,7 +168,8 @@ const ConfigSchema = z.object({
     .transform((val) =>
       // Lambda env vars collapse newlines — restore them
       val.replace(/\\n/g, "\n")
-    ),
+    )
+    .optional(),
 
   GITHUB_WEBHOOK_SECRET: z
     .string()

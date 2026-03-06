@@ -58,6 +58,18 @@ export const handler = async (
     }
 
     if (!code || !state) {
+        // GitHub App installation callbacks include ?code=&installation_id= but no ?state=
+        // (they're triggered from GitHub's UI, not our OAuth flow). Redirect to dashboard
+        // so the user isn't stuck on an error page — the installation already succeeded.
+        const installationId = event.queryStringParameters?.["installation_id"];
+        if (code && installationId && !state) {
+            logger.info({
+                requestId,
+                msg: "authGithubCallback: GitHub App installation callback — redirecting to dashboard",
+                installationId,
+            });
+            return redirect(`${config.FRONTEND_URL}/dashboard`, corsHeaders);
+        }
         logger.warn({
             requestId,
             msg: "authGithubCallback: missing code or state",
@@ -110,7 +122,10 @@ export const handler = async (
             avatarUrl: tokenResult.avatarUrl,
             githubProfileUrl: `https://github.com/${tokenResult.userLogin}`,
             // IMPORTANT: The key must be 'accessToken' to match getUserToken / StoredUserToken
-            accessToken: existingUser?.accessToken ?? existingUser?.encryptedAccessToken ?? "",
+            // Use the encrypted token returned directly from handleOAuthCallback — avoids a
+            // DynamoDB eventual-consistency race where existingUser might not yet reflect the
+            // token just written by handleOAuthCallback (causing accessToken: "" to overwrite it).
+            accessToken: tokenResult.encryptedAccessToken,
             plan: existingUser?.plan ?? "free",
             createdAt: existingUser?.createdAt ?? now,
             updatedAt: now,
