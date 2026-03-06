@@ -118,6 +118,7 @@ const LANDING_CSS = `
   align-items: center;
   justify-content: center;
   isolation: isolate;
+  overflow: hidden;
   border-radius: var(--radius-button, 8px);
   cursor: pointer;
   font-weight: 600;
@@ -125,40 +126,44 @@ const LANDING_CSS = `
 }
 .peel-btn:disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
 
-/* ::after = solid fill overlay that peels diagonally bottom-right → top-left */
+/* ::after = solid fill overlay — starts as an oversized triangle (hypotenuse at
+   x+y=201%, just past the bottom-right corner) so the full button is covered.
+   On hover it collapses to -1%/-1% (past the top-left corner), creating a true
+   45° diagonal sweep from bottom-right → top-left. */
 .peel-btn::after {
   content: '';
   position: absolute;
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  z-index: 0;
-  clip-path: polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%);
+  z-index: 2;
+  clip-path: polygon(0% 0%, 201% 0%, 0% 201%);
   transition: clip-path 0.55s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .peel-btn:hover::after {
-  clip-path: polygon(0% 0%, 0% 0%, 0% 0%, 0% 0%);
+  clip-path: polygon(0% 0%, -1% 0%, 0% -1%);
 }
 
-/* ::before = white fold triangle appearing at bottom-right as peel travels */
+/* ::before = white fold strip — a slightly larger triangle (15% wider) that sits
+   below the solid fill. It is only visible in the gap between the two clip-paths,
+   forming a ~15% wide white strip that travels diagonally with the peel edge,
+   simulating the lit back-face of a peeling sticker. */
 .peel-btn::before {
   content: '';
   position: absolute;
-  bottom: 0;
-  right: 0;
-  width: 0;
-  height: 0;
-  border-style: solid;
-  border-color: transparent transparent rgba(255,255,255,0.75) transparent;
-  border-width: 0;
-  border-radius: 0 0 var(--radius-button, 8px) 0;
+  inset: 0;
+  border-radius: inherit;
   pointer-events: none;
-  z-index: 2;
-  transition: border-width 0.55s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 1;
+  background: rgba(255, 255, 255, 0.65);
+  clip-path: polygon(0% 0%, 216% 0%, 0% 216%);
+  transition: clip-path 0.55s cubic-bezier(0.4, 0, 0.2, 1);
 }
-.peel-btn:hover::before { border-width: 0 0 38px 38px; }
+.peel-btn:hover::before {
+  clip-path: polygon(0% 0%, 14% 0%, 0% 14%);
+}
 
-/* label — floats above both pseudo-elements */
+/* label — base layer; shows the REVEALED colour (visible once peel is done) */
 .peel-btn__label {
   position: relative;
   z-index: 3;
@@ -167,11 +172,32 @@ const LANDING_CSS = `
   gap: 8px;
 }
 
+/* --over label: clipped to the same triangle as ::after so it is only visible
+   while that area is still covered by the solid fill. This gives the
+   partial split-colour effect mid-peel. */
+.peel-btn__label--over {
+  position: absolute;
+  inset: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  pointer-events: none;
+  z-index: 5;
+  clip-path: polygon(0% 0%, 201% 0%, 0% 201%);
+  transition: clip-path 0.55s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.peel-btn:hover .peel-btn__label--over {
+  clip-path: polygon(0% 0%, -1% 0%, 0% -1%);
+}
+
 /* ── Dark variant (hero, light backgrounds) ── */
 .peel-btn--dark { background: transparent; border: 2px solid #151515; }
 .peel-btn--dark::after { background: #151515; }
-.peel-btn--dark .peel-btn__label { color: #fff; }
-.peel-btn--dark:hover .peel-btn__label { color: #151515; transition: color 0.08s ease 0.38s; }
+/* Revealed (underneath): dark text on light background */
+.peel-btn--dark .peel-btn__label { color: #151515; }
+/* Initial (on top of solid fill): white text on dark background */
+.peel-btn--dark .peel-btn__label--over { color: #fff; }
 
 /* ── Outline variant (hero secondary, light backgrounds) ── */
 .peel-btn--outline { background: transparent; border: 2px solid rgba(21,21,21,0.3); }
@@ -181,8 +207,10 @@ const LANDING_CSS = `
 /* ── Primary teal (CTA, dark backgrounds) ── */
 .peel-btn--primary { background: transparent; border: 2px solid #3BBB96; }
 .peel-btn--primary::after { background: #3BBB96; }
-.peel-btn--primary .peel-btn__label { color: #151515; }
-.peel-btn--primary:hover .peel-btn__label { color: #3BBB96; transition: color 0.08s ease 0.38s; }
+/* Revealed (underneath): teal text on dark background */
+.peel-btn--primary .peel-btn__label { color: #3BBB96; }
+/* Initial (on top of solid fill): dark text on teal background */
+.peel-btn--primary .peel-btn__label--over { color: #151515; }
 
 /* ── Outline-inverse (CTA secondary, dark backgrounds) ── */
 .peel-btn--outline-inv { background: transparent; border: 2px solid rgba(255,255,255,0.25); }
@@ -343,6 +371,7 @@ function Hero() {
                 <div className="hero-anim flex flex-col sm:flex-row gap-4 mb-24">
                     <button onClick={() => navigate('/auth')} className="peel-btn peel-btn--dark px-8 py-4">
                         <span className="peel-btn__label"><Github size={20} /> Connect Repository</span>
+                        <span className="peel-btn__label--over" aria-hidden="true"><Github size={20} /> Connect Repository</span>
                     </button>
                     <button className="peel-btn peel-btn--outline px-8 py-4">
                         <span className="peel-btn__label"><Play size={20} /> Watch Demo</span>
@@ -1330,6 +1359,7 @@ function CTA() {
                     <div className="flex flex-col sm:flex-row gap-4">
                         <button onClick={() => navigate('/auth')} className="peel-btn peel-btn--primary px-10 py-5 font-bold text-lg">
                             <span className="peel-btn__label">Connect Repository Free</span>
+                            <span className="peel-btn__label--over" aria-hidden="true">Connect Repository Free</span>
                         </button>
                         <button className="peel-btn peel-btn--outline-inv px-10 py-5 font-bold text-lg">
                             <span className="peel-btn__label">Read the Docs</span>
