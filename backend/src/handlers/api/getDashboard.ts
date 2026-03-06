@@ -16,6 +16,7 @@
 
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import * as jwt from "jsonwebtoken";
+import axios from "axios";
 import {
   DynamoDBDocumentClient,
   GetCommand,
@@ -26,7 +27,41 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { ok, errors, preflight, extractBearerToken } from "../../utils/apiResponse";
 import { logger } from "../../utils/logger";
 import { dynamoClient, DYNAMO_TABLES, getDocClient } from "../../services/database/dynamoClient";
+import { getUserToken } from "../../services/github/auth";
 import * as crypto from "crypto";
+
+/** Fetch the last 35 days of daily commit counts for a repo's sparkline.
+ * Uses GitHub's /stats/commit_activity endpoint (returns last 52 weeks of
+ * Sunday→Saturday buckets, each with a `days` array of 7 daily counts).
+ * Flattens into a single array and returns the last 35 values.
+ */
+async function fetchSparkline(
+  owner: string,
+  repoName: string,
+  githubToken: string
+): Promise<number[]> {
+  try {
+    const headers: Record<string, string> = {
+      Accept: "application/vnd.github.v3+json",
+      "User-Agent": "Velocis-App",
+    };
+    if (githubToken) headers["Authorization"] = `Bearer ${githubToken}`;
+
+    const res = await axios.get(
+      `https://api.github.com/repos/${owner}/${repoName}/stats/commit_activity`,
+      { headers, timeout: 8000 }
+    );
+
+    // 202 = GitHub is computing stats, return empty for now
+    if (res.status === 202 || !Array.isArray(res.data)) return [];
+
+    // Flatten all weeks' daily arrays, take last 35 days
+    const daily: number[] = res.data.flatMap((w: any) => w.days ?? []);
+    return daily.slice(-35);
+  } catch {
+    return [];
+  }
+}
 
 function parseCookieValue(cookieHeader: string | undefined | null, name: string): string | null {
   if (!cookieHeader) return null;
@@ -208,6 +243,10 @@ export const handler = async (
       }));
   } catch (_) { /* non-fatal */ }
 
+  // ── Resolve GitHub token for sparkline fetching ────────────────────────────
+  let githubToken = "";
+  try { githubToken = await getUserToken(userId!); } catch { /* non-fatal */ }
+
   // ── Deduplicate repos by repoId (guards against duplicate DynamoDB records)
   const seen = new Set<string>();
   const uniqueRepos = repos.filter((r) => {
@@ -217,23 +256,54 @@ export const handler = async (
     return true;
   });
 
+  // ── Fetch sparklines in parallel for all repos ─────────────────────────────
+  const sparklineMap: Record<string, number[]> = {};
+  if (githubToken) {
+    await Promise.all(
+      uniqueRepos.map(async (r) => {
+        const owner: string | undefined =
+          r.repoOwner ??
+          (r.repoFullName ? String(r.repoFullName).split('/')[0] : undefined);
+        const name: string | undefined = r.repoName ?? r.repoSlug;
+        const id = String(r.repoId ?? r.repoSlug ?? "");
+        if (owner && name && id) {
+          sparklineMap[id] = await fetchSparkline(owner, name, githubToken);
+        }
+      })
+    );
+  }
+
   // ── Shape repo cards ─────────────────────────────────────────────────────────
-  const repoDashCards = uniqueRepos.map((r) => ({
-    id: r.repoSlug ?? r.repoId,
-    name: r.repoName ?? r.repoSlug,
-    status: r.status ?? "healthy",
-    language: r.language ?? null,
-    last_activity: (r.lastActivity ?? []).map((a: any) => ({
-      agent: a.agent,
-      message: a.message,
-      severity: a.severity,
-      timestamp_ago: timeAgo(a.timestamp),
-    })),
-    commit_sparkline: r.commitSparkline ?? [],
-    commit_trend_label: r.commitTrendLabel ?? "",
-    commit_trend_direction: r.commitTrendDirection ?? "flat",
-    installed_at: r.createdAt || r.updatedAt || r.lastProcessedAt || r.lastPushAt || r.lastScannedAt,
-  }));
+  const repoDashCards = uniqueRepos.map((r) => {
+    const id = String(r.repoSlug ?? r.repoId ?? "");
+    const sparkline = sparklineMap[id] ?? [];
+    const total = sparkline.reduce((s, v) => s + v, 0);
+    let trendLabel = r.commitTrendLabel ?? "";
+    let trendDirection = r.commitTrendDirection ?? "flat";
+    if (sparkline.length >= 2 && !trendLabel) {
+      const last = sparkline[sparkline.length - 1];
+      const prev = sparkline[sparkline.length - 2];
+      if (last > prev) { trendDirection = "up"; trendLabel = `\u2191 ${total} total commits`; }
+      else if (prev > last) { trendDirection = "down"; trendLabel = `\u2193 ${total} total commits`; }
+      else trendLabel = `${total} total commits`;
+    }
+    return {
+      id,
+      name: r.repoName ?? r.repoSlug,
+      status: r.status ?? "healthy",
+      language: r.language ?? null,
+      last_activity: (r.lastActivity ?? []).map((a: any) => ({
+        agent: a.agent,
+        message: a.message,
+        severity: a.severity,
+        timestamp_ago: timeAgo(a.timestamp),
+      })),
+      commit_sparkline: sparkline,
+      commit_trend_label: trendLabel,
+      commit_trend_direction: trendDirection,
+      installed_at: r.createdAt || r.updatedAt || r.lastProcessedAt || r.lastPushAt || r.lastScannedAt,
+    };
+  });
 
   logger.info({ userId, msg: "GET /dashboard", range });
 

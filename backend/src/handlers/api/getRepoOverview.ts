@@ -7,7 +7,7 @@ import { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import * as jwt from "jsonwebtoken";
 import * as crypto from "crypto";
 import axios from "axios";
-import { ScanCommand } from "@aws-sdk/lib-dynamodb";
+import { ScanCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { ok, errors, preflight, extractBearerToken } from "../../utils/apiResponse";
 import { timeAgo } from "./getDashboard";
 import { logger } from "../../utils/logger";
@@ -191,28 +191,36 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
   let risksMedium = repo.risksMedium ?? 0;
   let risksLow = repo.risksLow ?? 0;
 
-  const SENTINEL_TABLE = process.env.SENTINEL_TABLE ?? "velocis-sentinel";
   const PIPELINE_TABLE = process.env.PIPELINE_TABLE ?? "velocis-pipeline-runs";
 
   try {
-    // Latest PR Risk from Sentinel
-    const sentinelRes = await docClient.send(new ScanCommand({
-      TableName: SENTINEL_TABLE,
-      FilterExpression: "repoId = :r AND recordType = :t",
-      ExpressionAttributeValues: { ":r": repoId, ":t": "PR_REVIEW" },
+    // Latest PR Risk from Sentinel — query AI_ACTIVITY table via repoId GSI
+    const sentinelRes = await getDocClient().send(new QueryCommand({
+      TableName: DYNAMO_TABLES.AI_ACTIVITY,
+      IndexName: "repoId-createdAt-index",
+      KeyConditionExpression: "repoId = :r",
+      FilterExpression: "#agent = :agent",
+      ExpressionAttributeNames: { "#agent": "agent" },
+      ExpressionAttributeValues: { ":r": repoId, ":agent": "sentinel" },
+      ScanIndexForward: false,
+      Limit: 1,
     }));
-    const latestPr = (sentinelRes.Items ?? []).sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""))[0];
+    const latestPr = (sentinelRes.Items ?? [])[0];
     if (latestPr) {
-      prRiskScore = `${latestPr.riskScore}%`;
+      prRiskScore = latestPr.overallRisk ?? prRiskScore;
 
-      // Calculate risk counts from findings if available
-      if (latestPr.findings && Array.isArray(latestPr.findings)) {
-        risksCritical = latestPr.findings.filter((f: any) => f.severity === "high" || f.severity === "critical").length;
-        risksMedium = latestPr.findings.filter((f: any) => f.severity === "medium").length;
-        risksLow = latestPr.findings.filter((f: any) => f.severity === "low").length;
+      // Calculate risk counts from findingSummaries
+      if (latestPr.findingSummaries && Array.isArray(latestPr.findingSummaries)) {
+        risksCritical = latestPr.findingSummaries.filter((f: any) => f.severity === "critical" || f.severity === "high").length;
+        risksMedium = latestPr.findingSummaries.filter((f: any) => f.severity === "medium").length;
+        risksLow = latestPr.findingSummaries.filter((f: any) => f.severity === "low").length;
       }
     }
+  } catch (e) {
+    logger.warn({ msg: "Failed to fetch Sentinel metrics", repoId, error: String(e) });
+  }
 
+  try {
     // Latest Test Stability from Fortress
     const pipelineRes = await docClient.send(new ScanCommand({
       TableName: PIPELINE_TABLE,
@@ -223,7 +231,11 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     if (latestRun) {
       testStabilityPct = latestRun.testStabilityPct ?? latestRun.test_results?.stability_pct ?? 100;
     }
+  } catch (e) {
+    logger.warn({ msg: "Failed to fetch pipeline metrics", repoId, error: String(e) });
+  }
 
+  try {
     // Latest Activity for "last auto action"
     const activityRes = await docClient.send(new ScanCommand({
       TableName: DYNAMO_TABLES.AI_ACTIVITY,
@@ -234,15 +246,13 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     if (latestActivity) {
       lastActionAt = latestActivity.timestamp ?? latestActivity.createdAt;
     }
-
-    // Architecture Drift from repo record or dedicated SK if we had one
-    // For now, if we have many nodes failing in cortex, we could derive it.
-    // Let's stick to the repo field for architectue drift but maybe clean up the label
-    if (repo.architectureDrift === "None" || !repo.architectureDrift) {
-      architectureDrift = "Minimal";
-    }
   } catch (e) {
-    logger.warn({ msg: "Failed to fetch real-time metrics", repoId, error: String(e) });
+    logger.warn({ msg: "Failed to fetch activity metrics", repoId, error: String(e) });
+  }
+
+  // Architecture Drift from repo record
+  if (repo.architectureDrift === "None" || !repo.architectureDrift) {
+    architectureDrift = "Minimal";
   }
 
 

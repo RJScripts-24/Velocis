@@ -862,8 +862,11 @@ async function persistReviewResult(
       new PutCommand({
         TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
         Item: {
-          PK: `REPO#${repoId}`,
-          SK: `SENTINEL#${commitSha}`,
+          activityId: `sentinel_${repoId}_${commitSha}`,
+          createdAt: result.reviewedAt,
+          repoId,
+          agent: "sentinel",
+          commitSha,
           overallRisk: result.overallRisk,
           totalFindings: result.totalFindings,
           criticalFindings: result.criticalFindings,
@@ -896,7 +899,7 @@ async function persistReviewResult(
     await docClient.send(
       new UpdateCommand({
         TableName: config.DYNAMO_REPOSITORIES_TABLE,
-        Key: { PK: `REPO#${repoId}`, SK: "SENTINEL_STATS" },
+        Key: { repoId },
         UpdateExpression:
           "SET #totalReviews = if_not_exists(#totalReviews, :zero) + :one, " +
           "#lastReviewAt = :reviewedAt, " +
@@ -948,7 +951,7 @@ async function getCachedReview(
     const result = await docClient.send(
       new GetCommand({
         TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
-        Key: { PK: `REPO#${repoId}`, SK: `SENTINEL_CACHE#${commitSha}` },
+        Key: { activityId: `sentinel_cache_${repoId}_${commitSha}`, createdAt: "cache" },
       })
     );
 
@@ -979,8 +982,10 @@ async function setCachedReview(
       new PutCommand({
         TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
         Item: {
-          PK: `REPO#${repoId}`,
-          SK: `SENTINEL_CACHE#${commitSha}`,
+          activityId: `sentinel_cache_${repoId}_${commitSha}`,
+          createdAt: "cache",
+          repoId,
+          agent: "sentinel_cache",
           reviewResult,
           cachedAt: Date.now(),
           TTL: Math.floor(Date.now() / 1000) + 300, // 5-min TTL on cache entry

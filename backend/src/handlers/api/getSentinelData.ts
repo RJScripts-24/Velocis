@@ -90,15 +90,18 @@ export const listPrs = async (
     const res = await getDocClient().send(
       new QueryCommand({
         TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
-        KeyConditionExpression: "PK = :pk AND begins_with(SK, :skp)",
-        ExpressionAttributeValues: { ":pk": `REPO#${repoId}`, ":skp": "SENTINEL#" },
+        IndexName: "repoId-createdAt-index",
+        KeyConditionExpression: "repoId = :r",
+        FilterExpression: "#agent = :agent",
+        ExpressionAttributeNames: { "#agent": "agent" },
+        ExpressionAttributeValues: { ":r": repoId, ":agent": "sentinel" },
         ScanIndexForward: false, // newest first
         Limit: 20,
       })
     );
     prs = (res.Items ?? []).map((p: any, i: number) => ({
       pr_number:  i + 1,
-      title:      `Commit ${(p.SK ?? "").replace("SENTINEL#", "").slice(0, 7)}`,
+      title:      `Commit ${(p.commitSha ?? "").slice(0, 7)}`,
       author:     p.outputLanguage ?? "en",
       branch:     p.reviewDepth ?? "standard",
       risk_score: riskToScore[p.overallRisk] ?? 10,
@@ -142,8 +145,11 @@ export const getPrDetail = async (
     const res = await getDocClient().send(
       new QueryCommand({
         TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
-        KeyConditionExpression: "PK = :pk AND begins_with(SK, :skp)",
-        ExpressionAttributeValues: { ":pk": `REPO#${repoId}`, ":skp": "SENTINEL#" },
+        IndexName: "repoId-createdAt-index",
+        KeyConditionExpression: "repoId = :r",
+        FilterExpression: "#agent = :agent",
+        ExpressionAttributeNames: { "#agent": "agent" },
+        ExpressionAttributeValues: { ":r": repoId, ":agent": "sentinel" },
         ScanIndexForward: false,
         Limit: parseInt(prNumber, 10) + 1,
       })
@@ -159,7 +165,7 @@ export const getPrDetail = async (
 
   return ok({
     pr_number:  parseInt(prNumber, 10),
-    title:      `Commit ${(pr.SK ?? "").replace("SENTINEL#", "").slice(0, 7)}`,
+    title:      `Commit ${(pr.commitSha ?? "").slice(0, 7)}`,
     risk_score: riskToScore[pr.overallRisk] ?? 10,
     risk_level: pr.overallRisk ?? "clean",
     summary:    pr.executiveSummary ?? "",
@@ -243,8 +249,11 @@ export const getSentinelActivity = async (
     const res = await getDocClient().send(
       new QueryCommand({
         TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
-        KeyConditionExpression: "PK = :pk AND begins_with(SK, :skp)",
-        ExpressionAttributeValues: { ":pk": `REPO#${repoId}`, ":skp": "SENTINEL#" },
+        IndexName: "repoId-createdAt-index",
+        KeyConditionExpression: "repoId = :r",
+        FilterExpression: "#agent = :agent",
+        ExpressionAttributeNames: { "#agent": "agent" },
+        ExpressionAttributeValues: { ":r": repoId, ":agent": "sentinel" },
         ScanIndexForward: false,
         Limit: limit * page,
       })
@@ -252,7 +261,7 @@ export const getSentinelActivity = async (
     const all = res.Items ?? [];
     const start = (page - 1) * limit;
     events = all.slice(start, start + limit).map((e: any, i: number) => ({
-      id:             e.SK ?? `sentinel-${i}`,
+      id:             e.activityId ?? `sentinel-${i}`,
       type:           "review",
       severity:       e.overallRisk ?? "info",
       message:        e.executiveSummary ?? `Sentinel review — ${e.overallRisk ?? "clean"}`,
