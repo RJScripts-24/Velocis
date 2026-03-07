@@ -120,7 +120,7 @@ export const handler = async (
                 tableName: DYNAMO_TABLES.REPOSITORIES,
                 indexName: "userId-index",
                 keyConditionExpression: "ownerGithubId = :ownerGithubId",
-                expressionAttributeValues: { ":ownerGithubId": githubId },
+                expressionAttributeValues: { ":ownerGithubId": userId },
             });
 
             if (installedRepos && installedRepos.items.length > 0) {
@@ -156,7 +156,7 @@ export const handler = async (
         logger.info({
             msg: "getRepos: success",
             requestId,
-            userId: githubId,
+            userId: userId,
             login: userLogin,
             repoCount: result.length,
             installedCount: installedReposMap.size,
