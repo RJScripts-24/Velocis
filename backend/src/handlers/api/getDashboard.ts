@@ -200,9 +200,9 @@ export const handler = async (
     const actScan = await docClient.send(
       new ScanCommand({
         TableName: DYNAMO_TABLES.AI_ACTIVITY,
-        FilterExpression: "#ts >= :since",
+        FilterExpression: "userId = :uid AND #ts >= :since",
         ExpressionAttributeNames: { "#ts": "timestamp" },
-        ExpressionAttributeValues: { ":since": since },
+        ExpressionAttributeValues: { ":uid": userId, ":since": since },
         Limit: 50,
       })
     );
