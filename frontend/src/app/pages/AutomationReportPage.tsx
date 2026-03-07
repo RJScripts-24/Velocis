@@ -588,6 +588,7 @@ export function AutomationReportPage() {
     const [isRestarting, setIsRestarting] = useState(false);
     const [repoName, setRepoName] = useState<string>('');
     const { start } = useTutorial();
+    const { isDarkMode } = useTheme();
 
     // Auto-launch automation report tutorial on first visit
     useEffect(() => {
@@ -671,17 +672,20 @@ export function AutomationReportPage() {
 
     if (isLoading) {
         return (
+            <div className={isDarkMode ? 'dark' : ''}>
             <div className="w-full min-h-screen bg-[#f6f7fb] dark:bg-[#0A0A0E] text-zinc-900 dark:text-slate-100 font-['JetBrains_Mono',_monospace]">
                 <NavBar id={id} navigate={navigate} repoName={repoName} />
                 <div className="flex items-center justify-center py-32">
                     <div className="w-6 h-6 rounded-full border-2 border-zinc-200 dark:border-zinc-700 border-t-indigo-500 animate-spin" />
                 </div>
             </div>
+            </div>
         );
     }
 
     if (error) {
         return (
+            <div className={isDarkMode ? 'dark' : ''}>
             <div className="w-full min-h-screen flex flex-col items-center justify-center bg-[#f6f7fb] dark:bg-[#0A0A0E] gap-3">
                 <AlertCircle className="w-7 h-7 text-rose-500" />
                 <span className="text-sm text-zinc-600 dark:text-zinc-400">{error}</span>
@@ -689,11 +693,13 @@ export function AutomationReportPage() {
                     Back to Repository
                 </button>
             </div>
+            </div>
         );
     }
     // Pipeline is running
     if (report?.status === 'running') {
         return (
+            <div className={isDarkMode ? 'dark' : ''}>
             <div className="w-full min-h-screen bg-[#f6f7fb] dark:bg-[#0A0A0E] text-zinc-900 dark:text-slate-100 font-['JetBrains_Mono',_monospace]">
                 <NavBar id={id} navigate={navigate} repoName={repoName} />
                 <div className="w-full px-6 md:px-10 py-12 space-y-6">
@@ -716,11 +722,13 @@ export function AutomationReportPage() {
                     </div>
                 </div>
             </div>
+            </div>
         );
     }
 
     if (report?.status === 'failed') {
         return (
+            <div className={isDarkMode ? 'dark' : ''}>
             <div className="w-full min-h-screen bg-[#f6f7fb] dark:bg-[#0A0A0E] text-zinc-900 dark:text-slate-100 font-['JetBrains_Mono',_monospace]">
                 <NavBar id={id} navigate={navigate} repoName={repoName} />
                 <div className="w-full px-6 md:px-10 py-12 space-y-6">
@@ -755,12 +763,14 @@ export function AutomationReportPage() {
                     </div>
                 </div>
             </div>
+            </div>
         );
     }
 
     // No data yet
     if (!report || report.status === 'not_started' || (!report.sentinel && !report.fortress && !report.infrastructure)) {
         return (
+            <div className={isDarkMode ? 'dark' : ''}>
             <div className="w-full min-h-screen bg-[#f6f7fb] dark:bg-[#0A0A0E] text-zinc-900 dark:text-slate-100 font-['JetBrains_Mono',_monospace]">
                 <style>{`
                     .cta-btn {
@@ -814,11 +824,13 @@ export function AutomationReportPage() {
                     </button>
                 </div>
             </div>
+            </div>
         );
     }
 
     // Full report view
     return (
+        <div className={isDarkMode ? 'dark' : ''}>
         <div className="w-full min-h-screen bg-[#f6f7fb] dark:bg-[#0A0A0E] text-zinc-900 dark:text-slate-100 font-['JetBrains_Mono',_monospace]">
             <style>{`
                 /* CTA button lift + ripple animation */
@@ -1116,6 +1128,7 @@ export function AutomationReportPage() {
                     </div>
                 </div>
             </div>
+        </div>
         </div>
     );
 }

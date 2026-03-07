@@ -117,7 +117,8 @@ export function RepositorySettingsPage() {
     };
 
     return (
-        <div className={`${isDarkMode ? 'dark' : ''} w-full min-h-screen bg-[#f6f7fb] dark:bg-[#0A0A0E] text-zinc-900 dark:text-slate-100 font-['JetBrains_Mono',_monospace]`}>
+        <div className={isDarkMode ? 'dark' : ''}>
+        <div className="w-full min-h-screen bg-[#f6f7fb] dark:bg-[#0A0A0E] text-zinc-900 dark:text-slate-100 font-['JetBrains_Mono',_monospace]">
             {/* NAVBAR */}
             <div className="flex-none z-50 border-b border-zinc-200 dark:border-slate-800/80 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-xl sticky top-0 px-6 h-[60px] flex items-center justify-between">
                 <div className="flex items-center gap-4">
@@ -296,6 +297,7 @@ export function RepositorySettingsPage() {
                     </div>
                 </div>
             )}
+        </div>
         </div>
     );
 }
