@@ -136,7 +136,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
                     const { UpdateCommand } = await import("@aws-sdk/lib-dynamodb");
                     await docClient.send(new UpdateCommand({
                         TableName: DYNAMO_TABLES.REPOSITORIES,
-                        Key: { repoId: repo.repoId ?? repo.id ?? repoId },
+                        Key: { repoId: (repo?.repoId ?? (repo as any)?.id ?? repoId) as string },
                         UpdateExpression: "SET automationReport.#st = :failed, automationReport.#err = :err, automationReport.updatedAt = :ts",
                         ExpressionAttributeNames: { "#st": "status", "#err": "error" },
                         ExpressionAttributeValues: {

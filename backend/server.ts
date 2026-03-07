@@ -9,6 +9,7 @@
  */
 
 import "dotenv/config";
+import serverless from "serverless-http";
 import express, { Request, Response, NextFunction } from "express";
 import { APIGatewayProxyEvent, APIGatewayProxyResult, Context } from "aws-lambda";
 import { randomUUID } from "crypto";
@@ -343,19 +344,24 @@ app.post("/api/webhooks/github", wrap(githubPush.handler as LambdaHandler));
 // Health check
 app.get("/health", (_req, res) => res.json({ status: "ok", ts: new Date().toISOString() }));
 
-// ── Start ────────────────────────────────────────────────────────────────────
-const server = app.listen(PORT, () => {
-  console.log(`\n🚀  Velocis backend running at http://localhost:${PORT}`);
-  console.log(`    CORS allowed origins: ${ALLOWED_ORIGINS.join(", ")}`);
-  console.log(`    NODE_ENV: ${process.env.NODE_ENV ?? "development"}\n`);
-});
+// ── Start (local dev only) ───────────────────────────────────────────────────
+// Only bind a port when running locally — not inside AWS Lambda.
+if (process.env.NODE_ENV !== "production" && process.env.AWS_EXECUTION_ENV === undefined) {
+  const server = app.listen(PORT, () => {
+    console.log(`\n🚀  Velocis backend running locally at http://localhost:${PORT}`);
+    console.log(`    CORS allowed origins: ${ALLOWED_ORIGINS.join(", ")}`);
+    console.log(`    NODE_ENV: ${process.env.NODE_ENV ?? "development"}\n`);
+  });
 
-server.on("error", (err: any) => {
-  console.error(`\n❌  Failed to start backend on port ${PORT}:`, err.message);
-  if (err.code === "EADDRINUSE") {
-    console.error(`    Port ${PORT} is already in use. Please kill the process using it.`);
-  }
-  process.exit(1);
-});
+  server.on("error", (err: any) => {
+    console.error(`\n❌  Failed to start backend on port ${PORT}:`, err.message);
+    if (err.code === "EADDRINUSE") {
+      console.error(`    Port ${PORT} is already in use. Please kill the process using it.`);
+    }
+    process.exit(1);
+  });
+}
 
+// Lambda handler — used when this file is the entrypoint for a serverless function.
+export const handler = serverless(app);
 export default app;

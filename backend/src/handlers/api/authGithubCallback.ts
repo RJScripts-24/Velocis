@@ -66,7 +66,7 @@ export const handler = async (
             logger.info({
                 requestId,
                 msg: "authGithubCallback: GitHub App installation callback — redirecting to dashboard",
-                installationId,
+                installationId: Number(installationId),
             });
             return redirect(`${config.FRONTEND_URL}/dashboard`, corsHeaders);
         }

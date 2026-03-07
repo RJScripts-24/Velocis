@@ -83,5 +83,24 @@ export interface Repository {
   lastPushAt?: string;         // ISO 8601 — timestamp of the last processed push
   lastPushedBy?: string;       // GitHub login of the pusher
   lastCommitSha?: string;      // SHA of the most recent processed commit
+  lastCommitMessage?: string;  // Message of the most recent processed commit
+  lastCommitAuthor?: string;   // Author name of the most recent processed commit
+  filesChangedCount?: number;  // Number of files changed in the last push
+  filesDeletedCount?: number;  // Number of files deleted in the last push
+  automationReport?: {         // Live pipeline state written by githubPush / triggerAutomation
+    status: 'running' | 'completed' | 'failed';
+    startedAt?: string;
+    completedAt?: string;
+    updatedAt?: string;
+    trigger?: string;
+    commitSha?: string;
+    pushedBranch?: string;
+    pushedBy?: string;
+    error?: string;
+    sentinel?: unknown;
+    fortress?: unknown;
+    infrastructure?: unknown;
+    progress?: unknown;
+  };
   status?: 'idle' | 'processing' | 'healthy' | 'degraded'; // Agent pipeline state
 }

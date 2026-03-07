@@ -77,7 +77,7 @@ async function persistJob(job: InstallJob): Promise<void> {
   await _installDocClient.send(
     new PutCommand({
       TableName: INSTALL_TABLE,
-      Item: { jobId: job.jobId, ...job, ttl: Math.floor(Date.now() / 1000) + 86400 },
+      Item: { ...job, ttl: Math.floor(Date.now() / 1000) + 86400 },
     })
   );
 }

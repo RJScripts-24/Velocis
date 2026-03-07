@@ -2,56 +2,10 @@ AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 
 Description: >
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# Alternatively add a _redirects file (supported by Amplify Hosting):##   Type:    200 (Rewrite)#   Target:  /index.html#   Source:  </^[^.]+$|\.(?!(css|gif|ico|jpg|js|png|txt|svg|woff|woff2|ttf|map|json)$)([^.]+$)/>## (or via CLI) because amplify.yml does not support redirects directly:# Amplify Console also needs a custom rewrite rule added via the Console UI          value: "1; mode=block"        - key: X-XSS-Protection          value: "DENY"        - key: X-Frame-Options          value: "nosniff"        - key: X-Content-Type-Options          value: "no-store"        - key: Cache-Control      headers:    - pattern: "**/*"  customHeaders:  # ─────────────────────────────────────────────────────────────────────────  # browser JS router takes over.  # This redirects all unmatched paths to index.html with a 200 so the  # (e.g. /dashboard, /repo/123/cortex) returns a 404 from the CDN.  # React Router uses client-side routing. Without this rule every direct URL  # SPA REWRITE RULE  # ─────────────────────────────────────────────────────────────────────────      - node_modules/**/*    paths:  cache:      - "**/*"    files:    baseDirectory: dist    # Vite outputs to dist/ by default  artifacts:        - npm run build        # e.g. https://xxxxxxxxxx.execute-api.ap-south-1.amazonaws.com/v1        # VITE_BACKEND_URL must be set in Amplify Console → Environment Variables      commands:    build:        - npm install        # Install dependencies (Amplify auto-detects pnpm/npm/yarn)      commands:  Velocis Backend — AWS SAM template defining all Lambda functions and
+  Velocis Backend -- AWS SAM template defining all Lambda functions and
   API Gateway routes per the API contract (v1.0.0).
 
-# ─────────────────────────────────────────────────────────────────────────────
-# GLOBALS — apply to all Lambda functions unless overridden
-# ─────────────────────────────────────────────────────────────────────────────
+# GLOBALS -- apply to all Lambda functions unless overridden
 Globals:
   Function:
     Runtime:      nodejs20.x
@@ -65,7 +19,7 @@ Globals:
       Variables:
         NODE_ENV:              !Ref Environment
         AWS_REGION_OVERRIDE:   !Ref AWS::Region
-        # ── DynamoDB table names ──────────────────────────────────────────────
+        #                  DynamoDB table names                                                                                                                                                                                                                                                                                                                                                                                 
         # These env vars are read directly by handlers (process.env.X_TABLE)
         # AND aliased below so config.ts defaults resolve to the correct tables.
         USERS_TABLE:              !Ref UsersTable
@@ -87,22 +41,22 @@ Globals:
         DYNAMO_REPOSITORIES_TABLE: !Ref ReposTable
         DYNAMO_USERS_TABLE:        !Ref UsersTable
         DYNAMO_AI_ACTIVITY_TABLE:  !Ref ActivityTable
-        # ── Secrets (SSM Parameter Store) ────────────────────────────────────
+        #                  Secrets (SSM Parameter Store)                                                                                                                                                                                                                                                                                                 
         JWT_SECRET:                !Sub "{{resolve:ssm:/velocis/${Environment}/jwt-secret}}"
         GITHUB_CLIENT_ID:          !Sub "{{resolve:ssm:/velocis/${Environment}/github-client-id}}"
         GITHUB_CLIENT_SECRET:      !Sub "{{resolve:ssm:/velocis/${Environment}/github-client-secret}}"
         GITHUB_WEBHOOK_SECRET:     !Sub "{{resolve:ssm:/velocis/${Environment}/webhook-secret}}"
         # 64 hex-char AES-256 key used to encrypt/decrypt GitHub OAuth tokens
         TOKEN_ENCRYPTION_KEY:      !Sub "{{resolve:ssm:/velocis/${Environment}/token-encryption-key}}"
-        # GitHub App credentials (optional — only needed if using GitHub App auth)
-        GITHUB_APP_ID:             !Sub "{{resolve:ssm:/velocis/${Environment}/github-app-id:false}}"
-        GITHUB_APP_PRIVATE_KEY:    !Sub "{{resolve:ssm:/velocis/${Environment}/github-app-private-key:false}}"
-        # ── URLs / CORS ───────────────────────────────────────────────────────
+        # GitHub App credentials (disabled - using OAuth App token instead)
+        GITHUB_APP_ID:             ""
+        GITHUB_APP_PRIVATE_KEY:    ""
+        #                  URLs / CORS                                                                                                                                                                                                                                                                                                                                                                                                                                                         
         FRONTEND_URL:              !Ref FrontendOrigin
         ALLOWED_ORIGINS:           !Ref FrontendOrigin
         GITHUB_OAUTH_REDIRECT_URI: !Ref GithubOAuthRedirectUri
         API_BASE_URL:              !Sub "https://api.velocis.dev/v1"
-        # ── Bedrock ───────────────────────────────────────────────────────────
+        #                  Bedrock                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
         BEDROCK_REGION:             us-east-1
         BEDROCK_CLAUDE_MODEL_ID:    anthropic.claude-3-5-sonnet-20241022-v2:0
 
@@ -113,9 +67,9 @@ Globals:
       AllowOrigin:  !Sub "'${FrontendOrigin}'"
       AllowCredentials: true
 
-# ─────────────────────────────────────────────────────────────────────────────
+#                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
 # PARAMETERS
-# ─────────────────────────────────────────────────────────────────────────────
+#                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
 Parameters:
   Environment:
     Type:    String
@@ -132,11 +86,11 @@ Parameters:
   GithubOAuthRedirectUri:
     Type:    String
     Default: "https://app.velocis.dev/auth/callback"
-    Description: "GitHub OAuth redirect URI — must match the GitHub App settings."
+    Description: "GitHub OAuth redirect URI          must match the GitHub App settings."
 
-# ─────────────────────────────────────────────────────────────────────────────
+#                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
 # RESOURCES
-# ─────────────────────────────────────────────────────────────────────────────
+#                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
 Resources:
 
   VelocisApi:
@@ -147,15 +101,15 @@ Resources:
       Auth:
         DefaultAuthorizer: NONE  # JWT verified per-handler via extractBearerToken
 
-  # ──────────────────────────────────────────────────────────────────────────
-  # § 1 — AUTHENTICATION
-  # ──────────────────────────────────────────────────────────────────────────
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
+  #      1          AUTHENTICATION
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
 
   AuthInitiateFunction:
     Type: AWS::Serverless::Function
     Properties:
       Handler:     src/handlers/api/authGithub.handler
-      Description: GET /auth/github — Redirect to GitHub OAuth (session-cookie flow)
+      Description: GET /auth/github          Redirect to GitHub OAuth (session-cookie flow)
       Events:
         Api:
           Type: Api
@@ -168,7 +122,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler:     src/handlers/api/authGithubCallback.handler
-      Description: GET /auth/github/callback — Exchange OAuth code, set session cookie
+      Description: GET /auth/github/callback          Exchange OAuth code, set session cookie
       Events:
         Api:
           Type: Api
@@ -190,9 +144,9 @@ Resources:
             Path:   /auth/logout
             Method: POST
 
-  # ──────────────────────────────────────────────────────────────────────────
-  # § 2 — USER
-  # ──────────────────────────────────────────────────────────────────────────
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
+  #      2          USER
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
 
   GetMeFunction:
     Type: AWS::Serverless::Function
@@ -207,9 +161,9 @@ Resources:
             Path:   /me
             Method: GET
 
-  # ──────────────────────────────────────────────────────────────────────────
-  # § 3 — GITHUB REPOSITORIES
-  # ──────────────────────────────────────────────────────────────────────────
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
+  #      3          GITHUB REPOSITORIES
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
 
   GetGithubReposFunction:
     Type: AWS::Serverless::Function
@@ -224,9 +178,9 @@ Resources:
             Path:   /github/repos
             Method: GET
 
-  # ──────────────────────────────────────────────────────────────────────────
-  # § 4 — ONBOARDING / INSTALLATION
-  # ──────────────────────────────────────────────────────────────────────────
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
+  #      4          ONBOARDING / INSTALLATION
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
 
   InstallRepoFunction:
     Type: AWS::Serverless::Function
@@ -255,9 +209,9 @@ Resources:
             Path:   /repos/{repoId}/install/status
             Method: GET
 
-  # ──────────────────────────────────────────────────────────────────────────
-  # § 5 — DASHBOARD
-  # ──────────────────────────────────────────────────────────────────────────
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
+  #      5          DASHBOARD
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
 
   GetDashboardFunction:
     Type: AWS::Serverless::Function
@@ -272,9 +226,9 @@ Resources:
             Path:   /dashboard
             Method: GET
 
-  # ──────────────────────────────────────────────────────────────────────────
-  # § 6 — REPOSITORY OVERVIEW
-  # ──────────────────────────────────────────────────────────────────────────
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
+  #      6          REPOSITORY OVERVIEW
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
 
   GetRepoOverviewFunction:
     Type: AWS::Serverless::Function
@@ -289,9 +243,9 @@ Resources:
             Path:   /repos/{repoId}
             Method: GET
 
-  # ──────────────────────────────────────────────────────────────────────────
-  # § 7 — SENTINEL AGENT
-  # ──────────────────────────────────────────────────────────────────────────
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
+  #      7          SENTINEL AGENT
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
 
   SentinelListPrsFunction:
     Type: AWS::Serverless::Function
@@ -345,9 +299,9 @@ Resources:
             Path:   /repos/{repoId}/sentinel/activity
             Method: GET
 
-  # ──────────────────────────────────────────────────────────────────────────
-  # § 8 — FORTRESS AGENT / PIPELINE
-  # ──────────────────────────────────────────────────────────────────────────
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
+  #      8          FORTRESS AGENT / PIPELINE
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
 
   GetPipelineFunction:
     Type: AWS::Serverless::Function
@@ -401,9 +355,9 @@ Resources:
             Path:   /repos/{repoId}/pipeline/runs/{runId}
             Method: GET
 
-  # ──────────────────────────────────────────────────────────────────────────
-  # § 9 — CORTEX AGENT (SERVICE MAP)
-  # ──────────────────────────────────────────────────────────────────────────
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
+  #      9          CORTEX AGENT (SERVICE MAP)
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
 
   CortexListServicesFunction:
     Type: AWS::Serverless::Function
@@ -459,9 +413,9 @@ Resources:
             Path:   /repos/{repoId}/cortex
             Method: GET
 
-  # ──────────────────────────────────────────────────────────────────────────
-  # § 10 — WORKSPACE (Monaco Editor + Sentinel Chat)
-  # ──────────────────────────────────────────────────────────────────────────
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
+  #      10          WORKSPACE (Monaco Editor + Sentinel Chat)
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
 
   WorkspaceListFilesFunction:
     Type: AWS::Serverless::Function
@@ -572,9 +526,9 @@ Resources:
             Path:   /repos/{repoId}/workspace/chat/history
             Method: GET
 
-  # ──────────────────────────────────────────────────────────────────────────
-  # § 11 — INFRASTRUCTURE / IaC PREDICTOR
-  # ──────────────────────────────────────────────────────────────────────────
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
+  #      11          INFRASTRUCTURE / IaC PREDICTOR
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
 
   GetInfrastructureFunction:
     Type: AWS::Serverless::Function
@@ -630,9 +584,9 @@ Resources:
             Path:   /repos/{repoId}/infrastructure/forecast
             Method: GET
 
-  # ──────────────────────────────────────────────────────────────────────────
-  # § 12 — ACTIVITY FEED
-  # ──────────────────────────────────────────────────────────────────────────
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
+  #      12          ACTIVITY FEED
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
 
   GetActivityFunction:
     Type: AWS::Serverless::Function
@@ -647,9 +601,9 @@ Resources:
             Path:   /activity
             Method: GET
 
-  # ──────────────────────────────────────────────────────────────────────────
-  # § 13 — SYSTEM HEALTH
-  # ──────────────────────────────────────────────────────────────────────────
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
+  #      13          SYSTEM HEALTH
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
 
   GetSystemHealthFunction:
     Type: AWS::Serverless::Function
@@ -664,15 +618,15 @@ Resources:
             Path:   /system/health
             Method: GET
 
-  # ──────────────────────────────────────────────────────────────────────────
-  # § 14 — SENTINEL MENTOR CHAT
-  # ──────────────────────────────────────────────────────────────────────────
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
+  #      14          SENTINEL MENTOR CHAT
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
 
   PostChatMessageFunction:
     Type: AWS::Serverless::Function
     Properties:
       Handler:     src/handlers/api/postChatMessage.handler
-      Description: POST /chat — Multilingual mentor chat via Bedrock
+      Description: POST /chat          Multilingual mentor chat via Bedrock
       Timeout:     60
       MemorySize:  512
       Events:
@@ -683,15 +637,15 @@ Resources:
             Path:   /chat
             Method: POST
 
-  # ──────────────────────────────────────────────────────────────────────────
-  # § 15 — GITHUB WEBHOOK
-  # ──────────────────────────────────────────────────────────────────────────
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
+  #      15          GITHUB WEBHOOK
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
 
   GithubWebhookFunction:
     Type: AWS::Serverless::Function
     Properties:
       Handler:     src/handlers/webhooks/githubPush.handler
-      Description: POST /webhooks/github — push, pull_request, deployment, ping
+      Description: POST /webhooks/github          push, pull_request, deployment, ping
       Timeout:     29
       MemorySize:  512
       Events:
@@ -702,10 +656,10 @@ Resources:
             Path:   /webhooks/github
             Method: POST
 
-  # ──────────────────────────────────────────────────────────────────────────
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
   # DYNAMODB TABLES
-  # One table per concern — single-table design is optional future work.
-  # ──────────────────────────────────────────────────────────────────────────
+  # One table per concern          single-table design is optional future work.
+  #                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
 
   UsersTable:
     Type: AWS::DynamoDB::Table
@@ -860,9 +814,9 @@ Resources:
       KeySchema:
         - { AttributeName: scanId, KeyType: HASH }
 
-# ─────────────────────────────────────────────────────────────────────────────
+#                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
 # OUTPUTS
-# ─────────────────────────────────────────────────────────────────────────────
+#                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
 Outputs:
   ApiBaseUrl:
     Description: Base URL for the Velocis REST API
