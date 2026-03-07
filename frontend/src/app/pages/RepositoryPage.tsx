@@ -10,6 +10,7 @@ import { useNavigate, useParams } from 'react-router';
 import { useTheme } from '../../lib/theme';
 import type { RepoDetail, ActivityEvent } from '../../lib/api';
 import { getToken } from '../../lib/api';
+import { useTutorial, REPO_TUTORIAL_KEY, REPO_STEPS } from '../../lib/tutorial';
 import lightLogoImg from '../../../LightLogo.png';
 import darkLogoImg from '../../../DarkLogo.png';
 
@@ -164,9 +165,11 @@ const IconInfrastructure = ({ className, style }: { className?: string; style?: 
 );
 
 const WorkspaceCardSwap = ({ data, isDarkMode, accentColor }: { data: any[], isDarkMode: boolean, accentColor: string }) => {
-  const displayData = data.length > 0
-    ? data.slice(0, 4).map(p => ({ label: `PR #${p.pr_number}`, risk: p.risk_score }))
-    : prData.slice(0, 4);
+  const realCards = data.slice(0, 4).map(p => ({ label: `PR #${p.pr_number}`, risk: p.risk_score }));
+  // CardSwap needs ≥2 cards to animate — pad with mock data if real PRs are insufficient
+  const displayData = realCards.length >= 2
+    ? realCards
+    : [...realCards, ...prData.slice(realCards.length, 4)];
 
   return (
     <div className="w-full h-full flex items-center justify-center relative overflow-visible">
@@ -369,6 +372,16 @@ export function RepositoryPage() {
   const [error, setError] = useState<string | null>(null);
 
   const { isDarkMode, setIsDarkMode } = useTheme();
+  const { start } = useTutorial();
+
+  // Auto-launch repo tutorial on first visit
+  useEffect(() => {
+    const completed = localStorage.getItem(REPO_TUTORIAL_KEY);
+    if (!completed) {
+      const timer = setTimeout(() => start(REPO_STEPS, REPO_TUTORIAL_KEY), 900);
+      return () => clearTimeout(timer);
+    }
+  }, [start]);
   const themeClass = isDarkMode ? 'dark' : '';
 
   // Fetch repo details and activity from the backend
@@ -585,7 +598,7 @@ export function RepositoryPage() {
           {/* Left */}
           <div className="flex items-center gap-4">
             <div className="flex items-center">
-              <img src={isDarkMode ? darkLogoImg : lightLogoImg} alt="Velocis" className="h-8 w-auto object-contain" />
+              <img src={isDarkMode ? darkLogoImg : lightLogoImg} alt="Velocis" className="h-[38.4px] w-auto object-contain" />
             </div>
             <div className="flex items-center gap-2 text-sm ml-2">
               <span
@@ -657,7 +670,7 @@ export function RepositoryPage() {
               <div className="flex flex-col gap-6 min-w-0">
 
                 {/* KPI STRIP */}
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div id="repo-kpi-strip" className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                   {[
                     { val: repo.metrics.risk_score, lbl: 'PR RISK SCORE', txt: 'text-amber-600 dark:text-amber-400', icn: TrendingUp },
                     { val: `${repo.metrics.test_stability_pct}%`, lbl: 'TEST STABILITY', txt: 'text-emerald-600 dark:text-emerald-400', icn: TestTube2 },
@@ -678,7 +691,7 @@ export function RepositoryPage() {
                 </div>
 
                 {/* AGENT COMMAND CENTER */}
-                <div>
+                <div id="repo-agent-command-center">
                   <h2 className="text-xs font-semibold tracking-widest text-gray-500 dark:text-zinc-500 uppercase mb-4">
                     Agent Command Center
                   </h2>
@@ -686,6 +699,7 @@ export function RepositoryPage() {
                     {triAgentCards.map((card, idx) => (
                       <div
                         key={idx}
+                        id={['repo-cortex-card','repo-workspace-card','repo-pipeline-card','repo-infra-card'][idx]}
                         onClick={card.action}
                         className={`group cursor-pointer ${cardCls} rounded-2xl overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-lg grid grid-cols-1 sm:grid-cols-2`}
                       >
@@ -715,7 +729,7 @@ export function RepositoryPage() {
               {/* â”€â”€ END LEFT COLUMN â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
 
               {/* â”€â”€ RIGHT SIDEBAR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
-              <div className="flex flex-col gap-5 xl:sticky xl:top-[72px] self-start">
+              <div id="repo-activity-sidebar" className="flex flex-col gap-5 xl:sticky xl:top-[72px] self-start">
 
                 {/* TOOL CARDS, REPOSITORY ACTIVITY, RISK OVERVIEW */}
                 <div className="flex flex-col gap-5">
@@ -872,6 +886,7 @@ export function RepositoryPage() {
                   )}
 
                   <div
+                    id="repo-automation-report"
                     onClick={() => navigate(`/repo/${id}/automation-report`)}
                     className={`${cardCls} rounded-2xl p-6 cursor-pointer hover:-translate-y-1 hover:shadow-lg transition-all duration-300 group`}
                   >
