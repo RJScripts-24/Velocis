@@ -44,6 +44,9 @@ jobs:
         working-directory: backend
         run: aws lambda update-function-code --function-name velocisBackend --zip-file fileb://backend.zip
 
+      - name: Wait for Lambda code update to complete
+        run: aws lambda wait function-updated --function-name velocisBackend
+
       - name: Configure Lambda URL CORS
         run: |
           aws lambda update-function-url-config \
