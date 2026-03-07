@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { LogOut, GraduationCap } from 'lucide-react';
 import { useAuth } from '../../lib/auth';
+import { getMe } from '../../lib/api';
 
 interface AppNavbarProfileProps {
   /** Override the display name (e.g. from API response). Falls back to auth user name. */
@@ -17,10 +18,29 @@ interface AppNavbarProfileProps {
  * Shared across all authenticated app pages.
  */
 export function AppNavbarProfile({ userName, onTutorial, id }: AppNavbarProfileProps) {
-  const { user, logout } = useAuth();
+  const { user: authUser, logout } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [fetchedUser, setFetchedUser] = useState<{ login?: string; name?: string } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Read cached user name from localStorage (set by DashboardPage on load)
+  // and fall back to getMe() if not present
+  useEffect(() => {
+    const cached = localStorage.getItem('velocis-user-name');
+    if (cached) {
+      setFetchedUser({ name: cached });
+    } else {
+      getMe()
+        .then(u => {
+          setFetchedUser(u);
+          if (u.name) localStorage.setItem('velocis-user-name', u.name);
+        })
+        .catch(() => {/* ignore */});
+    }
+  }, []);
+
+  const user = fetchedUser ?? authUser;
 
   // Prefer GitHub login (username), fall back to display name, then prop override
   const githubLogin = user?.login ?? user?.name ?? 'User';

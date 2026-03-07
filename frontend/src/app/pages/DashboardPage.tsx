@@ -6,7 +6,8 @@ import { deleteRepo } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { useTheme } from '../../lib/theme';
 import { useTutorial, TUTORIAL_KEY, DASHBOARD_STEPS } from '../../lib/tutorial';
-import LoadingAnimation from '../components/LoadingAnimation';import lightLogoImg from '../../../LightLogo.png';
+import LoadingAnimation from '../components/LoadingAnimation';
+import lightLogoImg from '../../../LightLogo.png';
 import darkLogoImg from '../../../DarkLogo.png';
 // Default initial values for data while loading or on failure
 const MOCK_ACTIVITY: ActivityEvent[] = [];
@@ -163,6 +164,11 @@ export function DashboardPage() {
         if (!cancelled) {
           setDashboardData(data);
           setActivityData(data.activity_feed || []);
+
+          // Cache user name so other pages can read it without an extra API call
+          if (data.user?.name) {
+            localStorage.setItem('velocis-user-name', data.user.name);
+          }
 
           const healthData = data.system || MOCK_HEALTH;
           setSystemHealth({
@@ -322,9 +328,6 @@ export function DashboardPage() {
                       onClick={() => {
                         setIsProfileOpen(false);
                         localStorage.removeItem(TUTORIAL_KEY);
-                        // Defer until dropdown has fully unmounted and the
-                        // click event has cleared, so the backdrop doesn't
-                        // accidentally receive the same click.
                         setTimeout(() => start(DASHBOARD_STEPS, TUTORIAL_KEY), 80);
                       }}
                       className="w-full text-left px-4 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800/60 flex items-center gap-2 transition-colors"
