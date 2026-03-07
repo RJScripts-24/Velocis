@@ -188,10 +188,12 @@ export const handler = async (
             ...(isProduction ? ["Secure"] : []),
         ].join("; ");
 
+        // SameSite=None;Secure is required for cross-site fetch requests
+        // (frontend on Amplify domain → API on Lambda URL domain)
         const sessionCookie = [
             `velocis_session=${sessionToken}`,
             "HttpOnly",
-            "SameSite=Lax",
+            isProduction ? "SameSite=None" : "SameSite=Lax",
             `Max-Age=${SESSION_COOKIE_MAX_AGE_SECONDS}`,
             "Path=/",
             ...(isProduction ? ["Secure"] : []),

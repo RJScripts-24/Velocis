@@ -225,10 +225,11 @@ function parseCookieValue(cookieHeader: string | undefined | null, name: string)
 /** Build Set-Cookie headers that immediately expire both session cookies */
 function clearCookieHeaders(): string[] {
   const isProduction = (process.env.NODE_ENV ?? "development") === "production";
-  const base = ["HttpOnly", "SameSite=Lax", "Max-Age=0", "Path=/", ...(isProduction ? ["Secure"] : [])];
+  const sessionBase = ["HttpOnly", isProduction ? "SameSite=None" : "SameSite=Lax", "Max-Age=0", "Path=/", ...(isProduction ? ["Secure"] : [])];
+  const stateBase  = ["HttpOnly", "SameSite=Lax", "Max-Age=0", "Path=/", ...(isProduction ? ["Secure"] : [])];
   return [
-    `velocis_session=; ${base.join("; ")}`,
-    `github_oauth_state=; ${base.join("; ")}`,
+    `velocis_session=; ${sessionBase.join("; ")}`,
+    `github_oauth_state=; ${stateBase.join("; ")}`,
   ];
 }
 
