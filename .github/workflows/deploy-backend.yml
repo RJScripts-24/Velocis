@@ -52,28 +52,39 @@ jobs:
             --cors '{"AllowOrigins":["${{ secrets.FRONTEND_URL }}"],"AllowMethods":["*"],"AllowHeaders":["Content-Type","Authorization","Cookie","X-Requested-With"],"AllowCredentials":true,"MaxAge":86400}'
 
       - name: Configure Lambda handler, timeout, and environment
+        env:
+          GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          TOKEN_ENCRYPTION_KEY: ${{ secrets.TOKEN_ENCRYPTION_KEY }}
+          JWT_SECRET: ${{ secrets.JWT }}
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK }}
         run: |
+          # Write env JSON to a file so multi-line values (RSA key) don't break CLI arg parsing
+          python3 -c "
+          import json, os
+          env = {
+            'NODE_ENV': 'production',
+            'IS_LOCAL': 'false',
+            'AWS_ACCESS_KEY_ID': '${{ secrets.AWS_ACCESS_KEY_ID }}',
+            'AWS_SECRET_ACCESS_KEY': '${{ secrets.AWS_SECRET_ACCESS_KEY }}',
+            'AWS_REGION': '${{ secrets.AWS_REGION }}',
+            'DYNAMO_REGION': 'ap-south-1',
+            'BEDROCK_REGION': 'us-east-1',
+            'FRONTEND_URL': '${{ secrets.FRONTEND_URL }}',
+            'ALLOWED_ORIGINS': '${{ secrets.FRONTEND_URL }}',
+            'GITHUB_CLIENT_ID': '${{ secrets.GH_CLIENT_ID }}',
+            'GITHUB_CLIENT_SECRET': '${{ secrets.GH_CLIENT_SECRET }}',
+            'GITHUB_WEBHOOK_SECRET': '${{ secrets.GH_WEBHOOK_SECRET }}',
+            'GITHUB_APP_PRIVATE_KEY': os.environ['GH_APP_PRIVATE_KEY'],
+            'GITHUB_OAUTH_REDIRECT_URI': '${{ secrets.GH_OAUTH_REDIRECT_URI }}',
+            'GITHUB_WEBHOOK_URL': '${{ secrets.GH_WEBHOOK_URL }}',
+            'TOKEN_ENCRYPTION_KEY': os.environ['TOKEN_ENCRYPTION_KEY'],
+            'JWT': os.environ['JWT_SECRET'],
+            'WEBHOOK': os.environ['WEBHOOK_SECRET'],
+          }
+          print(json.dumps({'Variables': env}))
+          " > /tmp/lambda-env.json
           aws lambda update-function-configuration \
             --function-name velocisBackend \
             --handler index.handler \
             --timeout 30 \
-            --environment "Variables={
-              NODE_ENV=production,
-              IS_LOCAL=false,
-              AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }},
-              AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }},
-              AWS_REGION=${{ secrets.AWS_REGION }},
-              DYNAMO_REGION=ap-south-1,
-              BEDROCK_REGION=us-east-1,
-              FRONTEND_URL=${{ secrets.FRONTEND_URL }},
-              ALLOWED_ORIGINS=${{ secrets.FRONTEND_URL }},
-              GITHUB_CLIENT_ID=${{ secrets.GH_CLIENT_ID }},
-              GITHUB_CLIENT_SECRET=${{ secrets.GH_CLIENT_SECRET }},
-              GITHUB_WEBHOOK_SECRET=${{ secrets.GH_WEBHOOK_SECRET }},
-              GITHUB_APP_PRIVATE_KEY=${{ secrets.GH_APP_PRIVATE_KEY }},
-              GITHUB_OAUTH_REDIRECT_URI=${{ secrets.GH_OAUTH_REDIRECT_URI }},
-              GITHUB_WEBHOOK_URL=${{ secrets.GH_WEBHOOK_URL }},
-              TOKEN_ENCRYPTION_KEY=${{ secrets.TOKEN_ENCRYPTION_KEY }},
-              JWT=${{ secrets.JWT }},
-              WEBHOOK=${{ secrets.WEBHOOK }}
-            }"
+            --environment file:///tmp/lambda-env.json
