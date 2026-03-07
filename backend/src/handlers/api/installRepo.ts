@@ -122,7 +122,7 @@ async function resolveUser(
         expiresAt: string;
       }>({
         tableName: DYNAMO_TABLES.USERS,
-        key: { userId: `session_${sessionTokenHash}` },
+        key: { githubId: `session_${sessionTokenHash}` },
       });
 
       if (sessionRecord && new Date(sessionRecord.expiresAt) > new Date()) {
@@ -149,7 +149,7 @@ async function resolveUser(
     const { sub: userId } = jwt.verify(token, JWT_SECRET) as { sub: string };
     const userRecord = await dynamoClient.get<any>({
       tableName: DYNAMO_TABLES.USERS,
-      key: { userId },
+      key: { githubId: userId },
     });
     if (!userRecord) return null;
     return { userId, githubToken: userRecord.accessToken ?? userRecord.github_token ?? "" };

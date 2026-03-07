@@ -255,7 +255,7 @@ export const logout = async (
       // Delete the session record so it can't be reused
       await dynamoClient.remove({
         tableName: DYNAMO_TABLES.USERS,
-        key: { userId: sessionKey },
+        key: { githubId: sessionKey },
       });
 
       logger.info({ msg: "User logged out via session cookie" });

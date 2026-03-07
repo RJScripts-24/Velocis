@@ -70,7 +70,7 @@ async function requireAuth(
   const sessionHash = createHash("sha256").update(sessionToken).digest("hex");
   try {
     const res = await dynamo.send(
-      new GetCommand({ TableName: USERS_TABLE, Key: { userId: `session_${sessionHash}` } })
+      new GetCommand({ TableName: USERS_TABLE, Key: { githubId: `session_${sessionHash}` } })
     );
     const rec = res.Item;
     if (!rec) return null;
@@ -328,7 +328,7 @@ async function executeFortressPipeline(args: {
     } else {
       // installRepo records don't store repoOwner — look up the user's GitHub username
       const userRes = await dynamo.send(
-        new GetCommand({ TableName: USERS_TABLE, Key: { userId } })
+        new GetCommand({ TableName: USERS_TABLE, Key: { githubId: userId } })
       );
       repoOwner = userRes.Item?.username ?? userRes.Item?.githubLogin ?? userRes.Item?.displayName ?? "";
     }
@@ -655,7 +655,7 @@ export const postQAPlan = async (
     repoOwner = repoRecord.repoOwner;
   } else {
     const userRes = await dynamo.send(
-      new GetCommand({ TableName: USERS_TABLE, Key: { userId } })
+      new GetCommand({ TableName: USERS_TABLE, Key: { githubId: userId } })
     );
     repoOwner = userRes.Item?.username ?? userRes.Item?.githubLogin ?? userRes.Item?.displayName ?? "";
   }
@@ -863,7 +863,7 @@ export const postApiDocs = async (
     } else if (repoRecord.repoOwner) {
       repoOwner = repoRecord.repoOwner;
     } else {
-      const userRes = await dynamo.send(new GetCommand({ TableName: USERS_TABLE, Key: { userId } }));
+      const userRes = await dynamo.send(new GetCommand({ TableName: USERS_TABLE, Key: { githubId: userId } }));
       repoOwner = userRes.Item?.username ?? userRes.Item?.githubLogin ?? userRes.Item?.displayName ?? "";
     }
 

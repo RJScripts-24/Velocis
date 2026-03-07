@@ -56,7 +56,7 @@ async function requireAuth(event: APIGatewayProxyEvent): Promise<string | null> 
         expiresAt: string;
       }>({
         tableName: DYNAMO_TABLES.USERS,
-        key: { userId: `session_${sessionTokenHash}` },
+        key: { githubId: `session_${sessionTokenHash}` },
       });
 
       if (sessionRecord && new Date(sessionRecord.expiresAt) > new Date()) {

@@ -51,7 +51,7 @@ export const handler = async (
             expiresAt: string;
         }>({
             tableName: DYNAMO_TABLES.USERS,
-            key: { userId: `session_${sessionTokenHash}` },
+            key: { githubId: `session_${sessionTokenHash}` },
         });
 
         if (!sessionRecord) {

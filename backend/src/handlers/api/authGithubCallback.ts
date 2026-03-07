@@ -111,7 +111,7 @@ export const handler = async (
         // Fetch existing user to preserve createdAt and plan
         const existingUser = await dynamoClient.get<User>({
             tableName: DYNAMO_TABLES.USERS,
-            key: { userId: tokenResult.userId },
+            key: { githubId: tokenResult.userId },
         });
 
         const userRecord: Record<string, unknown> = {
@@ -151,14 +151,14 @@ export const handler = async (
             dynamoClient.upsert({
                 tableName: DYNAMO_TABLES.USERS,
                 item: userRecord,
-                key: "userId",
+                key: "githubId",
             }),
-            // Store session hash in DynamoDB (keyed by userId, namespaced with prefix)
+            // Store session hash in DynamoDB (keyed by githubId, namespaced with prefix)
             dynamoClient.upsert({
                 tableName: DYNAMO_TABLES.USERS,
                 item: {
-                    userId: `session_${sessionTokenHash}`,  // Namespaced session record
-                    githubId: tokenResult.userId,
+                    githubId: `session_${sessionTokenHash}`,  // Namespaced session record
+                    userId: tokenResult.userId,
                     userLogin: tokenResult.userLogin,
                     type: "session",
                     expiresAt: sessionExpiresAt,
@@ -166,7 +166,7 @@ export const handler = async (
                     createdAt: now,
                     updatedAt: now,
                 },
-                key: "userId",
+                key: "githubId",
             }),
         ]);
 

@@ -46,7 +46,7 @@ async function resolveUserId(event: APIGatewayProxyEvent): Promise<string | null
       const hash = crypto.createHash("sha256").update(sessionToken).digest("hex");
       const session = await dynamoClient.get<{ userId: string; githubId: string; expiresAt: string }>({
         tableName: DYNAMO_TABLES.USERS,
-        key: { userId: `session_${hash}` },
+        key: { githubId: `session_${hash}` },
       });
       if (session && new Date(session.expiresAt) > new Date()) {
         return session.githubId;

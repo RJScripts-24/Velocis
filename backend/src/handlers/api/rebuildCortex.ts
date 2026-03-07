@@ -55,7 +55,7 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
       expiresAt: string;
     }>({
       tableName: DYNAMO_TABLES.USERS,
-      key: { userId: `session_${sessionTokenHash}` },
+      key: { githubId: `session_${sessionTokenHash}` },
     });
 
     logger.info({ found: !!sessionRecord, userId: sessionRecord?.userId }, 'Session record lookup result');
@@ -111,7 +111,7 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
       // Fallback: resolve owner from the USERS_TABLE using the githubId
       logger.info({ repoId, githubId: sessionRecord.githubId }, 'Resolving owner from USERS_TABLE');
       try {
-        const userRes = await docClient.send(new GetCommand({ TableName: DYNAMO_TABLES.USERS, Key: { userId: sessionRecord.githubId } }));
+        const userRes = await docClient.send(new GetCommand({ TableName: DYNAMO_TABLES.USERS, Key: { githubId: sessionRecord.githubId } }));
         owner = userRes.Item?.username ?? userRes.Item?.githubLogin ?? userRes.Item?.displayName ?? "";
 
         if (!owner) {

@@ -41,7 +41,7 @@ export const handler = async (
       const sessionTokenHash = crypto.createHash("sha256").update(sessionToken).digest("hex");
       const sessionRecord = await dynamoClient.get<{ githubId: string; expiresAt: string }>({
         tableName: DYNAMO_TABLES.USERS,
-        key: { userId: `session_${sessionTokenHash}` },
+        key: { githubId: `session_${sessionTokenHash}` },
       });
       if (sessionRecord && new Date(sessionRecord.expiresAt) > new Date()) {
         userId = sessionRecord.githubId;
@@ -68,7 +68,7 @@ export const handler = async (
 
   const u = await dynamoClient.get<any>({
     tableName: DYNAMO_TABLES.USERS,
-    key: { userId: userId! },
+    key: { githubId: userId! },
   });
 
   if (!u) return errors.notFound("User not found.");
