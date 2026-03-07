@@ -2,7 +2,9 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { getRepo } from '../../lib/api';
 import { useTutorial, AUTOMATION_TUTORIAL_KEY, AUTOMATION_STEPS } from '../../lib/tutorial';
-import { ChevronLeft, Shield, TestTube2, Cloud, AlertCircle, Bot, ChevronDown, ChevronUp, FileCode, Zap, RotateCcw, Check, X } from 'lucide-react';
+import { useTheme } from '../../lib/theme';
+import { ChevronLeft, Shield, TestTube2, Cloud, AlertCircle, Bot, ChevronDown, ChevronUp, FileCode, Zap, RotateCcw, Check, X, Sun, Moon } from 'lucide-react';
+import { AppNavbarProfile } from '../components/AppNavbarProfile';
 import lightLogoImg from '../../../LightLogo.png';
 import darkLogoImg from '../../../DarkLogo.png';
 
@@ -1120,7 +1122,8 @@ export function AutomationReportPage() {
 
 // Shared navbar component
 function NavBar({ id, navigate, repoName }: { id: string; navigate: (path: string) => void; repoName?: string }) {
-    const isDark = typeof window !== 'undefined' && (document.documentElement.classList.contains('dark') || window.matchMedia('(prefers-color-scheme: dark)').matches);
+    const { isDarkMode, setIsDarkMode } = useTheme();
+    const { start } = useTutorial();
     return (
         <div className="flex-none z-50 border-b border-zinc-200 dark:border-slate-800/80 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-xl sticky top-0 px-6 h-[60px] flex items-center justify-between">
             <div className="flex items-center gap-4">
@@ -1138,7 +1141,20 @@ function NavBar({ id, navigate, repoName }: { id: string; navigate: (path: strin
                     <span className="font-semibold text-zinc-900 dark:text-slate-100">Automation Report</span>
                 </div>
             </div>
-            <img src={isDark ? darkLogoImg : lightLogoImg} alt="Velocis" className="h-7 w-auto object-contain" />
+            <div className="flex items-center gap-2">
+                <button
+                    onClick={() => setIsDarkMode(!isDarkMode)}
+                    className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-500 dark:text-slate-400"
+                >
+                    {isDarkMode ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
+                </button>
+                <AppNavbarProfile
+                    onTutorial={() => {
+                        localStorage.removeItem(AUTOMATION_TUTORIAL_KEY);
+                        setTimeout(() => start(AUTOMATION_STEPS, AUTOMATION_TUTORIAL_KEY), 80);
+                    }}
+                />
+            </div>
         </div>
     );
 }

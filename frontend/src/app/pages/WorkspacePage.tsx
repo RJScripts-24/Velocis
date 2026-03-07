@@ -11,6 +11,7 @@ import { translateText } from '../../lib/translate';
 import { useTutorial, WORKSPACE_TUTORIAL_KEY, WORKSPACE_STEPS } from '../../lib/tutorial';
 import lightLogoImg from '../../../LightLogo.png';
 import darkLogoImg from '../../../DarkLogo.png';
+import { AppNavbarProfile } from '../components/AppNavbarProfile';
 
 const INITIAL_FILE = '/src/auth.controller.ts';
 
@@ -862,10 +863,12 @@ export function WorkspacePage() {
                 {isDarkMode ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
               </button>
               <div className="relative">
-                <div className="absolute inset-0 bg-indigo-500/20 blur-md rounded-full" />
-                <div className="w-8 h-8 rounded-full flex items-center justify-center bg-white dark:bg-slate-800 border border-indigo-100 dark:border-indigo-500/30 relative shadow-sm cursor-pointer hover:scale-105 transition-transform">
-                  <span className="text-sm font-bold text-indigo-600 dark:text-indigo-400">R</span>
-                </div>
+                <AppNavbarProfile
+                  onTutorial={() => {
+                    localStorage.removeItem(WORKSPACE_TUTORIAL_KEY);
+                    setTimeout(() => start(WORKSPACE_STEPS, WORKSPACE_TUTORIAL_KEY), 80);
+                  }}
+                />
               </div>
             </div>
           </div>

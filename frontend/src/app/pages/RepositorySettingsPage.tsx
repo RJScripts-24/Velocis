@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router';
-import { Bot, Shield, TestTube2, Cloud, ChevronLeft, Check, AlertTriangle, X } from 'lucide-react';
+import { Bot, Shield, TestTube2, Cloud, ChevronLeft, Check, AlertTriangle, X, Sun, Moon } from 'lucide-react';
 import { useTutorial, SETTINGS_TUTORIAL_KEY, SETTINGS_STEPS } from '../../lib/tutorial';
+import { useTheme } from '../../lib/theme';
+import { AppNavbarProfile } from '../components/AppNavbarProfile';
 import lightLogoImg from '../../../LightLogo.png';
 import darkLogoImg from '../../../DarkLogo.png';
 
@@ -31,6 +33,7 @@ export function RepositorySettingsPage() {
     const { id } = useParams();
     const navigate = useNavigate();
     const { start } = useTutorial();
+    const { isDarkMode, setIsDarkMode } = useTheme();
 
     const [isAutomated, setIsAutomated] = useState(false);
     const [showConfirm, setShowConfirm] = useState(false);
@@ -114,10 +117,11 @@ export function RepositorySettingsPage() {
     };
 
     return (
-        <div className="w-full min-h-screen bg-[#f6f7fb] dark:bg-[#0A0A0E] text-zinc-900 dark:text-slate-100 font-['JetBrains_Mono',_monospace]">
+        <div className={`${isDarkMode ? 'dark' : ''} w-full min-h-screen bg-[#f6f7fb] dark:bg-[#0A0A0E] text-zinc-900 dark:text-slate-100 font-['JetBrains_Mono',_monospace]`}>
             {/* NAVBAR */}
             <div className="flex-none z-50 border-b border-zinc-200 dark:border-slate-800/80 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-xl sticky top-0 px-6 h-[60px] flex items-center justify-between">
                 <div className="flex items-center gap-4">
+                    <img src={isDarkMode ? darkLogoImg : lightLogoImg} alt="Velocis" className="h-[38.4px] w-auto object-contain" />
                     <button
                         onClick={() => navigate(`/repo/${id}`)}
                         className="w-8 h-8 rounded-lg flex items-center justify-center bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition"
@@ -135,7 +139,20 @@ export function RepositorySettingsPage() {
                         <span className="font-semibold text-zinc-900 dark:text-slate-100">Settings</span>
                     </div>
                 </div>
-                <img src={typeof window !== 'undefined' && (document.documentElement.classList.contains('dark') || window.matchMedia('(prefers-color-scheme: dark)').matches) ? darkLogoImg : lightLogoImg} alt="Velocis" className="h-7 w-auto object-contain" />
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => setIsDarkMode(!isDarkMode)}
+                        className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-zinc-500 dark:text-slate-400"
+                    >
+                        {isDarkMode ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
+                    </button>
+                    <AppNavbarProfile
+                        onTutorial={() => {
+                            localStorage.removeItem(SETTINGS_TUTORIAL_KEY);
+                            setTimeout(() => start(SETTINGS_STEPS, SETTINGS_TUTORIAL_KEY), 80);
+                        }}
+                    />
+                </div>
             </div>
 
             <div className="max-w-4xl mx-auto px-6 md:px-10 py-10">

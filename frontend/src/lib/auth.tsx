@@ -53,16 +53,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       window.history.replaceState({}, '', clean.toString());
     }
 
-    const storedToken = urlToken ?? getToken();
-    if (!storedToken) {
-      setIsLoading(false);
-      return;
-    }
-
+    // Always call getMe — request uses credentials: 'include' so the
+    // velocis_session cookie is sent even when there is no localStorage token.
     getMe()
       .then((u) => setUser(u))
       .catch(() => {
-        // Invalid / expired token — clear it
+        // Invalid / expired session — clear any stored token
         clearToken();
         setTokenState(null);
       })
@@ -91,7 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         token: token ?? localStorage.getItem(TOKEN_KEY),
         isLoading,
-        isAuthenticated: !!token && !!user,
+        isAuthenticated: !!user,
         login,
         logout,
       }}
