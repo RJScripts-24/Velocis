@@ -873,10 +873,27 @@ export async function fetchRepoTree(
 
     let treeSha = ref;
 
-    // Resolve branch names to the commit's tree SHA so branch switching in
-    // workspace always returns branch-specific files.
-    if (ref !== "HEAD") {
-      try {
+    // Always resolve to an explicit tree SHA so GitHub never serves a cached
+    // symbolic ref.  Passing the literal string "HEAD" to git/trees is
+    // undefined behaviour in the GitHub API — the result can be stale.
+    //   • "HEAD" → repos.getCommit("HEAD") → latest commit's tree SHA
+    //   • branch name → getBranch + getCommit → tree SHA (existing logic)
+    //   • raw SHA / tag → used as-is (fallback)
+    try {
+      if (ref === "HEAD") {
+        const { data: latestCommit } = await octokit.repos.getCommit({
+          owner,
+          repo,
+          ref: "HEAD",
+        });
+        treeSha = latestCommit.commit.tree.sha;
+        logger.info({
+          msg: "repoOps.fetchRepoTree: resolved HEAD to tree SHA",
+          repoFullName,
+          commitSha: latestCommit.sha,
+          treeSha,
+        });
+      } else {
         const { data: branchData } = await octokit.repos.getBranch({
           owner,
           repo,
@@ -888,10 +905,10 @@ export async function fetchRepoTree(
           commit_sha: branchData.commit.sha,
         });
         treeSha = commitData.tree.sha;
-      } catch {
-        // Fallback to the raw ref for SHA/tag callers.
-        treeSha = ref;
       }
+    } catch {
+      // Fallback: pass the raw ref — works for explicit SHAs and tags.
+      treeSha = ref;
     }
 
     const { data } = await octokit.git.getTree({

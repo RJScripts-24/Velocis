@@ -240,6 +240,35 @@ export function DashboardPage() {
             -ms-overflow-style: none;
             scrollbar-width: none;
         }
+        .cta-btn {
+          position: relative;
+          transition: transform 0.2s, box-shadow 0.2s;
+          overflow: visible;
+        }
+        .cta-btn:hover {
+          transform: translateY(-3px);
+          box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+        }
+        .cta-btn:active {
+          transform: translateY(-1px);
+          box-shadow: 0 5px 10px rgba(0, 0, 0, 0.2);
+        }
+        .cta-btn::after {
+          content: '';
+          display: inline-block;
+          height: 100%;
+          width: 100%;
+          border-radius: inherit;
+          position: absolute;
+          top: 0; left: 0;
+          z-index: -1;
+          background-color: var(--cta-primary, #111);
+          transition: transform 0.4s, opacity 0.4s;
+        }
+        .cta-btn:hover::after {
+          transform: scaleX(1.4) scaleY(1.6);
+          opacity: 0;
+        }
       `}</style>
 
       <div className="min-h-screen flex flex-col font-['JetBrains_Mono',_monospace] bg-[#f6f7fb] dark:bg-[#0A0A0E] text-zinc-900 dark:text-slate-100 transition-colors duration-300 relative overflow-x-hidden">
@@ -367,44 +396,33 @@ export function DashboardPage() {
               </div>
               <div className="flex items-center gap-3 mt-1 text-[13px] text-zinc-400 dark:text-slate-500 font-medium">
                 <span>{currentDate}</span>
-                <span className="w-1 h-1 rounded-full bg-zinc-300 dark:bg-slate-600 inline-block" />
-                <span className="flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-[custom-pulse_2s_infinite] inline-block" />
-                  {dashboardData?.summary.agents_running ?? 3} agents running
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />
-                  {dashboardData?.summary.warning ?? 0} warning active
-                </span>
               </div>
 
               {/* Unified Metrics Bar */}
               <div id="tutorial-metrics" className="mt-6 w-full border border-[rgba(16,24,40,0.06)] dark:border-zinc-800 bg-white dark:bg-[#111114] shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_rgba(16,24,40,0.06)] ring-1 ring-inset ring-black/5 dark:ring-white/10 rounded-lg flex divide-x divide-[rgba(16,24,40,0.06)] dark:divide-zinc-800">
-                {[
-                  { label: 'Healthy Repos', value: String(dashboardData?.summary.healthy ?? '—'), fg: 'text-emerald-700 dark:text-emerald-400', dot: 'bg-emerald-500', anim: 'animate-[custom-pulse_2.5s_infinite]' },
-                  { label: 'Warnings', value: String(dashboardData?.summary.warning ?? '—'), fg: 'text-amber-700 dark:text-amber-500', dot: 'bg-amber-500', anim: '' },
-                  { label: 'Critical', value: String(dashboardData?.summary.critical ?? '—'), fg: 'text-rose-700 dark:text-rose-500', dot: 'bg-rose-500', anim: '' },
-                  { label: 'Open Risks', value: String(dashboardData?.summary.open_risks ?? '—'), fg: 'text-zinc-700 dark:text-zinc-400', dot: 'bg-zinc-400 dark:bg-zinc-500', anim: '' },
-                ].map((seg, i) => (
-                  <div key={i} className="flex-1 flex items-center gap-3 px-5 py-4">
-                    <div className={`w-2 h-2 rounded-full shrink-0 ${seg.dot} ${seg.anim}`} />
-                    <div>
-                      <div className={`text-2xl font-bold leading-none tracking-tighter ${seg.fg}`}>{seg.value}</div>
-                      <div className="text-[11px] font-medium text-zinc-400 dark:text-zinc-500 mt-1 leading-none">{seg.label}</div>
-                    </div>
+                <div className="flex-1 flex items-center gap-3 px-5 py-4">
+                  <div className="w-2 h-2 rounded-full shrink-0 bg-indigo-500 animate-[custom-pulse_2.5s_infinite]" />
+                  <div>
+                    <div className="text-2xl font-bold leading-none tracking-tighter text-indigo-700 dark:text-indigo-400">{dashboardData?.repos?.length ?? 0}</div>
+                    <div className="text-[11px] font-medium text-zinc-400 dark:text-zinc-500 mt-1 leading-none">Total Repos</div>
                   </div>
-                ))}
+                </div>
+                <div className="flex items-center px-5 py-4 shrink-0">
+                  <button
+                    onClick={() => navigate('/onboarding')}
+                    className="cta-btn px-5 py-2.5 rounded-[10px] font-bold text-[13px] tracking-wide"
+                    style={{ backgroundColor: 'var(--cta-primary, #111)', color: 'var(--cta-text, #fff)' }}
+                  >
+                    Install More
+                  </button>
+                </div>
               </div>
             </div>
 
             {/* REPOSITORIES HEADER */}
             <div className="flex items-center gap-4">
               <div className="text-xl font-[700] tracking-tight text-zinc-900 dark:text-white font-['JetBrains_Mono',_monospace]">Repositories</div>
-              <div className="flex gap-4 ml-auto font-medium text-[13px] text-zinc-500 dark:text-slate-400">
-                <div className="hidden sm:flex items-center gap-1.5"><div className="w-[7px] h-[7px] rounded-full bg-emerald-500" />Healthy {dashboardData?.summary.healthy ?? '—'}</div>
-                <div className="hidden sm:flex items-center gap-1.5"><div className="w-[7px] h-[7px] rounded-full bg-amber-500" />Warning {dashboardData?.summary.warning ?? '—'}</div>
-                <div className="hidden sm:flex items-center gap-1.5"><div className="w-[7px] h-[7px] rounded-full bg-rose-500" />Critical {dashboardData?.summary.critical ?? '—'}</div>
-              </div>
+
             </div>
             <div className="h-px bg-gradient-to-r from-zinc-200 dark:from-slate-800/80 to-transparent mt-3 mb-6" />
 
@@ -435,12 +453,6 @@ export function DashboardPage() {
                 }
 
                 return filteredRepos.map((repo) => {
-                  const statusColors: Record<string, { bar: string; badge: string; badgeBg: string; badgeBorder: string; dotColor: string; label: string }> = {
-                    critical: { bar: 'border-t-rose-500', badge: 'text-rose-700 dark:text-rose-400', badgeBg: 'bg-rose-50 dark:bg-rose-950/30', badgeBorder: 'border-rose-200 dark:border-rose-800/40', dotColor: 'bg-rose-500', label: 'CRITICAL' },
-                    warning: { bar: 'border-t-amber-500', badge: 'text-amber-700 dark:text-amber-400', badgeBg: 'bg-amber-50 dark:bg-amber-950/30', badgeBorder: 'border-amber-200 dark:border-amber-800/40', dotColor: 'bg-amber-500', label: 'WARNING' },
-                    healthy: { bar: 'border-t-emerald-500', badge: 'text-emerald-700 dark:text-emerald-400', badgeBg: 'bg-emerald-50 dark:bg-emerald-950/30', badgeBorder: 'border-emerald-200 dark:border-emerald-800/40', dotColor: 'bg-emerald-500', label: 'HEALTHY' },
-                  };
-                  const sc = statusColors[repo.status] ?? statusColors.healthy;
                   const agentColors: Record<string, string> = { sentinel: 'text-indigo-600 dark:text-indigo-400', fortress: 'text-sky-600 dark:text-sky-400', cortex: 'text-emerald-600 dark:text-emerald-400' };
                   const severityFg: Record<string, string> = { critical: 'text-rose-600 dark:text-rose-400', warning: 'text-amber-600 dark:text-amber-500', info: 'text-blue-600 dark:text-blue-400', healthy: 'text-emerald-600 dark:text-emerald-400' };
                   const trendColor = repo.commit_trend_direction === 'down' ? 'text-rose-600 dark:text-rose-500' : repo.commit_trend_direction === 'up' ? 'text-emerald-600 dark:text-emerald-500' : 'text-amber-600 dark:text-amber-500';
@@ -461,9 +473,6 @@ export function DashboardPage() {
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${sc.badgeBg} ${sc.badge} border ${sc.badgeBorder}`}>
-                            <div className={`w-1.5 h-1.5 rounded-full ${sc.dotColor}`} />{sc.label}
-                          </div>
                           <RepoCardMenu
                             repoId={repo.id}
                             onDeleted={(deletedId) => {
@@ -582,41 +591,7 @@ export function DashboardPage() {
                 </div>
               </div>
 
-              {/* SYSTEM PANEL */}
-              <div id="tutorial-system" className="bg-white dark:bg-[#111114] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_rgba(16,24,40,0.06)] ring-1 ring-inset ring-black/5 dark:ring-white/[0.06] p-5 shrink-0">
-                <div className="text-[10px] font-bold tracking-widest uppercase text-zinc-400 dark:text-slate-500 mb-4 font-['JetBrains_Mono',_monospace]">System</div>
-                <div className="space-y-3">
-                  {[
-                    { label: 'API latency', val: systemHealth ? `${systemHealth.api_latency_ms}ms` : '—', color: 'text-emerald-600 dark:text-emerald-400', border: 'border-emerald-500' },
-                    { label: 'Queue depth', val: systemHealth ? String(systemHealth.queue_depth) : '—', color: 'text-zinc-900 dark:text-white', border: 'border-zinc-300 dark:border-slate-600' },
-                    { label: 'Agent uptime', val: systemHealth ? `${systemHealth.agent_uptime_pct}%` : '—', color: 'text-emerald-600 dark:text-emerald-400', border: 'border-emerald-500' },
-                    { label: 'Storage', val: systemHealth ? `${systemHealth.storage_used_pct}%` : '—', color: 'text-amber-600 dark:text-amber-500', border: 'border-amber-500' }
-                  ].map((r, i) => (
-                    <div key={i} className={`flex justify-between items-center pb-2 ${i !== 3 ? 'border-b border-zinc-100 dark:border-slate-800/60' : ''}`}>
-                      <div className={`pl-2.5 border-l-2 ${r.border} text-[13px] font-medium text-zinc-500 dark:text-slate-400 transition-colors`}>{r.label}</div>
-                      <div className={`text-[13px] font-bold ${r.color}`}>{r.val}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
 
-              {/* RECENT DEPLOYMENTS PANEL */}
-              <div className="bg-white dark:bg-[#111114] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_rgba(16,24,40,0.06)] ring-1 ring-inset ring-black/5 dark:ring-white/[0.06] p-5 shrink-0">
-                <div className="text-[10px] font-bold tracking-widest uppercase text-zinc-400 dark:text-slate-500 mb-4 font-['JetBrains_Mono',_monospace]">Recent Deployments</div>
-                <div className="space-y-0.5">
-                  {(dashboardData?.recent_deployments ?? []).map((dep, i) => (
-                    <div key={i} className={`flex justify-between items-center py-2.5 ${i !== 0 ? 'border-t border-zinc-100 dark:border-slate-800/60' : ''}`}>
-                      <div className="flex items-center gap-2.5">
-                        <div className={`w-2 h-2 rounded-full ${dep.status === 'failed' ? 'bg-rose-500' : 'bg-emerald-500'}`} />
-                        <span className="text-[13px] font-bold text-zinc-900 dark:text-slate-100">{dep.repo_id}</span>
-                      </div>
-                      <span className="text-[11px] font-medium text-zinc-400 dark:text-slate-500">
-                        {dep.environment} · {new Date(dep.deployed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
 
             </div>
           </div>

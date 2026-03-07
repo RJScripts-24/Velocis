@@ -6,7 +6,7 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import { buildCortexGraph } from "../../functions/cortex/graphBuilder";
 import { syncCortexServices } from "../../functions/cortex/syncCortexServices";
-import { DynamoDBDocumentClient, ScanCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, ScanCommand, DeleteCommand, BatchWriteCommand } from "@aws-sdk/lib-dynamodb";
 import { getDocClient, dynamoClient, DYNAMO_TABLES } from "../../services/database/dynamoClient";
 import { getUserToken, getInstallationToken } from "../../services/github/auth";
 import { logger } from "../../utils/logger";
@@ -17,6 +17,7 @@ import * as crypto from "crypto";
 
 const docClient = getDocClient();
 const REPOSITORIES_TABLE = config.DYNAMO_REPOSITORIES_TABLE;
+const CORTEX_TABLE = process.env.CORTEX_TABLE ?? "velocis-cortex";
 
 function parseCookieValue(cookieHeader: string | undefined, name: string): string | null {
   if (!cookieHeader) return null;
@@ -140,19 +141,57 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
       }
     }
 
-    // 3. Rebuild the graph
-    logger.info(`Building Cortex graph for ${owner}/${name}`);
+    // 3. Pre-wipe stale data so the old map disappears immediately
+    // 3a. Delete the cached graph so getCortexServiceFiles can't return stale nodes
+    try {
+      await docClient.send(new DeleteCommand({
+        TableName: REPOSITORIES_TABLE,
+        Key: { repoId: `${repoId}#CORTEX_GRAPH` },
+      }));
+      logger.info({ repoId }, 'Pre-wipe: old graph cache deleted');
+    } catch (e) {
+      logger.warn({ repoId, e }, 'Pre-wipe: graph cache delete failed — non-fatal');
+    }
+
+    // 3b. Delete all stale SERVICE rows so listServices returns empty during rebuild
+    try {
+      const stale = await docClient.send(new ScanCommand({
+        TableName: CORTEX_TABLE,
+        FilterExpression: 'repoId = :r AND recordType = :t',
+        ExpressionAttributeValues: { ':r': repoId, ':t': 'SERVICE' },
+      }));
+      const items = stale.Items ?? [];
+      if (items.length > 0) {
+        const chunks: any[][] = [];
+        for (let i = 0; i < items.length; i += 25) chunks.push(items.slice(i, i + 25));
+        for (const chunk of chunks) {
+          await docClient.send(new BatchWriteCommand({
+            RequestItems: {
+              [CORTEX_TABLE]: chunk.map(item => ({ DeleteRequest: { Key: { id: item.id } } })),
+            },
+          }));
+        }
+        logger.info({ repoId, count: items.length }, 'Pre-wipe: stale service rows deleted');
+      }
+    } catch (e) {
+      logger.warn({ repoId, e }, 'Pre-wipe: service row delete failed — non-fatal');
+    }
+
+    // 4. Rebuild the graph
+    logger.info(`Building Cortex graph for ${owner}/${name} (repoId=${repoId}, nodes will be fetched live from GitHub)`);
     const graph = await buildCortexGraph({
       repoId,
       repoOwner: owner,
       repoName: name,
       accessToken: githubToken,
-      enableAiSummaries: true, // DeepSeek V3.2 via Bedrock
+      enableAiSummaries: false, // Keep graph small — avoids DynamoDB 400KB item size limit
       forceRebuild: true,
     });
 
-    // 3. Graph is already cached to DynamoDB by buildCortexGraph() itself (setCachedGraph).
-    //    Sync services into the CORTEX_TABLE for the service-level map view.
+    logger.info(`Graph built: ${graph.nodes.length} nodes, ${graph.edges.length} edges — syncing services`);
+
+    // Graph is cached to DynamoDB by buildCortexGraph() itself (setCachedGraph).
+    // Sync services into the CORTEX_TABLE for the service-level map view.
     await syncCortexServices(repoId, graph);
 
     logger.info(`Cortex rebuild complete for ${repoId}: ${graph.nodes.length} nodes, ${graph.edges.length} edges`);
