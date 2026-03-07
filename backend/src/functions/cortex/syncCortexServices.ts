@@ -24,7 +24,7 @@
  *   - installRepo.ts  → during the "Activating Visual Cortex" install step
  */
 
-import { DynamoDBDocumentClient, PutCommand, BatchWriteCommand, QueryCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, PutCommand, BatchWriteCommand, QueryCommand, DeleteCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
 import { CortexGraph, CortexNode, CortexEdge } from "./graphBuilder";
 import { getDocClient } from "../../services/database/dynamoClient";
 import { invokeClaude } from "../../services/aws/bedrockClient";
@@ -1054,15 +1054,14 @@ export async function syncCortexServices(
         }
 
         // ── Step 5: Clean up old service records ─────────────────────────────────
-        // Query all existing service records for this repo and delete them
-        // This ensures stale demo data or old services are removed
+        // Scan all existing service records for this repo and delete them.
+        // Using ScanCommand (not QueryCommand+GSI) so it works on DynamoDB Local
+        // where the repoId-index GSI may not exist.
         try {
             const existingServices = await docClient.send(
-                new QueryCommand({
+                new ScanCommand({
                     TableName: CORTEX_TABLE,
-                    IndexName: "repoId-index",
-                    KeyConditionExpression: "repoId = :repoId",
-                    FilterExpression: "recordType = :recordType",
+                    FilterExpression: "repoId = :repoId AND recordType = :recordType",
                     ExpressionAttributeValues: {
                         ":repoId": repoId,
                         ":recordType": "SERVICE",

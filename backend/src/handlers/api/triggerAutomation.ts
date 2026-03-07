@@ -926,6 +926,13 @@ async function saveAutomationReport(repo: Record<string, any>, report: Record<st
     try {
         const repoId = repo.repoId ?? repo.id ?? repo.repoSlug;
         await persistAutomationReport(String(repoId), report as AutomationReportRecord);
+        if (report.status === "completed") {
+            await dynamoClient.update({
+                tableName: DYNAMO_TABLES.REPOSITORIES,
+                key: { repoId: String(repoId) },
+                updates: { lastScannedAt: report.completedAt ?? new Date().toISOString() },
+            });
+        }
     } catch (err) {
         logger.error({ msg: "Failed to save automation report", error: String(err) });
     }

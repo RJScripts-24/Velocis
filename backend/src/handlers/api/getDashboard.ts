@@ -298,6 +298,7 @@ export const handler = async (
         severity: a.severity,
         timestamp_ago: timeAgo(a.timestamp),
       })),
+      last_scanned_at: r.lastReviewAt ?? r.lastScannedAt ?? r.automationReport?.completedAt ?? null,
       commit_sparkline: sparkline,
       commit_trend_label: trendLabel,
       commit_trend_direction: trendDirection,
