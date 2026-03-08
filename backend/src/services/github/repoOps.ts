@@ -1551,7 +1551,11 @@ async function resolveOwnerAndRepo(
   octokit: Octokit
 ): Promise<[string, string]> {
   let [owner, repo] = splitRepoFullName(repoFullName);
-  if (/^\d+$/.test(repo)) {
+  // Only treat the repo segment as a GitHub internal numeric ID when it has
+  // 7 or more digits. Real GitHub repo IDs in 2026 are 8-10 digits; short
+  // numeric strings like "123" are valid repository names and must not be
+  // sent to GET /repositories/{id}.
+  if (/^\d{7,}$/.test(repo)) {
     try {
       const { data: repoMeta } = await octokit.request(
         "GET /repositories/{repository_id}",

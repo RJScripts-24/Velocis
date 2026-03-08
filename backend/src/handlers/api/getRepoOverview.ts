@@ -264,7 +264,21 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     (githubToken ? await getGitHubLogin(githubToken) : null);
 
   if (owner) {
-    commitByMonth = await fetchAllCommitsByMonth(owner, repo.repoName ?? repoId, githubToken);
+    let resolvedRepoName = repo.repoName ?? null;
+    // When the stored repoName is absent, fall back to repoId. But if repoId
+    // is a raw numeric GitHub ID (7+ digits) rather than a slug, resolve it first
+    // via the GitHub API so we don't make a doomed request to /repos/owner/123456789.
+    if (!resolvedRepoName && /^\d{7,}$/.test(repoId)) {
+      try {
+        const headers: Record<string, string> = { "User-Agent": "Velocis-App" };
+        if (githubToken) headers["Authorization"] = `Bearer ${githubToken}`;
+        const res = await axios.get(`https://api.github.com/repositories/${repoId}`, { headers, timeout: 5000 });
+        resolvedRepoName = res.data?.name ?? null;
+      } catch {
+        // Non-fatal — fetchAllCommitsByMonth will simply return empty
+      }
+    }
+    commitByMonth = await fetchAllCommitsByMonth(owner, resolvedRepoName ?? repoId, githubToken);
   }
 
   const totalCommits = commitByMonth.reduce((s, m) => s + m.count, 0);
