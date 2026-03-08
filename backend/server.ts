@@ -10,7 +10,7 @@
 
 import "dotenv/config";
 import express, { Request, Response, NextFunction } from "express";
-import cors from "cors";
+import cors, { CorsOptions } from "cors";
 import serverless from "serverless-http";
 import { APIGatewayProxyEvent, APIGatewayProxyResult, Context } from "aws-lambda";
 import { randomUUID } from "crypto";
@@ -52,18 +52,38 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? "http://localhost:5173")
   .split(",")
   .map((o) => o.trim());
 
+const corsOptions: CorsOptions = {
+  origin(origin, callback) {
+    // Allow same-origin and server-to-server requests with no Origin header.
+    if (!origin) return callback(null, true);
+    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    return callback(new Error(`Origin not allowed by CORS: ${origin}`));
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-repo-owner", "x-repo-name"],
+};
+
+// Apply CORS before body parsing so parser failures still include CORS headers.
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
+
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
-// CORS — explicitly allow the Amplify frontend with credentials
-app.use(
-  cors({
-    origin: 'https://main.d32db3pq6wbaq4.amplifyapp.com',
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-  })
-);
+// Return JSON for malformed payloads instead of Express HTML error pages.
+app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
+  if (err instanceof SyntaxError && "body" in err) {
+    return res.status(400).json({
+      error: {
+        code: "INVALID_REQUEST",
+        message: "Invalid JSON body.",
+        status: 400,
+      },
+    });
+  }
+  return next(err);
+});
 
 // ── Lambda adapter ───────────────────────────────────────────────────────────
 
