@@ -398,6 +398,18 @@ export function DashboardPage() {
     return <LoadingAnimation text="Loading dashboard…" />;
   }
 
+  const normalizedActivityEvents = activityData
+    .map((evt) => {
+      const repoDisplayName = resolveRepoDisplayName(evt.repo_id, evt.repo_name);
+      const sanitizedMessage = sanitizeActivityMessage(evt.message, evt.repo_id, repoDisplayName).trim();
+      return { ...evt, repoDisplayName, sanitizedMessage };
+    })
+    .filter((evt) => evt.sanitizedMessage.length > 0);
+
+  const visibleActivityEvents = normalizedActivityEvents.filter(
+    (evt) => activityTab === 'all' || evt.agent === activityTab
+  );
+
   return (
     <div className={`${themeClass} w-full min-h-screen`}>
       <style>{`
@@ -705,9 +717,9 @@ export function DashboardPage() {
                 <div className="p-4 pb-0 shrink-0">
                   <div className="flex justify-between items-center mb-3">
                     <div className="font-semibold tracking-tight text-[15px] text-zinc-900 dark:text-white">Activity</div>
-                    {activityData.length > 0 && (
+                    {normalizedActivityEvents.length > 0 && (
                       <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-100/50 dark:border-emerald-800/30">
-                        <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">{activityData.length} event{activityData.length !== 1 ? 's' : ''}</span>
+                        <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">{normalizedActivityEvents.length} event{normalizedActivityEvents.length !== 1 ? 's' : ''}</span>
                         <div className="relative flex h-2 w-2">
                           <span className="animate-[ping-slow_2s_infinite] absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                           <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
@@ -738,16 +750,14 @@ export function DashboardPage() {
                 </div>
 
                 <div className="overflow-y-auto flex-1 scrollbar-hide max-h-[400px]">
-                  {activityData.filter(evt => activityTab === 'all' || evt.agent === activityTab).length === 0 ? (
+                  {visibleActivityEvents.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-10 gap-2 text-zinc-400 dark:text-slate-500">
                       <div className="text-2xl">📋</div>
                       <span className="text-xs font-medium">No activity recorded yet</span>
                       <span className="text-[11px] text-zinc-400 dark:text-slate-600">Use Cortex, Sentinel, or Fortress to see events here</span>
                     </div>
                   ) : (
-                    activityData
-                      .filter(evt => activityTab === 'all' || evt.agent === activityTab)
-                      .map((evt, i) => {
+                    visibleActivityEvents.map((evt, i) => {
                         const agentFg: Record<string, string> = {
                           sentinel: 'text-indigo-600 dark:text-indigo-300',
                           fortress: 'text-sky-600 dark:text-sky-300',
@@ -761,8 +771,8 @@ export function DashboardPage() {
                               <div className="text-[10px] font-medium text-zinc-400 dark:text-slate-500">{evt.timestamp_ago}</div>
                             </div>
                             <div>
-                              <span className="text-[13px] font-medium text-zinc-600 dark:text-slate-400">{sanitizeActivityMessage(evt.message, evt.repo_id, resolveRepoDisplayName(evt.repo_id, evt.repo_name))} · </span>
-                              <span className="text-[13px] font-bold text-zinc-900 dark:text-slate-100">{resolveRepoDisplayName(evt.repo_id, evt.repo_name)}</span>
+                              <span className="text-[13px] font-medium text-zinc-600 dark:text-slate-400">{evt.sanitizedMessage} · </span>
+                              <span className="text-[13px] font-bold text-zinc-900 dark:text-slate-100">{evt.repoDisplayName}</span>
                             </div>
                           </div>
                         );
