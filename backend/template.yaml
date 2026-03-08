@@ -461,6 +461,34 @@ Resources:
             Path:   /repos/{repoId}/cortex
             Method: GET
 
+  CortexServiceFilesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler:     src/handlers/api/getCortexServiceFiles.handler
+      Description: GET /repos/:repoId/cortex/services/:serviceId/files
+      Timeout:     60
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref VelocisApi
+            Path:   /repos/{repoId}/cortex/services/{serviceId}/files
+            Method: GET
+
+  CortexRebuildFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler:     src/handlers/api/rebuildCortex.handler
+      Description: POST /repos/:repoId/cortex/rebuild
+      Timeout:     120
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref VelocisApi
+            Path:   /repos/{repoId}/cortex/rebuild
+            Method: POST
+
   # ──────────────────────────────────────────────────────────────────────────
   # § 10 — WORKSPACE (Monaco Editor + Sentinel Chat)
   # ──────────────────────────────────────────────────────────────────────────
