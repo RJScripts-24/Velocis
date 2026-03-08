@@ -42,7 +42,7 @@
  *   }
  */
 
-import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
+import { BedrockRuntimeClient, ConverseCommand } from "@aws-sdk/client-bedrock-runtime";
 import {
   PricingClient,
   GetProductsCommand,
@@ -151,7 +151,12 @@ export interface GenerateIacInput {
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────────────────────
 
-const BEDROCK_MODEL_ID = "us.amazon.nova-pro-v1:0";
+const BEDROCK_MODEL_CANDIDATES = Array.from(new Set([
+  process.env.BEDROCK_IAC_MODEL_ID,
+  "us.amazon.nova-pro-v1:0",
+  "amazon.nova-pro-v1:0",
+  "deepseek.v3.2",
+].filter((v): v is string => Boolean(v && v.trim())).map((v) => v.trim())));
 const MAX_TOKENS = 8000;
 const MAX_SOURCE_CHARS_PER_FILE = 4000;
 const MAX_FILES_TO_ANALYZE = 10;
@@ -613,52 +618,65 @@ async function invokeClaudeForIac(
   systemPrompt: string,
   userPrompt: string
 ): Promise<{ responseText: string; latencyMs: number }> {
-  const requestBody = {
-    system: [{ text: systemPrompt }],
-    messages: [{ role: "user", content: [{ text: userPrompt }] }],
-    inferenceConfig: {
-      max_new_tokens: MAX_TOKENS,
-      temperature: 0.1,
-    },
-  };
+  let lastErr: unknown = null;
 
-  const t0 = Date.now();
-
-  try {
-    const command = new InvokeModelCommand({
-      modelId: BEDROCK_MODEL_ID,
-      contentType: "application/json",
-      accept: "application/json",
-      body: JSON.stringify(requestBody),
-    });
-
-    const abort = new AbortController();
-    const abortTimer = setTimeout(() => abort.abort(), 115_000);
-    let response;
+  for (const modelId of BEDROCK_MODEL_CANDIDATES) {
+    const t0 = Date.now();
     try {
-      response = await bedrockClient.send(command, { abortSignal: abort.signal });
-    } finally {
-      clearTimeout(abortTimer);
+      const command = new ConverseCommand({
+        modelId,
+        system: [{ text: systemPrompt }],
+        messages: [{ role: "user", content: [{ text: userPrompt }] }],
+        inferenceConfig: {
+          maxTokens: MAX_TOKENS,
+          temperature: 0.1,
+        },
+      });
+
+      const abort = new AbortController();
+      const abortTimer = setTimeout(() => abort.abort(), 115_000);
+      let response;
+      try {
+        response = await bedrockClient.send(command, { abortSignal: abort.signal });
+      } finally {
+        clearTimeout(abortTimer);
+      }
+
+      const latencyMs = Date.now() - t0;
+      const responseText = response.output?.message?.content?.find((c: any) => typeof c?.text === "string")?.text ?? "";
+
+      logger.info(
+        {
+          latencyMs,
+          modelId,
+          inputTokens: response.usage?.inputTokens,
+          outputTokens: response.usage?.outputTokens,
+        },
+        "IaC Predictor: Bedrock invocation complete"
+      );
+
+      return { responseText, latencyMs };
+    } catch (err: any) {
+      lastErr = err;
+      const latencyMs = Date.now() - t0;
+      logger.error(
+        {
+          err,
+          latencyMs,
+          modelId,
+          isRetryableModelLookup: err?.name === "ValidationException" || /model identifier is invalid/i.test(String(err?.message ?? "")),
+        },
+        "IaC Predictor: Bedrock invocation failed"
+      );
+      // Try the next configured model when identifier is invalid in this account/region.
+      if (err?.name === "ValidationException" || /model identifier is invalid/i.test(String(err?.message ?? ""))) {
+        continue;
+      }
+      break;
     }
-    const latencyMs = Date.now() - t0;
-    const parsed = JSON.parse(new TextDecoder().decode(response.body));
-    const responseText: string = parsed.output?.message?.content?.[0]?.text ?? "";
-
-    logger.info(
-      {
-        latencyMs,
-        inputTokens: parsed.usage?.inputTokens,
-        outputTokens: parsed.usage?.outputTokens,
-      },
-      "IaC Predictor: Bedrock Nova Pro invocation complete"
-    );
-
-    return { responseText, latencyMs };
-  } catch (err: any) {
-    const latencyMs = Date.now() - t0;
-    logger.error({ err, latencyMs }, "IaC Predictor: Bedrock invocation failed");
-    throw new Error(`Bedrock invocation failed: ${err.message ?? String(err)}`);
   }
+
+  throw new Error(`Bedrock invocation failed: ${(lastErr as any)?.message ?? String(lastErr)}`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
