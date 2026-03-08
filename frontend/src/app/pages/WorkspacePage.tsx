@@ -787,7 +787,7 @@ export function WorkspacePage() {
                     </div>
                     <div className="max-h-[300px] overflow-y-auto p-1 scrollbar-thin scrollbar-thumb-zinc-200 dark:scrollbar-thumb-slate-700">
                       {allFiles
-                        .filter(f => f.path.toLowerCase().includes(fileSearchQuery.toLowerCase()))
+                        .filter(f => (f.path ?? '').toLowerCase().includes(fileSearchQuery.toLowerCase()))
                         .map(f => (
                           <button
                             key={f.path}
@@ -802,7 +802,7 @@ export function WorkspacePage() {
                           </button>
                         ))
                       }
-                      {allFiles.filter(f => f.path.toLowerCase().includes(fileSearchQuery.toLowerCase())).length === 0 && (
+                      {allFiles.filter(f => (f.path ?? '').toLowerCase().includes(fileSearchQuery.toLowerCase())).length === 0 && (
                         <div className="px-3 py-4 text-center text-xs text-zinc-500">No files found</div>
                       )}
                     </div>

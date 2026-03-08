@@ -88,9 +88,9 @@ export function InfrastructurePage() {
       const codeFiles = files
         .filter(f => f.type === 'file')
         .filter(f => {
-          const lower = f.path.toLowerCase();
+          const lower = (f.path ?? '').toLowerCase();
           if (SKIP_SEGMENTS.some(seg => lower.includes(seg))) return false;
-          const ext = f.name.split('.').pop() ?? '';
+          const ext = (f.name ?? '').split('.').pop() ?? '';
           return CODE_EXTENSIONS.has(ext);
         })
         .slice(0, MAX_FILES);
