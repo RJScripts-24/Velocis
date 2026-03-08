@@ -159,6 +159,40 @@ export const CommitBarChart = ({
   );
 };
 
+function hashSeed(input: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < input.length; i += 1) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function createMockCommitGraph(repoId: string, length = 60): number[] {
+  // Deterministic pseudo-random graph per repo, so it looks stable per card.
+  let seed = hashSeed(repoId || 'repo');
+  const next = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+
+  const base = 4 + Math.floor(next() * 8);
+  const amplitude = 6 + Math.floor(next() * 14);
+  const phase = next() * Math.PI * 2;
+  const trend = (next() - 0.5) * 0.25;
+
+  const series: number[] = [];
+  for (let i = 0; i < length; i += 1) {
+    const wave = Math.sin((i / (6 + next() * 5)) + phase) * amplitude;
+    const noise = (next() - 0.5) * amplitude * 0.9;
+    const drift = i * trend;
+    const spike = next() > 0.92 ? amplitude * (1.2 + next()) : 0;
+    const value = Math.max(0, Math.round(base + wave + noise + drift + spike));
+    series.push(value);
+  }
+  return series;
+}
+
 // Hamburger menu for each repo card
 function RepoCardMenu({ repoId, onDeleted }: { repoId: string; onDeleted?: (repoId: string) => void }) {
   const [open, setOpen] = React.useState(false);
@@ -645,6 +679,7 @@ export function DashboardPage() {
                   const severityFg: Record<string, string> = { critical: 'text-rose-600 dark:text-rose-400', warning: 'text-amber-600 dark:text-amber-500', info: 'text-blue-600 dark:text-blue-400', healthy: 'text-emerald-600 dark:text-emerald-400' };
                   const trendColor = repo.commit_trend_direction === 'down' ? 'text-rose-600 dark:text-rose-500' : repo.commit_trend_direction === 'up' ? 'text-emerald-600 dark:text-emerald-500' : 'text-amber-600 dark:text-amber-500';
                   const barColor = repo.status === 'critical' ? '#ef4444' : repo.status === 'warning' ? '#f59e0b' : '#10b981';
+                  const mockSeries = createMockCommitGraph(repo.id, 60);
                   return (
                     <div
                       key={repo.id}
@@ -695,7 +730,7 @@ export function DashboardPage() {
                             </div>
                           )}
                         </div>
-                        <CommitBarChart data={repo.commit_sparkline} color={barColor} />
+                        <CommitBarChart data={mockSeries} color={barColor} />
                       </div>
                     </div>
                   );
