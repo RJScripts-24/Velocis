@@ -84,7 +84,8 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
         try {
             const scan = await docClient.send(new ScanCommand({
                 TableName: DYNAMO_TABLES.REPOSITORIES,
-                FilterExpression: "(repoSlug = :s OR repoId = :s) AND userId = :uid",
+                FilterExpression: "(repoSlug = :s OR repoId = :s OR #id = :s OR pk = :s) AND userId = :uid",
+                ExpressionAttributeNames: { "#id": "id" },
                 ExpressionAttributeValues: { ":s": repoId, ":uid": userId },
             }));
             repo = scan.Items?.[0];
@@ -94,7 +95,8 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
             try {
                 const scan2 = await docClient.send(new ScanCommand({
                     TableName: process.env.REPOS_TABLE ?? "velocis-repos",
-                    FilterExpression: "(repoSlug = :s OR repoId = :s) AND userId = :uid",
+                    FilterExpression: "(repoSlug = :s OR repoId = :s OR #id = :s OR pk = :s) AND userId = :uid",
+                    ExpressionAttributeNames: { "#id": "id" },
                     ExpressionAttributeValues: { ":s": repoId, ":uid": userId },
                 }));
                 repo = scan2.Items?.[0];
@@ -136,7 +138,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
                     const { UpdateCommand } = await import("@aws-sdk/lib-dynamodb");
                     await docClient.send(new UpdateCommand({
                         TableName: DYNAMO_TABLES.REPOSITORIES,
-                        Key: { repoId: repo?.repoId ?? repo?.id ?? repoId },
+                        Key: { pk: String(repo?.pk ?? repo?.repoId ?? repo?.id ?? repoId) },
                         UpdateExpression: "SET automationReport.#st = :failed, automationReport.#err = :err, automationReport.updatedAt = :ts",
                         ExpressionAttributeNames: { "#st": "status", "#err": "error" },
                         ExpressionAttributeValues: {

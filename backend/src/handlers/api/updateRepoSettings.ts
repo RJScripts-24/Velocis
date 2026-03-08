@@ -14,6 +14,12 @@ import { getUserToken } from "../../services/github/auth.js";
 
 const JWT_SECRET = process.env.JWT_SECRET ?? "changeme-in-production";
 
+function buildRepoKey(repo: Record<string, any>, fallbackRepoId: string): Record<string, string> {
+    const pk = repo.pk ?? repo.PK ?? repo.repoId ?? repo.id ?? repo.repoSlug ?? fallbackRepoId;
+    const sk = repo.sk ?? repo.SK;
+    return sk ? { pk: String(pk), sk: String(sk) } : { pk: String(pk) };
+}
+
 function parseCookieValue(cookieHeader: string | undefined | null, name: string): string | null {
     if (!cookieHeader) return null;
     for (const cookie of cookieHeader.split(";").map((c) => c.trim())) {
@@ -88,6 +94,8 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     logger.info({ msg: "POST /repos/:repoId/settings", repoId, userId, isAutomated });
 
     const docClient = getDocClient();
+    let settingsWriteKey: Record<string, string> | null = null;
+    let cancelWriteKey: Record<string, string> | null = null;
 
     try {
         // Step 1: Scan to find the actual repo record (same as getRepoOverview pattern)
@@ -96,7 +104,8 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
         try {
             const scan = await docClient.send(new ScanCommand({
                 TableName: DYNAMO_TABLES.REPOSITORIES,
-                FilterExpression: "(repoSlug = :s OR repoId = :s) AND userId = :uid",
+                FilterExpression: "(repoSlug = :s OR repoId = :s OR #id = :s OR pk = :s) AND userId = :uid",
+                ExpressionAttributeNames: { "#id": "id" },
                 ExpressionAttributeValues: { ":s": repoId, ":uid": userId },
             }));
             foundRepo = scan.Items?.[0];
@@ -106,7 +115,8 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
             try {
                 const scan2 = await docClient.send(new ScanCommand({
                     TableName: process.env.REPOS_TABLE ?? "velocis-repos",
-                    FilterExpression: "(repoSlug = :s OR repoId = :s) AND userId = :uid",
+                    FilterExpression: "(repoSlug = :s OR repoId = :s OR #id = :s OR pk = :s) AND userId = :uid",
+                    ExpressionAttributeNames: { "#id": "id" },
                     ExpressionAttributeValues: { ":s": repoId, ":uid": userId },
                 }));
                 foundRepo = scan2.Items?.[0];
@@ -118,10 +128,8 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
         if (foundRepo) {
             // Always write to the canonical repositories table
             const tableName = DYNAMO_TABLES.REPOSITORIES;
-
-            const key = foundRepo.PK
-                ? { PK: foundRepo.PK, SK: foundRepo.SK }
-                : { repoId: foundRepo.repoId ?? foundRepo.id ?? repoId };
+            const key = buildRepoKey(foundRepo, repoId);
+            settingsWriteKey = key;
 
             // When disabling, record the exact time so any running pipeline
             // can detect mid-run that it was cancelled.
@@ -129,12 +137,31 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
                 ? "SET isAutomated = :a, updatedAt = :u"
                 : "SET isAutomated = :a, updatedAt = :u, automationAbortedAt = :u";
 
-            await docClient.send(new UpdateCommand({
-                TableName: tableName,
-                Key: key,
-                UpdateExpression: updateExpr,
-                ExpressionAttributeValues: { ":a": isAutomated, ":u": now },
-            }));
+            try {
+                await docClient.send(new UpdateCommand({
+                    TableName: tableName,
+                    Key: key,
+                    UpdateExpression: updateExpr,
+                    ExpressionAttributeValues: { ":a": isAutomated, ":u": now },
+                }));
+            } catch (e) {
+                logger.error({
+                    msg: "Failed to persist isAutomated flag",
+                    repoId,
+                    userId,
+                    tableName,
+                    writeKey: key,
+                    foundRepoKeys: {
+                        pk: foundRepo.pk,
+                        sk: foundRepo.sk,
+                        repoId: foundRepo.repoId,
+                        id: foundRepo.id,
+                        repoSlug: foundRepo.repoSlug,
+                    },
+                    error: String(e),
+                });
+                throw e;
+            }
 
             logger.info({ msg: "isAutomated saved", repoId, isAutomated, tableName });
 
@@ -145,9 +172,10 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
             if (!isAutomated) {
                 const numericRepoId = String(foundRepo.repoId ?? foundRepo.id ?? repoId);
                 try {
+                    cancelWriteKey = { pk: numericRepoId };
                     await docClient.send(new UpdateCommand({
                         TableName: tableName,
-                        Key: { repoId: numericRepoId },
+                        Key: { pk: numericRepoId },
                         UpdateExpression: "SET automationCancelledAt = :t, isAutomated = :a, updatedAt = :t",
                         ExpressionAttributeValues: { ":t": now, ":a": false },
                     }));
@@ -164,7 +192,14 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
         return ok({ success: true, isAutomated });
 
     } catch (e) {
-        logger.error({ msg: "Failed to update repo settings", repoId, error: String(e) });
+        logger.error({
+            msg: "Failed to update repo settings",
+            repoId,
+            userId,
+            settingsWriteKey,
+            cancelWriteKey,
+            error: String(e),
+        });
         return errors.internal("Failed to update repository settings.");
     }
 };

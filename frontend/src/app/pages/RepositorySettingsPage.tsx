@@ -39,6 +39,7 @@ export function RepositorySettingsPage() {
     const [showConfirm, setShowConfirm] = useState(false);
     const [confirmText, setConfirmText] = useState('');
     const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
 
     // Auto-launch settings tutorial on first visit
     useEffect(() => {
@@ -70,16 +71,22 @@ export function RepositorySettingsPage() {
             .catch(() => setLoading(false));
     }, [id]);  // eslint-disable-line react-hooks/exhaustive-deps
 
-    const saveSetting = async (automated: boolean): Promise<void> => {
+    const saveSetting = async (automated: boolean): Promise<boolean> => {
         try {
-            await fetch(`${BACKEND}/api/repos/${id}/settings`, {
+            const res = await fetch(`${BACKEND}/api/repos/${id}/settings`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
                 body: JSON.stringify({ isAutomated: automated })
             });
+            if (!res.ok) {
+                console.error('Failed to save automation setting:', res.status);
+                return false;
+            }
+            return true;
         } catch (e) {
             console.error('Failed to save automation setting:', e);
+            return false;
         }
     };
 
@@ -96,23 +103,34 @@ export function RepositorySettingsPage() {
         }
     };
 
-    const handleAutomateToggle = () => {
+    const handleAutomateToggle = async () => {
+        if (saving) return;
         if (!isAutomated) {
             setShowConfirm(true);
             setConfirmText('');
         } else {
+            setSaving(true);
             setIsAutomated(false);
-            saveSetting(false);
+            const ok = await saveSetting(false);
+            if (!ok) setIsAutomated(true);
+            setSaving(false);
         }
     };
 
-    const handleConfirm = () => {
+    const handleConfirm = async () => {
         if (confirmText.toLowerCase() === 'confirm') {
+            setSaving(true);
             setIsAutomated(true);
-            saveSetting(true);
+            const ok = await saveSetting(true);
+            if (!ok) {
+                setIsAutomated(false);
+                setSaving(false);
+                return;
+            }
             // Trigger the full automation pipeline on the latest commit immediately
             triggerAutomationPipeline();
             setShowConfirm(false);
+            setSaving(false);
         }
     };
 
@@ -176,21 +194,21 @@ export function RepositorySettingsPage() {
                                 </div>
                                 <button
                                     onClick={handleAutomateToggle}
-                                    disabled={loading}
+                                    disabled={loading || saving}
                                     className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm border border-rose-200 dark:border-rose-800/50 bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/40 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
                                 >
                                     <X size={15} />
-                                    Disable Automation
+                                    {saving ? 'Saving...' : 'Disable Automation'}
                                 </button>
                             </div>
                         ) : (
                             <button
                                 id="settings-enable-btn"
                                 onClick={handleAutomateToggle}
-                                disabled={loading}
+                                disabled={loading || saving}
                                 className="px-8 py-3 rounded-xl font-bold text-sm transition-all shadow-sm bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:opacity-90 disabled:opacity-50"
                             >
-                                {loading ? 'Loading...' : 'Enable Automation'}
+                                {loading ? 'Loading...' : saving ? 'Saving...' : 'Enable Automation'}
                             </button>
                         )}
                     </div>

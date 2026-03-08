@@ -500,7 +500,8 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     try {
         const scan = await docClient.send(new ScanCommand({
             TableName: DYNAMO_TABLES.REPOSITORIES,
-            FilterExpression: "(repoSlug = :s OR repoId = :s) AND userId = :uid",
+            FilterExpression: "(repoSlug = :s OR repoId = :s OR #id = :s OR pk = :s) AND userId = :uid",
+            ExpressionAttributeNames: { "#id": "id" },
             ExpressionAttributeValues: { ":s": repoId, ":uid": userId },
         }));
         repo = scan.Items?.[0];
@@ -510,7 +511,8 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
         try {
             const scan2 = await docClient.send(new ScanCommand({
                 TableName: process.env.REPOS_TABLE ?? "velocis-repos",
-                FilterExpression: "(repoSlug = :s OR repoId = :s) AND userId = :uid",
+                FilterExpression: "(repoSlug = :s OR repoId = :s OR #id = :s OR pk = :s) AND userId = :uid",
+                ExpressionAttributeNames: { "#id": "id" },
                 ExpressionAttributeValues: { ":s": repoId, ":uid": userId },
             }));
             repo = scan2.Items?.[0];
@@ -929,7 +931,7 @@ async function saveAutomationReport(repo: Record<string, any>, report: Record<st
         if (report.status === "completed") {
             await dynamoClient.update({
                 tableName: DYNAMO_TABLES.REPOSITORIES,
-                key: { repoId: String(repoId) },
+                key: { pk: String(repoId) },
                 updates: { lastScannedAt: report.completedAt ?? new Date().toISOString() },
             });
         }
