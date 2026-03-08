@@ -77,7 +77,7 @@ async function persistJob(job: InstallJob): Promise<void> {
   await _installDocClient.send(
     new PutCommand({
       TableName: INSTALL_TABLE,
-      Item: { ...job, ttl: Math.floor(Date.now() / 1000) + 86400 },
+      Item: { pk: job.jobId, ...job, ttl: Math.floor(Date.now() / 1000) + 86400 },
     })
   );
 }
@@ -86,7 +86,7 @@ async function getJob(repoId: string, userId: string): Promise<InstallJob | null
   const result = await _installDocClient.send(
     new GetCommand({
       TableName: INSTALL_TABLE,
-      Key: { jobId: installJobKey(repoId, userId) },
+      Key: { pk: installJobKey(repoId, userId) },
     })
   );
   return (result.Item as InstallJob) ?? null;
@@ -127,13 +127,13 @@ async function resolveUser(
 
       if (sessionRecord && new Date(sessionRecord.expiresAt) > new Date()) {
         try {
-          const githubToken = await getUserToken(sessionRecord.githubId);
-          return { userId: sessionRecord.githubId, githubToken };
+          const githubToken = await getUserToken(sessionRecord.userId);
+          return { userId: sessionRecord.userId, githubToken };
         } catch (tokenErr) {
           // getUserToken may fail if decryption key is wrong or token not found
           // Still return the user with empty token — install simulation doesn't need it
           logger.warn({ msg: "Could not retrieve GitHub token, proceeding with empty token", error: String(tokenErr) });
-          return { userId: sessionRecord.githubId, githubToken: "" };
+          return { userId: sessionRecord.userId, githubToken: "" };
         }
       }
     } catch (e) {

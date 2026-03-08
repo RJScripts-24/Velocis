@@ -29,24 +29,24 @@ async function resolveUser(event: APIGatewayProxyEvent): Promise<{ userId: strin
     if (sessionToken) {
         try {
             const hash = crypto.createHash("sha256").update(sessionToken).digest("hex");
-            const session = await dynamoClient.get<{ userId: string; githubId: string; expiresAt: string }>({
+            const session = await dynamoClient.get<{ userId: string; expiresAt: string }>({
                 tableName: DYNAMO_TABLES.USERS,
                 key: { pk: `SESSION#${hash}` },
             });
             if (session && new Date(session.expiresAt) > new Date()) {
                 let githubToken = "";
                 try {
-                    githubToken = await getUserToken(session.githubId);
+                    githubToken = await getUserToken(session.userId);
                 } catch {
                     try {
                         const u = await dynamoClient.get<{ accessToken?: string; github_token?: string }>({
                             tableName: DYNAMO_TABLES.USERS,
-                            key: { pk: `USER#${session.githubId}` },
+                            key: { pk: `USER#${session.userId}` },
                         });
                         githubToken = u?.accessToken ?? u?.github_token ?? "";
                     } catch { /* non-fatal */ }
                 }
-                return { userId: session.githubId, githubToken };
+                return { userId: session.userId, githubToken };
             }
         } catch (e) {
             logger.error({ msg: "Session lookup failed", error: String(e) });

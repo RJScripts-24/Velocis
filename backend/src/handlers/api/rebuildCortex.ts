@@ -51,7 +51,6 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
 
     const sessionRecord = await dynamoClient.get<{
       userId: string;
-      githubId: string;
       expiresAt: string;
     }>({
       tableName: DYNAMO_TABLES.USERS,
@@ -91,11 +90,11 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
         githubToken = await getInstallationToken(installationId);
       } catch (tokenErr) {
         logger.warn({ installationId, err: tokenErr }, 'Installation token failed — falling back to user OAuth token');
-        githubToken = await getUserToken(sessionRecord.githubId);
+        githubToken = await getUserToken(sessionRecord.userId);
       }
     } else {
-      logger.info({ githubId: sessionRecord.githubId }, 'No installationId on repo — using user OAuth token');
-      githubToken = await getUserToken(sessionRecord.githubId);
+      logger.info({ userId: sessionRecord.userId }, 'No installationId on repo — using user OAuth token');
+      githubToken = await getUserToken(sessionRecord.userId);
     }
 
     // Resolve owner / name from the repo record
@@ -109,9 +108,9 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
       name = repo.repoName;
     } else {
       // Fallback: resolve owner from the USERS_TABLE using the githubId
-      logger.info({ repoId, githubId: sessionRecord.githubId }, 'Resolving owner from USERS_TABLE');
+      logger.info({ repoId, userId: sessionRecord.userId }, 'Resolving owner from USERS_TABLE');
       try {
-        const userRes = await docClient.send(new GetCommand({ TableName: DYNAMO_TABLES.USERS, Key: { pk: `USER#${sessionRecord.githubId}` } }));
+        const userRes = await docClient.send(new GetCommand({ TableName: DYNAMO_TABLES.USERS, Key: { pk: `USER#${sessionRecord.userId}` } }));
         owner = userRes.Item?.username ?? userRes.Item?.githubLogin ?? userRes.Item?.displayName ?? "";
 
         if (!owner) {
