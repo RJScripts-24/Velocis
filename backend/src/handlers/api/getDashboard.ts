@@ -320,7 +320,9 @@ export const handler = async (
           r.repoOwner ??
           (r.repoFullName ? String(r.repoFullName).split('/')[0] : undefined);
         const repoNameFromFullName: string | undefined = r.repoFullName ? String(r.repoFullName).split('/')[1] : undefined;
-        const name: string | undefined = resolvedNameMap[id] ?? r.repoName ?? repoNameFromFullName ?? r.repoSlug;
+        const repoNameCandidate = typeof r.repoName === "string" ? r.repoName : undefined;
+        const safeRepoName = repoNameCandidate && !/^\d{7,}$/.test(repoNameCandidate) ? repoNameCandidate : undefined;
+        const name: string | undefined = resolvedNameMap[id] ?? safeRepoName ?? repoNameFromFullName ?? r.repoSlug;
         if (owner && name && id && !/^\d{7,}$/.test(name)) {
           const [sparkline, total] = await Promise.all([
             fetchSparkline(owner, name, githubToken),
@@ -338,6 +340,9 @@ export const handler = async (
     const id = String(r.repoId ?? r.repoSlug ?? "");
     const sparkline = sparklineMap[id] ?? [];
     const total = totalCommitsMap[id] ?? sparkline.reduce((s, v) => s + v, 0);
+    const repoNameCandidate = typeof r.repoName === "string" ? r.repoName : undefined;
+    const safeRepoName = repoNameCandidate && !/^\d{7,}$/.test(repoNameCandidate) ? repoNameCandidate : undefined;
+    const repoNameFromFullName = r.repoFullName ? String(r.repoFullName).split('/')[1] : undefined;
     let trendLabel = r.commitTrendLabel ?? "";
     let trendDirection = r.commitTrendDirection ?? "flat";
     if (sparkline.length >= 2 && !trendLabel) {
@@ -349,7 +354,7 @@ export const handler = async (
     }
     return {
       id,
-      name: resolvedNameMap[String(r.repoId ?? r.repoSlug ?? "")] ?? r.repoName ?? (r.repoFullName ? String(r.repoFullName).split('/')[1] : undefined) ?? r.repoSlug ?? String(r.repoId ?? ""),
+      name: resolvedNameMap[String(r.repoId ?? r.repoSlug ?? "")] ?? safeRepoName ?? repoNameFromFullName ?? r.repoSlug ?? String(r.repoId ?? ""),
       status: r.status ?? "healthy",
       language: r.language ?? null,
       last_activity: (r.lastActivity ?? []).map((a: any) => ({
