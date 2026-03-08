@@ -385,8 +385,10 @@ export function RepositoryPage() {
   const looksLikeRepoId = (value?: string) => !!value && /^\d{6,}$/.test(value.trim());
   const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-  const sanitizeRepoRefs = (text: string) => {
-    let nextText = text;
+  const sanitizeRepoRefs = (text?: string | null) => {
+    let nextText = typeof text === 'string' ? text : '';
+
+    if (!nextText) return nextText;
 
     if (id && resolvedRepoName && !looksLikeRepoId(resolvedRepoName)) {
       const idRegex = new RegExp(`\\b${escapeRegExp(id)}\\b`, 'g');
