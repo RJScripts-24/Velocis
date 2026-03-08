@@ -441,7 +441,7 @@ export function DashboardPage() {
               )}
               {!isLoading && dashboardData?.repos?.length > 0 && (() => {
                 const filteredRepos = dashboardData.repos.filter(repo =>
-                  repo.name.toLowerCase().includes(searchQuery.toLowerCase())
+                  (repo.name ?? '').toLowerCase().includes(searchQuery.toLowerCase())
                 );
 
                 if (filteredRepos.length === 0) {

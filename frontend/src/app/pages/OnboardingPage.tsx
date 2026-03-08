@@ -107,7 +107,7 @@ export function OnboardingPage() {
   ]);
 
   const filteredRepos = repositories.filter(repo =>
-    repo.name.toLowerCase().includes(searchQuery.toLowerCase())
+    (repo.name ?? '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   // Real install — calls backend API then polls for step progress

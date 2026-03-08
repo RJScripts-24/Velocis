@@ -1100,7 +1100,7 @@ function CortexPageContent() {
       n = n.filter(nd => nd.type !== 'serviceNode' || layerFilters[(nd.data as ServiceData).layer]);
       if (searchQuery) n = n.map(nd => nd.type !== 'serviceNode' ? nd : ({
         ...nd,
-        style: { ...nd.style, opacity: (nd.data as ServiceData).name.toLowerCase().includes(searchQuery.toLowerCase()) ? 1 : 0.25 },
+        style: { ...nd.style, opacity: ((nd.data as ServiceData).name ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ? 1 : 0.25 },
       }));
     }
     return n;
