@@ -196,6 +196,10 @@ export function PipelinePage() {
   }, []);
 
   const fetchQAPlan = useCallback(async () => {
+    if (!id) {
+      setQaError('Missing repository id. Open this page from a repository route.');
+      return;
+    }
     if (isFortressLoading) return;
     setIsFortressLoading(true);
     setQaError(null);
@@ -207,7 +211,7 @@ export function PipelinePage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ repoId: repoName }),
+        body: JSON.stringify({ repoId: id }),
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
@@ -218,7 +222,7 @@ export function PipelinePage() {
       setFilesAnalyzed(data.filesAnalyzed ?? []);
       // Cache to localStorage so it persists across navigation
       try {
-        localStorage.setItem(`velocis:fortress:qa:${repoName}`, JSON.stringify({
+        localStorage.setItem(`velocis:fortress:qa:${id}`, JSON.stringify({
           markdown: data.qaPlanMarkdown ?? '',
           files: data.filesAnalyzed ?? [],
           savedAt: new Date().toISOString(),
@@ -229,7 +233,7 @@ export function PipelinePage() {
     } finally {
       setIsFortressLoading(false);
     }
-  }, [isFortressLoading, repoName]);
+  }, [isFortressLoading, id]);
 
   const handleCopyQA = useCallback(async () => {
     if (!qaPlanMarkdown) return;
@@ -245,6 +249,10 @@ export function PipelinePage() {
   const [docsCopied, setDocsCopied] = useState(false);
 
   const fetchApiDocs = useCallback(async () => {
+    if (!id) {
+      setDocsError('Missing repository id. Open this page from a repository route.');
+      return;
+    }
     if (isDocsLoading) return;
     setIsDocsLoading(true);
     setDocsError(null);
@@ -255,7 +263,7 @@ export function PipelinePage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ repoId: repoName }),
+        body: JSON.stringify({ repoId: id }),
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
@@ -265,7 +273,7 @@ export function PipelinePage() {
       setApiDocsMarkdown(data.apiDocsMarkdown ?? '');
       // Cache to localStorage so it persists across navigation
       try {
-        localStorage.setItem(`velocis:fortress:docs:${repoName}`, JSON.stringify({
+        localStorage.setItem(`velocis:fortress:docs:${id}`, JSON.stringify({
           markdown: data.apiDocsMarkdown ?? '',
           savedAt: new Date().toISOString(),
         }));
@@ -275,7 +283,7 @@ export function PipelinePage() {
     } finally {
       setIsDocsLoading(false);
     }
-  }, [isDocsLoading, repoName]);
+  }, [isDocsLoading, id]);
 
   const handleCopyDocs = useCallback(async () => {
     if (!apiDocsMarkdown) return;
