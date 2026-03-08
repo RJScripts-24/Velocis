@@ -255,8 +255,8 @@ async function fetchFileContents(
   params: FetchFileContentsParams
 ): Promise<FetchFileContentsResult> {
   const { repoFullName, filePaths, token, ref } = params;
-  const [owner, repo] = splitRepoFullName(repoFullName);
   const octokit = buildOctokit(token);
+  const [owner, repo] = await resolveOwnerAndRepo(repoFullName, octokit);
 
   const files: Record<string, FileContent> = {};
   const failedPaths: string[] = [];
@@ -860,34 +860,8 @@ export async function fetchRepoTree(
   params: FetchRepoTreeParams
 ): Promise<RepoTreeItem[]> {
   const { repoFullName, token, ref = "HEAD", recursive = true } = params;
-  let [owner, repo] = splitRepoFullName(repoFullName);
   const octokit = buildOctokit(token);
-
-  // The GitHub REST API does not accept numeric IDs in the owner/repo path.
-  // When the repo fragment is a pure integer (e.g. the Velocis repoId was used
-  // as a fallback), resolve the actual slug via GET /repositories/{id} first.
-  if (/^\d+$/.test(repo)) {
-    try {
-      const { data: repoMeta } = await octokit.request(
-        "GET /repositories/{repository_id}",
-        { repository_id: parseInt(repo, 10) }
-      );
-      owner = repoMeta.owner.login;
-      repo = repoMeta.name;
-      logger.info({
-        msg: "repoOps.fetchRepoTree: resolved numeric repo ID to slug",
-        repoFullName,
-        resolvedOwner: owner,
-        resolvedRepo: repo,
-      });
-    } catch (resolveErr) {
-      logger.warn({
-        msg: "repoOps.fetchRepoTree: could not resolve numeric repo ID — proceeding with raw value",
-        repoFullName,
-        error: String(resolveErr),
-      });
-    }
-  }
+  let [owner, repo] = await resolveOwnerAndRepo(repoFullName, octokit);
 
   try {
     logger.info({
@@ -1563,6 +1537,43 @@ function splitRepoFullName(fullName: string): [string, string] {
     );
   }
   return [parts[0], parts[1]];
+}
+
+/**
+ * Resolves the owner/repo pair from a repoFullName, handling the case where the
+ * repo segment is a raw numeric GitHub repository ID (e.g. "RJScripts-24/1127027499").
+ * The GitHub REST API only accepts human-readable slugs in owner/repo URL paths;
+ * numeric IDs will always 404. When detected, we call GET /repositories/{id} to
+ * resolve the actual owner login and repo name before any API operation proceeds.
+ */
+async function resolveOwnerAndRepo(
+  repoFullName: string,
+  octokit: Octokit
+): Promise<[string, string]> {
+  let [owner, repo] = splitRepoFullName(repoFullName);
+  if (/^\d+$/.test(repo)) {
+    try {
+      const { data: repoMeta } = await octokit.request(
+        "GET /repositories/{repository_id}",
+        { repository_id: parseInt(repo, 10) }
+      );
+      owner = repoMeta.owner.login;
+      repo = repoMeta.name;
+      logger.info({
+        msg: "repoOps: resolved numeric repo ID to slug",
+        repoFullName,
+        resolvedOwner: owner,
+        resolvedRepo: repo,
+      });
+    } catch (resolveErr) {
+      logger.warn({
+        msg: "repoOps: could not resolve numeric repo ID — proceeding with raw value",
+        repoFullName,
+        error: String(resolveErr),
+      });
+    }
+  }
+  return [owner, repo];
 }
 
 /**
