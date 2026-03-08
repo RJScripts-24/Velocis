@@ -480,7 +480,7 @@ export function DashboardPage() {
         </div>
 
         {/* MAIN CONTENT GRID */}
-        <div className="grid grid-cols-1 xl:grid-cols-[1fr_304px] items-start relative z-10 w-full max-w-[1920px] mx-auto px-3 xl:px-4">
+        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px] items-start relative z-10 w-full max-w-[1920px] mx-auto px-3 xl:px-4">
 
           {/* LEFT COLUMN */}
           <div className="p-6 md:p-8 lg:p-10 xl:pr-12">
@@ -614,7 +614,7 @@ export function DashboardPage() {
           </div>
 
           {/* RIGHT COLUMN - Activity & System Panels */}
-          <div className="hidden xl:flex flex-col gap-5 border-l border-zinc-200 dark:border-zinc-800 bg-slate-50/80 dark:bg-[#0A0A0E] backdrop-blur-xl p-5 z-20 w-[304px] shrink-0 pb-20">
+          <div className="hidden xl:flex flex-col gap-5 border-l border-zinc-200 dark:border-zinc-800 bg-slate-50/80 dark:bg-[#0A0A0E] backdrop-blur-xl p-5 z-20 w-full max-w-[340px] shrink-0 pb-20">
             <div className="flex-1 flex flex-col gap-5">
 
               {/* ACTIVITY PANEL */}
