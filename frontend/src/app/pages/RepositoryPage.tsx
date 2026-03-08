@@ -249,7 +249,6 @@ const QAPipelineInfrastructure = ({ isDarkMode }: { isDarkMode: boolean }) => {
     >
       <div className="w-full h-full relative">
         <MetallicPaint
-          imageSrc="/src/components/MetallicPaint.svg"
           seed={42}
           scale={2.5}
           patternSharpness={1.2}
