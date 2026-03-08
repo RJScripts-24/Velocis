@@ -296,8 +296,10 @@ export function DashboardPage() {
 
   const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-  const sanitizeActivityMessage = (message: string, repoId?: string, resolvedRepoName?: string) => {
-    let nextMessage = message;
+  const sanitizeActivityMessage = (message?: string | null, repoId?: string, resolvedRepoName?: string) => {
+    let nextMessage = typeof message === 'string' ? message : '';
+
+    if (!nextMessage) return nextMessage;
 
     if (repoId && resolvedRepoName && !looksLikeRepoId(resolvedRepoName)) {
       const repoIdRegex = new RegExp(`\\b${escapeRegExp(repoId)}\\b`, 'g');
