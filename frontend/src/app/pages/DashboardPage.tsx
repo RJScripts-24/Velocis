@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { Search, Home, Star, Sun, Moon, Loader2, LogOut, MoreVertical, Trash2, GraduationCap } from 'lucide-react';
+import { Search, Home, Star, Sun, Moon, Loader2, MoreVertical, Trash2 } from 'lucide-react';
 import type { DashboardResponse, ActivityEvent, SystemHealth } from '../../lib/api';
 import { deleteRepo, getSessionRepos } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { useTheme } from '../../lib/theme';
 import { useTutorial, TUTORIAL_KEY, DASHBOARD_STEPS } from '../../lib/tutorial';
 import LoadingAnimation from '../components/LoadingAnimation';
+import { AppNavbarProfile } from '../components/AppNavbarProfile';
 import lightLogoImg from '../../../LightLogo.png';
 import darkLogoImg from '../../../DarkLogo.png';
 // Default initial values for data while loading or on failure
@@ -255,7 +256,7 @@ export function DashboardPage() {
   const [activityTab, setActivityTab] = useState("all");
   const { isDarkMode, setIsDarkMode } = useTheme();
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const { start } = useTutorial();
 
   const [dashboardData, setDashboardData] = useState<DashboardResponse>(INITIAL_DASHBOARD);
@@ -263,7 +264,6 @@ export function DashboardPage() {
   const [systemHealth, setSystemHealth] = useState<SystemHealth>(MOCK_HEALTH);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
-  const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [repoNameCache, setRepoNameCache] = useState<Record<string, string>>(() => {
     try {
       if (typeof window === 'undefined') return {};
@@ -558,49 +558,14 @@ export function DashboardPage() {
                 {isDarkMode ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
               </button>
 
-              <div id="tutorial-profile" className="relative">
-                <div className="absolute inset-0 bg-indigo-500/20 blur-md rounded-full" />
-                <button
-                  onClick={() => setIsProfileOpen(!isProfileOpen)}
-                  onBlur={() => setTimeout(() => setIsProfileOpen(false), 150)}
-                  className="w-8 h-8 rounded-full flex items-center justify-center bg-white dark:bg-slate-800 border border-indigo-100 dark:border-indigo-500/30 relative shadow-sm cursor-pointer hover:scale-105 transition-transform text-indigo-600 dark:text-indigo-400 font-bold text-sm"
-                >
-                  {dashboardData?.user.name?.[0]?.toUpperCase() ?? user?.name?.[0]?.toUpperCase() ?? 'U'}
-                </button>
-
-                {isProfileOpen && (
-                  <div className="absolute right-0 mt-2 w-52 bg-white dark:bg-[#111114] border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-lg py-1 z-50 animate-in fade-in zoom-in duration-150">
-                    <div className="px-4 py-2 border-b border-zinc-100 dark:border-zinc-800 mb-1">
-                      <p className="text-sm font-semibold text-zinc-900 dark:text-slate-100 truncate">
-                        {dashboardData?.user.name ?? user?.name ?? 'Developer'}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => {
-                        setIsProfileOpen(false);
-                        localStorage.removeItem(TUTORIAL_KEY);
-                        setTimeout(() => start(DASHBOARD_STEPS, TUTORIAL_KEY), 80);
-                      }}
-                      className="w-full text-left px-4 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800/60 flex items-center gap-2 transition-colors"
-                    >
-                      <GraduationCap className="w-4 h-4" />
-                      Start Tutorial
-                    </button>
-                    <div className="mx-3 my-1 border-t border-zinc-100 dark:border-zinc-800" />
-                    <button
-                      onClick={() => {
-                        logout().finally(() => {
-                          window.location.href = '/auth';
-                        });
-                      }}
-                      className="w-full text-left px-4 py-2 text-sm text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 flex items-center gap-2 transition-colors"
-                    >
-                      <LogOut className="w-4 h-4" />
-                      Sign Out
-                    </button>
-                  </div>
-                )}
-              </div>
+              <AppNavbarProfile
+                id="tutorial-profile"
+                userName={dashboardData?.user.name ?? user?.name ?? 'Developer'}
+                onTutorial={() => {
+                  localStorage.removeItem(TUTORIAL_KEY);
+                  setTimeout(() => start(DASHBOARD_STEPS, TUTORIAL_KEY), 80);
+                }}
+              />
             </div>
           </div>
         </div>
