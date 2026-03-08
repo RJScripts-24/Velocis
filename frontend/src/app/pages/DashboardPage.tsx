@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { Search, Home, Star, Sun, Moon, Loader2, LogOut, MoreVertical, Trash2, GraduationCap } from 'lucide-react';
 import type { DashboardResponse, ActivityEvent, SystemHealth } from '../../lib/api';
@@ -30,6 +30,96 @@ const INITIAL_DASHBOARD: DashboardResponse = {
 };
 
 const BACKEND_URL = import.meta.env.VITE_API_BASE_URL as string;
+
+const DashboardNetworkBackground: React.FC = () => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const rafRef = useRef<number>(0);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const resize = () => {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    };
+
+    resize();
+    window.addEventListener('resize', resize);
+
+    const isMobile = window.innerWidth < 768;
+    const nodeCount = isMobile ? 28 : 60;
+    const nodes = Array.from({ length: nodeCount }, () => ({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      vx: (Math.random() - 0.5) * 0.32,
+      vy: (Math.random() - 0.5) * 0.32,
+      r: 1.2 + Math.random() * 1.4,
+    }));
+
+    const linePalette = [
+      [26, 127, 60],   // green
+      [109, 40, 217],  // purple
+      [37, 99, 235],   // blue
+    ] as const;
+
+    const draw = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      for (let i = 0; i < nodes.length; i += 1) {
+        const a = nodes[i];
+
+        for (let j = i + 1; j < nodes.length; j += 1) {
+          const b = nodes[j];
+          const dx = a.x - b.x;
+          const dy = a.y - b.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          if (dist < 130) {
+            const alpha = (1 - dist / 130) * 0.2;
+            const [r, g, bch] = linePalette[(i + j) % linePalette.length];
+            ctx.beginPath();
+            ctx.strokeStyle = `rgba(${r}, ${g}, ${bch}, ${alpha})`;
+            ctx.lineWidth = 1;
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(b.x, b.y);
+            ctx.stroke();
+          }
+        }
+
+        ctx.beginPath();
+        ctx.arc(a.x, a.y, a.r, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(100, 116, 139, 0.22)';
+        ctx.fill();
+
+        a.x += a.vx;
+        a.y += a.vy;
+
+        if (a.x < 0 || a.x > canvas.width) a.vx *= -1;
+        if (a.y < 0 || a.y > canvas.height) a.vy *= -1;
+      }
+
+      rafRef.current = requestAnimationFrame(draw);
+    };
+
+    draw();
+
+    return () => {
+      cancelAnimationFrame(rafRef.current);
+      window.removeEventListener('resize', resize);
+    };
+  }, []);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="pointer-events-none fixed inset-0 z-0"
+      aria-hidden="true"
+    />
+  );
+};
 
 export const CommitBarChart = ({
   data,
@@ -272,6 +362,8 @@ export function DashboardPage() {
       `}</style>
 
       <div className="min-h-screen flex flex-col font-['JetBrains_Mono',_monospace] bg-[#f6f7fb] dark:bg-[#0A0A0E] text-zinc-900 dark:text-slate-100 transition-colors duration-300 relative overflow-x-hidden">
+
+        <DashboardNetworkBackground />
 
         {/* Global Noise Texture Overlay */}
         <div
