@@ -186,6 +186,7 @@ export function WorkspacePage() {
   const [commitMessage, setCommitMessage] = useState('');
   const [pushAuthError, setPushAuthError] = useState('');
   const [installAppUrl, setInstallAppUrl] = useState('');
+  const [injectableCode, setInjectableCode] = useState<string | null>(null);
 
   // Dark mode state
   const { isDarkMode, setIsDarkMode } = useTheme();
@@ -202,6 +203,38 @@ export function WorkspacePage() {
 
   // Apply dark class to an enclosing wrapper
   const themeClass = isDarkMode ? 'dark' : '';
+
+  const extractInjectableCode = (text?: string) => {
+    if (!text) return null;
+    const fencedMatches = [...text.matchAll(/```[\w-]*\n([\s\S]*?)```/g)];
+    if (fencedMatches.length === 0) return null;
+    const merged = fencedMatches
+      .map((match) => (match[1] || '').trim())
+      .filter(Boolean)
+      .join('\n\n');
+    return merged || null;
+  };
+
+  const handleInjectCode = () => {
+    if (!selectedFile || !injectableCode) return;
+
+    const current = codeContent ?? '';
+    const separator = current.trim().length > 0 ? '\n\n' : '';
+    const injectedBlock = `// Sentinal Thoughts......\n${injectableCode.trim()}`;
+    const next = `${current}${separator}${injectedBlock}\n`;
+
+    setCodeContent(next);
+    setEditedFiles(prev => {
+      const nextMap = { ...prev };
+      const base = baseFileContents[selectedFile];
+      if (base !== undefined && base === next) {
+        delete nextMap[selectedFile];
+      } else {
+        nextMap[selectedFile] = next;
+      }
+      return nextMap;
+    });
+  };
 
   const registerLoadedFileContent = (filePath: string, content: string) => {
     setCodeContent(content);
@@ -425,6 +458,7 @@ export function WorkspacePage() {
 
   const handleSendMessage = async () => {
     if (!inputValue.trim() || !id) return;
+    setInjectableCode(null);
     const text = inputValue;
     let translatedText = text;
     if (language !== 'en') {
@@ -476,6 +510,7 @@ export function WorkspacePage() {
         autoFixApplied: !!res.auto_fix,
         timestamp: res.timestamp_ago,
       };
+      setInjectableCode(extractInjectableCode(res.content));
       setMessages(prev => {
         const updated = [...prev, reply];
         try { localStorage.setItem(`velocis:workspace:chat:${id}`, JSON.stringify({ messages: updated })); } catch { }
@@ -1012,16 +1047,28 @@ export function WorkspacePage() {
                     ))}
                   </div>
                 </div>
-                <button
-                  id="workspace-review-btn"
-                  onClick={handleReviewCode}
-                  disabled={isReviewing || !id}
-                  className="cta-btn w-full min-w-[110px] px-3 py-1.5 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1.5"
-                  style={{ backgroundColor: 'var(--cta-primary)', color: 'var(--cta-text)' }}
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>{isReviewing ? 'Reviewing...' : 'Review Code'}</span>
-                </button>
+                <div className="flex items-center gap-2 w-full">
+                  <button
+                    id="workspace-review-btn"
+                    onClick={handleReviewCode}
+                    disabled={isReviewing || !id}
+                    className="cta-btn flex-1 min-w-[110px] px-3 py-1.5 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1.5"
+                    style={{ backgroundColor: 'var(--cta-primary)', color: 'var(--cta-text)' }}
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>{isReviewing ? 'Reviewing...' : 'Review Code'}</span>
+                  </button>
+                  <button
+                    id="workspace-inject-btn"
+                    onClick={handleInjectCode}
+                    disabled={!injectableCode || !selectedFile}
+                    className="cta-btn flex-1 min-w-[90px] px-3 py-1.5 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                    style={{ backgroundColor: 'var(--cta-primary)', color: 'var(--cta-text)' }}
+                  >
+                    <FileCode className="w-3.5 h-3.5" />
+                    <span>Inject</span>
+                  </button>
+                </div>
               </div>
             </div>
 
