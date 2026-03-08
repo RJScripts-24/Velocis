@@ -211,6 +211,8 @@ export interface DashboardRepo {
   last_scanned_at?: string | null;
   commit_sparkline: number[];
   total_commits?: number;
+  commit_timeline_start?: string | null;
+  commit_timeline_end?: string | null;
   commit_trend_label: string;
   commit_trend_direction: 'up' | 'down' | 'volatile';
   installed_at?: string;

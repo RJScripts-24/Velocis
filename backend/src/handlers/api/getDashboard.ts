@@ -33,6 +33,21 @@ import * as crypto from "crypto";
 interface CommitHistorySeries {
   monthlyCounts: number[];
   totalCommits: number;
+  timelineStartMonth: string | null;
+  timelineEndMonth: string | null;
+}
+
+function incrementMonth(monthKey: string): string {
+  const [y, m] = monthKey.split("-").map((v) => Number(v));
+  if (!Number.isFinite(y) || !Number.isFinite(m)) return monthKey;
+  const nextYear = m === 12 ? y + 1 : y;
+  const nextMonth = m === 12 ? 1 : m + 1;
+  return `${String(nextYear).padStart(4, "0")}-${String(nextMonth).padStart(2, "0")}`;
+}
+
+function getCurrentMonthKey(): string {
+  const now = new Date();
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
 /**
@@ -76,12 +91,39 @@ async function fetchAllTimeCommitHistory(
     }
 
     const orderedMonths = Array.from(monthCount.keys()).sort();
+    if (orderedMonths.length === 0) {
+      return {
+        monthlyCounts: [],
+        totalCommits,
+        timelineStartMonth: null,
+        timelineEndMonth: null,
+      };
+    }
+
+    const timelineStartMonth = orderedMonths[0];
+    const timelineEndMonth = getCurrentMonthKey();
+    const denseMonths: string[] = [];
+    let cursor = timelineStartMonth;
+    let guard = 0;
+    while (cursor <= timelineEndMonth && guard < 1200) {
+      denseMonths.push(cursor);
+      cursor = incrementMonth(cursor);
+      guard += 1;
+    }
+
     return {
-      monthlyCounts: orderedMonths.map((m) => monthCount.get(m) ?? 0),
+      monthlyCounts: denseMonths.map((m) => monthCount.get(m) ?? 0),
       totalCommits,
+      timelineStartMonth,
+      timelineEndMonth,
     };
   } catch {
-    return { monthlyCounts: [], totalCommits: 0 };
+    return {
+      monthlyCounts: [],
+      totalCommits: 0,
+      timelineStartMonth: null,
+      timelineEndMonth: null,
+    };
   }
 }
 
@@ -303,6 +345,8 @@ export const handler = async (
   // ── Fetch sparklines in parallel for all repos ─────────────────────────────
   const sparklineMap: Record<string, number[]> = {};
   const totalCommitsMap: Record<string, number> = {};
+  const timelineStartMap: Record<string, string | null> = {};
+  const timelineEndMap: Record<string, string | null> = {};
   if (githubToken) {
     await Promise.all(
       uniqueRepos.map(async (r) => {
@@ -318,6 +362,8 @@ export const handler = async (
           const commitHistory = await fetchAllTimeCommitHistory(owner, name, githubToken);
           sparklineMap[id] = commitHistory.monthlyCounts;
           totalCommitsMap[id] = commitHistory.totalCommits;
+          timelineStartMap[id] = commitHistory.timelineStartMonth;
+          timelineEndMap[id] = commitHistory.timelineEndMonth;
         }
       })
     );
@@ -354,6 +400,8 @@ export const handler = async (
       last_scanned_at: r.lastReviewAt ?? r.lastScannedAt ?? r.automationReport?.completedAt ?? null,
       commit_sparkline: sparkline,
       total_commits: total,
+      commit_timeline_start: timelineStartMap[id] ?? null,
+      commit_timeline_end: timelineEndMap[id] ?? null,
       commit_trend_label: trendLabel,
       commit_trend_direction: trendDirection,
       installed_at: r.createdAt || r.updatedAt || r.lastProcessedAt || r.lastPushAt || r.lastScannedAt,

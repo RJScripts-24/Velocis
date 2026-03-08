@@ -136,17 +136,19 @@ export const CommitBarChart = ({
   const displayData = data.length > 0 ? data : [0];
 
   const max = Math.max(...displayData) || 1;
-  const chartWidth = Math.max(displayData.length * 5, 220);
 
   return (
-    <div className="w-full overflow-x-auto scrollbar-hide">
-      <div className="flex items-end gap-1 h-[40px]" style={{ width: `${chartWidth}px` }}>
+    <div className="w-full rounded-lg bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-100 dark:border-zinc-800 px-2 py-2">
+      <div
+        className="grid items-end gap-[2px] w-full h-[56px]"
+        style={{ gridTemplateColumns: `repeat(${displayData.length}, minmax(0, 1fr))` }}
+      >
         {displayData.map((v, i) => (
           <div
             key={i}
-            className="w-1 shrink-0 rounded-t-[1px]"
+            className="w-full rounded-t-[1px]"
             style={{
-              height: `${Math.max(4, (v / max) * 100)}%`,
+              height: `${Math.max(5, (v / max) * 100)}%`,
               backgroundColor: color,
               opacity: i === displayData.length - 1 ? 1 : 0.3 + (i / displayData.length) * 0.6,
             }}
@@ -683,7 +685,9 @@ export function DashboardPage() {
                       <div className="mt-4 pt-4 border-t border-zinc-100 dark:border-zinc-800 cursor-pointer" onClick={() => navigate(`/repo/${repo.id}`)}>
                         <div className="flex items-center justify-between mb-2">
                           <div className="text-[10px] font-medium text-zinc-400 dark:text-slate-500">
-                            All-time monthly commit history
+                            {repo.commit_timeline_start
+                              ? `${new Date(`${repo.commit_timeline_start}-01T00:00:00Z`).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })} to ${new Date(`${(repo.commit_timeline_end ?? repo.commit_timeline_start)}-01T00:00:00Z`).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`
+                              : 'All-time monthly commit history'}
                           </div>
                           {(repo.total_commits ?? 0) > 0 && (
                             <div className="text-[11px] font-bold text-zinc-600 dark:text-zinc-300">
