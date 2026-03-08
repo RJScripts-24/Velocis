@@ -1196,15 +1196,16 @@ function CortexPageContent() {
   /* ── Node click ─────────────────────────────────────────────────────── */
   const onNodeClick = useCallback(async (_: React.MouseEvent, node: Node) => {
     if (viewMode === 'services') {
-      // Only service nodes should trigger drilldown; ignore swimlane/background nodes.
-      if (node.type !== 'serviceNode' || !repoId) return;
+      if (!repoId) return;
 
       const svcData = node.data as Partial<ServiceData>;
-      const serviceId = Number(svcData?.id ?? node.id);
-      if (!Number.isFinite(serviceId)) return;
+      const candidateId = svcData?.id ?? node.id;
 
-      const resolvedService = services.find(s => s.id === serviceId)
-        ?? ({ ...(svcData as ServiceData), id: serviceId } as ServiceData);
+      // Resolve from the canonical services state so drill-down works even if
+      // ReactFlow node metadata is partial or node.type is not set as expected.
+      const resolvedService = services.find(s => String(s.id) === String(candidateId));
+      if (!resolvedService) return;
+      const serviceId = resolvedService.id;
 
       setSelectedService(resolvedService);
       setDrilledService(resolvedService); setSelectedFileNode(null); setLoading(true);
@@ -1345,7 +1346,7 @@ function CortexPageContent() {
         }));
       }
     }
-  }, [viewMode, repoId, setNodes, setEdges, fileNodeDataList, selectedFileNode, edges]); // fitView via ref — no dep needed
+  }, [viewMode, repoId, services, setNodes, setEdges, fileNodeDataList, selectedFileNode, edges]); // fitView via ref — no dep needed
 
   const onConnect = useCallback((p: Connection) => setEdges(eds => addEdge(p, eds)), [setEdges]);
 
@@ -1423,7 +1424,7 @@ function CortexPageContent() {
           {/* Right actions */}
           <div className="flex items-center gap-2">
 
-            <button onClick={() => setIsDark(p => !p)} title="Toggle theme" className="p-1.5 rounded-md" style={{ color: muted }}
+            <button onClick={() => setIsDark(!isDark)} title="Toggle theme" className="p-1.5 rounded-md" style={{ color: muted }}
               onMouseEnter={e => (e.currentTarget.style.backgroundColor = isDark ? '#1e2535' : '#f3f4f6')}
               onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}>
               {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
