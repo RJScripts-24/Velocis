@@ -16,6 +16,7 @@ import * as jwt from "jsonwebtoken";
 import { randomUUID, createHash } from "crypto";
 import {
   QueryCommand,
+  ScanCommand,
   PutCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { ok, errors, preflight, extractBearerToken } from "../../utils/apiResponse.js";
@@ -68,6 +69,51 @@ async function requireAuth(event: APIGatewayProxyEvent) {
   }
 }
 
+/**
+ * Queries the AI activity table by repoId + agent using the GSI when
+ * available, falling back to a full Scan when the index hasn't been
+ * provisioned yet (e.g. local development tables).
+ */
+async function queryActivityByRepoId(params: {
+  repoId: string;
+  agent: string;
+  limit?: number;
+  scanIndexForward?: boolean;
+}): Promise<any[]> {
+  const { repoId, agent, limit = 20, scanIndexForward = false } = params;
+  try {
+    const res = await getDocClient().send(
+      new QueryCommand({
+        TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
+        IndexName: "repoId-createdAt-index",
+        KeyConditionExpression: "repoId = :r",
+        FilterExpression: "#agent = :agent",
+        ExpressionAttributeNames: { "#agent": "agent" },
+        ExpressionAttributeValues: { ":r": repoId, ":agent": agent },
+        ScanIndexForward: scanIndexForward,
+        Limit: limit,
+      })
+    );
+    return res.Items ?? [];
+  } catch (e: any) {
+    if (!e?.message?.includes("does not have the specified index")) throw e;
+    // Fallback: full table scan filtered in-memory
+    const res = await getDocClient().send(
+      new ScanCommand({
+        TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
+        FilterExpression: "repoId = :r AND #agent = :agent",
+        ExpressionAttributeNames: { "#agent": "agent" },
+        ExpressionAttributeValues: { ":r": repoId, ":agent": agent },
+      })
+    );
+    const sorted = (res.Items ?? []).sort((a: any, b: any) =>
+      (b.reviewedAt ?? b.createdAt ?? "").localeCompare(a.reviewedAt ?? a.createdAt ?? "")
+    );
+    const items = scanIndexForward ? sorted.reverse() : sorted;
+    return items.slice(0, limit);
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // HANDLER: GET /repos/:repoId/sentinel/prs
 // ─────────────────────────────────────────────────────────────────────────────
@@ -85,21 +131,8 @@ export const listPrs = async (
 
   let prs: any[] = [];
   try {
-    // Sentinel writes commit-level reviews to DYNAMO_AI_ACTIVITY_TABLE
-    // with PK=REPO#<repoId> and SK=SENTINEL#<commitSha>
-    const res = await getDocClient().send(
-      new QueryCommand({
-        TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
-        IndexName: "repoId-createdAt-index",
-        KeyConditionExpression: "repoId = :r",
-        FilterExpression: "#agent = :agent",
-        ExpressionAttributeNames: { "#agent": "agent" },
-        ExpressionAttributeValues: { ":r": repoId, ":agent": "sentinel" },
-        ScanIndexForward: false, // newest first
-        Limit: 20,
-      })
-    );
-    prs = (res.Items ?? []).map((p: any, i: number) => ({
+    const items = await queryActivityByRepoId({ repoId, agent: "sentinel", limit: 20 });
+    prs = items.map((p: any, i: number) => ({
       pr_number:  i + 1,
       title:      `Commit ${(p.commitSha ?? "").slice(0, 7)}`,
       author:     p.outputLanguage ?? "en",
@@ -142,19 +175,7 @@ export const getPrDetail = async (
   // prNumber maps to a positional index — fetch all and pick the nth
   let pr: any;
   try {
-    const res = await getDocClient().send(
-      new QueryCommand({
-        TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
-        IndexName: "repoId-createdAt-index",
-        KeyConditionExpression: "repoId = :r",
-        FilterExpression: "#agent = :agent",
-        ExpressionAttributeNames: { "#agent": "agent" },
-        ExpressionAttributeValues: { ":r": repoId, ":agent": "sentinel" },
-        ScanIndexForward: false,
-        Limit: parseInt(prNumber, 10) + 1,
-      })
-    );
-    const items = res.Items ?? [];
+    const items = await queryActivityByRepoId({ repoId, agent: "sentinel", limit: parseInt(prNumber, 10) + 1 });
     pr = items[parseInt(prNumber, 10) - 1];
   } catch (e: any) {
     logger.error({ repoId, msg: "getPrDetail failed", error: e?.message });
@@ -246,20 +267,7 @@ export const getSentinelActivity = async (
 
   let events: any[] = [];
   try {
-    // Sentinel writes reviews to AI_ACTIVITY table — surface them as activity events
-    const res = await getDocClient().send(
-      new QueryCommand({
-        TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
-        IndexName: "repoId-createdAt-index",
-        KeyConditionExpression: "repoId = :r",
-        FilterExpression: "#agent = :agent",
-        ExpressionAttributeNames: { "#agent": "agent" },
-        ExpressionAttributeValues: { ":r": repoId, ":agent": "sentinel" },
-        ScanIndexForward: false,
-        Limit: limit * page,
-      })
-    );
-    const all = res.Items ?? [];
+    const all = await queryActivityByRepoId({ repoId, agent: "sentinel", limit: limit * page });
     const start = (page - 1) * limit;
     events = all.slice(start, start + limit).map((e: any, i: number) => ({
       id:             e.activityId ?? `sentinel-${i}`,

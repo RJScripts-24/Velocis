@@ -287,18 +287,40 @@ export const handler = async (
     return true;
   });
 
+  // ── Resolve numeric repoNames to real slugs before any GitHub API call ──────
+  // DynamoDB records may have the raw GitHub numeric ID stored as repoName.
+  // The GitHub API only accepts slugs in owner/repo paths, so we resolve first.
+  const resolvedNameMap: Record<string, string> = {};
+  if (githubToken) {
+    await Promise.all(
+      uniqueRepos.map(async (r) => {
+        const id = String(r.repoId ?? r.repoSlug ?? "");
+        const candidate = String(r.repoName ?? r.repoSlug ?? "");
+        if (id && /^\d{7,}$/.test(candidate)) {
+          try {
+            const res = await axios.get(`https://api.github.com/repositories/${candidate}`, {
+              headers: { "User-Agent": "Velocis-App", Authorization: `Bearer ${githubToken}` },
+              timeout: 5000,
+            });
+            if (res.data?.name) resolvedNameMap[id] = res.data.name;
+          } catch { /* non-fatal */ }
+        }
+      })
+    );
+  }
+
   // ── Fetch sparklines in parallel for all repos ─────────────────────────────
   const sparklineMap: Record<string, number[]> = {};
   const totalCommitsMap: Record<string, number> = {};
   if (githubToken) {
     await Promise.all(
       uniqueRepos.map(async (r) => {
+        const id = String(r.repoId ?? r.repoSlug ?? "");
         const owner: string | undefined =
           r.repoOwner ??
           (r.repoFullName ? String(r.repoFullName).split('/')[0] : undefined);
-        const name: string | undefined = r.repoName ?? r.repoSlug;
-        const id = String(r.repoId ?? r.repoSlug ?? "");
-        if (owner && name && id) {
+        const name: string | undefined = resolvedNameMap[id] ?? r.repoName ?? r.repoSlug;
+        if (owner && name && id && !/^\d{7,}$/.test(name)) {
           const [sparkline, total] = await Promise.all([
             fetchSparkline(owner, name, githubToken),
             fetchTotalCommits(owner, name, githubToken),
@@ -326,7 +348,7 @@ export const handler = async (
     }
     return {
       id,
-      name: r.repoName ?? r.repoSlug,
+      name: resolvedNameMap[String(r.repoId ?? r.repoSlug ?? "")] ?? r.repoName ?? r.repoSlug,
       status: r.status ?? "healthy",
       language: r.language ?? null,
       last_activity: (r.lastActivity ?? []).map((a: any) => ({

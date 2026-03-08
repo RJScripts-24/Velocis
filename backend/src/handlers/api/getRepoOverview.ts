@@ -194,18 +194,35 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
   const PIPELINE_TABLE = process.env.PIPELINE_TABLE ?? "velocis-pipeline-runs";
 
   try {
-    // Latest PR Risk from Sentinel — query AI_ACTIVITY table via repoId GSI
-    const sentinelRes = await getDocClient().send(new QueryCommand({
-      TableName: DYNAMO_TABLES.AI_ACTIVITY,
-      IndexName: "repoId-createdAt-index",
-      KeyConditionExpression: "repoId = :r",
-      FilterExpression: "#agent = :agent",
-      ExpressionAttributeNames: { "#agent": "agent" },
-      ExpressionAttributeValues: { ":r": repoId, ":agent": "sentinel" },
-      ScanIndexForward: false,
-      Limit: 1,
-    }));
-    const latestPr = (sentinelRes.Items ?? [])[0];
+    // Latest PR Risk from Sentinel — query AI_ACTIVITY table via repoId GSI,
+    // falling back to a Scan when the index hasn't been provisioned yet.
+    let sentinelItems: any[] = [];
+    try {
+      const sentinelRes = await getDocClient().send(new QueryCommand({
+        TableName: DYNAMO_TABLES.AI_ACTIVITY,
+        IndexName: "repoId-createdAt-index",
+        KeyConditionExpression: "repoId = :r",
+        FilterExpression: "#agent = :agent",
+        ExpressionAttributeNames: { "#agent": "agent" },
+        ExpressionAttributeValues: { ":r": repoId, ":agent": "sentinel" },
+        ScanIndexForward: false,
+        Limit: 1,
+      }));
+      sentinelItems = sentinelRes.Items ?? [];
+    } catch (qErr: any) {
+      if (qErr?.message?.includes("does not have the specified index")) {
+        const scanRes = await getDocClient().send(new ScanCommand({
+          TableName: DYNAMO_TABLES.AI_ACTIVITY,
+          FilterExpression: "repoId = :r AND #agent = :agent",
+          ExpressionAttributeNames: { "#agent": "agent" },
+          ExpressionAttributeValues: { ":r": repoId, ":agent": "sentinel" },
+        }));
+        sentinelItems = (scanRes.Items ?? []).sort((a: any, b: any) =>
+          (b.reviewedAt ?? b.createdAt ?? "").localeCompare(a.reviewedAt ?? a.createdAt ?? "")
+        ).slice(0, 1);
+      } else throw qErr;
+    }
+    const latestPr = sentinelItems[0];
     if (latestPr) {
       prRiskScore = latestPr.overallRisk ?? prRiskScore;
 
