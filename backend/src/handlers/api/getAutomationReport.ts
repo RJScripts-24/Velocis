@@ -7,7 +7,7 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import * as jwt from "jsonwebtoken";
 import * as crypto from "crypto";
-import { ScanCommand } from "@aws-sdk/lib-dynamodb";
+import { ScanCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
 import { ok, errors, preflight, extractBearerToken } from "../../utils/apiResponse.js";
 import { logger } from "../../utils/logger.js";
 import { dynamoClient, DYNAMO_TABLES, getDocClient } from "../../services/database/dynamoClient.js";
@@ -103,8 +103,43 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
             } catch { /* ignore */ }
         }
 
-        // Read the automationReport field from the repo document
-        const automationReport = repo?.automationReport;
+        // Read the automationReport field from the repo document.
+        // triggerAutomation persists reports by numeric repo id (pk), which can be
+        // a different record than the user-scoped settings record found via scan.
+        let reportSource: Record<string, any> | undefined = repo;
+
+        if (repo) {
+            const numericRepoId = String(repo.repoId ?? repo.id ?? repoId);
+            try {
+                const direct = await docClient.send(new GetCommand({
+                    TableName: DYNAMO_TABLES.REPOSITORIES,
+                    Key: { pk: numericRepoId },
+                }));
+                const directItem = direct.Item as Record<string, any> | undefined;
+                if (directItem) {
+                    // Accept if owned by user, or if it is the report shadow record
+                    // without userId created by legacy/partial writes.
+                    if (directItem.userId === userId || directItem.userId == null) {
+                        reportSource = directItem;
+                    }
+                }
+            } catch {
+                try {
+                    const directFallback = await docClient.send(new GetCommand({
+                        TableName: process.env.REPOS_TABLE ?? "velocis-repos",
+                        Key: { pk: numericRepoId },
+                    }));
+                    const fallbackItem = directFallback.Item as Record<string, any> | undefined;
+                    if (fallbackItem && (fallbackItem.userId === userId || fallbackItem.userId == null)) {
+                        reportSource = fallbackItem;
+                    }
+                } catch {
+                    /* ignore */
+                }
+            }
+        }
+
+        const automationReport = reportSource?.automationReport ?? repo?.automationReport;
 
         if (!automationReport) {
             return ok({
