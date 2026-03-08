@@ -488,7 +488,7 @@ export function DashboardPage() {
                         {repo.last_activity.slice(0, 2).map((act, ai) => (
                           <div key={ai} className="flex items-center p-2 -mx-2 rounded-lg gap-2 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
                             <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${agentColors[act.agent]?.replace('text-', 'bg-').split(' ')[0] ?? 'bg-zinc-400'}`} />
-                            <div className={`text-xs font-bold shrink-0 ${agentColors[act.agent] ?? 'text-zinc-500'}`}>{act.agent.charAt(0).toUpperCase() + act.agent.slice(1)} →</div>
+                            <div className={`text-xs font-bold shrink-0 ${agentColors[act.agent] ?? 'text-zinc-500'}`}>{act.agent ? act.agent.charAt(0).toUpperCase() + act.agent.slice(1) : ''} →</div>
                             <div className={`text-[13px] font-medium flex-1 truncate ${severityFg[act.severity] ?? 'text-zinc-600 dark:text-zinc-400'}`}>{act.message}</div>
                             <div className="text-[11px] font-medium text-zinc-400 dark:text-slate-500 shrink-0">{act.timestamp_ago}</div>
                           </div>

@@ -545,7 +545,7 @@ export function RepositoryPage() {
   const agentIconMap: Record<string, React.ElementType> = { sentinel: Shield, fortress: TestTube2, cortex: Cloud };
   const agentColorMap: Record<string, string> = { sentinel: '#6366f1', fortress: '#3b82f6', cortex: '#10b981' };
   const activityItems = repoActivity.map(e => ({
-    agent: e.agent.toUpperCase(),
+    agent: (e.agent ?? '').toUpperCase(),
     icon: agentIconMap[e.agent] ?? Bot,
     time: e.timestamp_ago,
     text: e.message,

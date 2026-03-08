@@ -1156,7 +1156,7 @@ export function WorkspacePage() {
                                   {message.reviewData.findings.slice(0, 3).map((finding, findingIndex) => (
                                     <div key={`${finding.filePath}-${findingIndex}`} className="rounded-lg border border-zinc-200 dark:border-slate-700 bg-zinc-50/80 dark:bg-slate-900/60 p-2.5">
                                       <div className="text-[11px] font-semibold text-zinc-800 dark:text-slate-100">
-                                        [{finding.severity.toUpperCase()}] {finding.filePath}{finding.line ? `:${finding.line}` : ''}
+                                        [{(finding.severity ?? '').toUpperCase()}] {finding.filePath}{finding.line ? `:${finding.line}` : ''}
                                       </div>
                                       <div className="text-[12px] text-zinc-600 dark:text-slate-300 mt-1">
                                         {finding.title}
