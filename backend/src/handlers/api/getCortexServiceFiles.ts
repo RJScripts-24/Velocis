@@ -52,6 +52,16 @@ interface FileImport {
   functions: string[];  // Specific functions/symbols imported
 }
 
+function normalizePathForMatch(value: string): string {
+  return value
+    .replace(/\\/g, "/")
+    .replace(/^\.\//, "")
+    .replace(/^\/+/, "")
+    .replace(/\/+/g, "/")
+    .trim()
+    .toLowerCase();
+}
+
 export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   try {
     const { repoId, serviceId } = event.pathParameters || {};
@@ -133,18 +143,33 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
     
     logger.info(`Found graph with ${allNodes.length} nodes and ${allEdges.length} edges`);
 
-    // 3. Build a map from node.id to node for quick lookups
-    const nodeById = new Map<string, any>();
+    // 3. Build lookup maps so path variants (slashes/case/./) still resolve
+    const nodeByNormalizedPath = new Map<string, any>();
     allNodes.forEach((node: any) => {
-      nodeById.set(node.id, node);
+      const normalized = normalizePathForMatch(node.filePath || "");
+      if (!normalized || nodeByNormalizedPath.has(normalized)) return;
+      nodeByNormalizedPath.set(normalized, node);
     });
 
-    // 4. Filter nodes to only this service's files
-    const serviceNodes = allNodes.filter((node: any) => 
-      filePaths.includes(node.filePath)
-    );
+    // 4. Resolve service file paths against graph paths using normalized matching
+    const servicePathSet = new Set(filePaths.map((p) => normalizePathForMatch(p)).filter(Boolean));
+    const serviceNodes = Array.from(servicePathSet)
+      .map((normalizedPath) => nodeByNormalizedPath.get(normalizedPath))
+      .filter(Boolean);
     
     logger.info(`Service has ${filePaths.length} file paths, found ${serviceNodes.length} matching nodes`);
+
+    if (serviceNodes.length !== filePaths.length) {
+      const missing = filePaths
+        .filter((p) => !nodeByNormalizedPath.has(normalizePathForMatch(p)))
+        .slice(0, 8);
+      logger.warn({
+        repoId,
+        serviceId,
+        missingCount: filePaths.length - serviceNodes.length,
+        missingSample: missing,
+      }, "Service file paths not present in cortex graph");
+    }
 
     if (serviceNodes.length === 0) {
       return ok({
@@ -162,9 +187,12 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
     // 5. Build file nodes — importsFrom / importedBy / functions are stored directly on each
     //    CortexNode since the graphBuilder back-fills them at build time.
     const filePathToFileId = new Map<string, string>();
+    const rawNodeByNormalizedPath = new Map<string, any>();
     const fileNodes: FileNode[] = serviceNodes.map((node: any, index: number) => {
-      const fileId = (index + 1).toString();
-      filePathToFileId.set(node.filePath, fileId);
+      const fileId = String(node.id || index + 1);
+      const normalizedPath = normalizePathForMatch(node.filePath || "");
+      filePathToFileId.set(normalizedPath, fileId);
+      rawNodeByNormalizedPath.set(normalizedPath, node);
 
       return {
         id: fileId,
@@ -185,18 +213,19 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
     // 6. Build intra-service ReactFlow edges from importsFrom relationships
     const imports: FileImport[] = [];
     const intraServiceImportMap = new Map<string, FileImport>();
-    const serviceFilePaths = new Set(serviceNodes.map((n: any) => n.filePath as string));
+    const serviceFilePaths = new Set(serviceNodes.map((n: any) => normalizePathForMatch(n.filePath as string)));
 
     logger.info(`Building ${serviceNodes.length} file nodes; deriving edges from stored importsFrom`);
 
     for (const fileNode of fileNodes) {
-      const rawNode = serviceNodes.find((n: any) => n.filePath === fileNode.path);
+      const rawNode = rawNodeByNormalizedPath.get(normalizePathForMatch(fileNode.path));
       if (!rawNode) continue;
 
       for (const importedPath of (rawNode.importsFrom ?? [])) {
+        const normalizedImportedPath = normalizePathForMatch(importedPath);
         // Only draw ReactFlow edges for intra-service imports
-        if (!serviceFilePaths.has(importedPath)) continue;
-        const targetFileId = filePathToFileId.get(importedPath);
+        if (!serviceFilePaths.has(normalizedImportedPath)) continue;
+        const targetFileId = filePathToFileId.get(normalizedImportedPath);
         if (!targetFileId || targetFileId === fileNode.id) continue;
 
         const key = `${fileNode.id}→${targetFileId}`;
