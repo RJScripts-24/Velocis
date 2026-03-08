@@ -265,15 +265,20 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
 
   if (owner) {
     let resolvedRepoName = repo.repoName ?? null;
-    // When the stored repoName is absent, fall back to repoId. But if repoId
-    // is a raw numeric GitHub ID (7+ digits) rather than a slug, resolve it first
-    // via the GitHub API so we don't make a doomed request to /repos/owner/123456789.
-    if (!resolvedRepoName && /^\d{7,}$/.test(repoId)) {
+    // The stored repoName (or repoId fallback) may be a raw numeric GitHub
+    // repository ID rather than a human-readable slug. The GitHub commits API
+    // only accepts slugs in the owner/repo path, so we must resolve numeric
+    // values first via GET /repositories/{id}.
+    const nameToCheck = resolvedRepoName ?? repoId;
+    if (/^\d{7,}$/.test(nameToCheck)) {
       try {
         const headers: Record<string, string> = { "User-Agent": "Velocis-App" };
         if (githubToken) headers["Authorization"] = `Bearer ${githubToken}`;
-        const res = await axios.get(`https://api.github.com/repositories/${repoId}`, { headers, timeout: 5000 });
-        resolvedRepoName = res.data?.name ?? null;
+        const res = await axios.get(`https://api.github.com/repositories/${nameToCheck}`, { headers, timeout: 5000 });
+        if (res.data?.name) {
+          resolvedRepoName = res.data.name;
+          logger.info({ msg: "getRepoOverview: resolved numeric repo ID to slug", numericId: nameToCheck, slug: resolvedRepoName });
+        }
       } catch {
         // Non-fatal — fetchAllCommitsByMonth will simply return empty
       }
