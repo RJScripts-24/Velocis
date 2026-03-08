@@ -9,7 +9,7 @@ import {
 import { useNavigate, useParams } from 'react-router';
 import { useTheme } from '../../lib/theme';
 import type { RepoDetail, ActivityEvent } from '../../lib/api';
-import { getToken } from '../../lib/api';
+import { getSessionRepos, getToken } from '../../lib/api';
 import { useTutorial, REPO_TUTORIAL_KEY, REPO_STEPS } from '../../lib/tutorial';
 import lightLogoImg from '../../../LightLogo.png';
 import darkLogoImg from '../../../DarkLogo.png';
@@ -383,12 +383,59 @@ export function RepositoryPage() {
   const { isDarkMode, setIsDarkMode } = useTheme();
   const { start } = useTutorial();
   const looksLikeRepoId = (value?: string) => !!value && /^\d{6,}$/.test(value.trim());
+  const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  const sanitizeRepoRefs = (text: string) => {
+    let nextText = text;
+
+    if (id && resolvedRepoName && !looksLikeRepoId(resolvedRepoName)) {
+      const idRegex = new RegExp(`\\b${escapeRegExp(id)}\\b`, 'g');
+      nextText = nextText.replace(idRegex, resolvedRepoName);
+    }
+
+    for (const [cachedId, cachedName] of Object.entries(repoNameCache)) {
+      if (!cachedId || !cachedName || looksLikeRepoId(cachedName)) continue;
+      const idRegex = new RegExp(`\\b${escapeRegExp(cachedId)}\\b`, 'g');
+      nextText = nextText.replace(idRegex, cachedName);
+    }
+
+    return nextText;
+  };
+
   const resolvedRepoName = useMemo(() => {
     const currentName = (repo?.name ?? '').trim();
     if (currentName && !looksLikeRepoId(currentName)) return currentName;
     if (id && repoNameCache[id]) return repoNameCache[id];
     return currentName || 'Repository';
   }, [repo?.name, id, repoNameCache]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await getSessionRepos();
+        if (cancelled) return;
+        const next = { ...repoNameCache };
+        for (const repoItem of res.repos ?? []) {
+          const repoId = String(repoItem.id ?? '').trim();
+          const name = String(repoItem.name ?? '').trim();
+          if (!repoId || !name || looksLikeRepoId(name)) continue;
+          next[repoId] = name;
+        }
+        setRepoNameCache(next);
+        try {
+          window.localStorage.setItem('velocis:repoNameCache', JSON.stringify(next));
+        } catch {
+          // Non-fatal cache write issue.
+        }
+      } catch {
+        // Session repo lookup is best-effort.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Auto-launch repo tutorial on first visit
   useEffect(() => {
@@ -572,7 +619,7 @@ export function RepositoryPage() {
     agent: (e.agent ?? '').toUpperCase(),
     icon: agentIconMap[e.agent] ?? Bot,
     time: e.timestamp_ago,
-    text: e.message,
+    text: sanitizeRepoRefs(e.message),
     color: agentColorMap[e.agent] ?? '#94a3b8',
   }));
 

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { Search, Home, Star, Sun, Moon, Loader2, LogOut, MoreVertical, Trash2, GraduationCap } from 'lucide-react';
 import type { DashboardResponse, ActivityEvent, SystemHealth } from '../../lib/api';
-import { deleteRepo } from '../../lib/api';
+import { deleteRepo, getSessionRepos } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { useTheme } from '../../lib/theme';
 import { useTutorial, TUTORIAL_KEY, DASHBOARD_STEPS } from '../../lib/tutorial';
@@ -260,6 +260,27 @@ export function DashboardPage() {
     }
   };
 
+  const mergeRepoNameCacheFromSession = async () => {
+    try {
+      const res = await getSessionRepos();
+      const next = { ...repoNameCache };
+      for (const repo of res.repos ?? []) {
+        const repoId = String(repo.id ?? '').trim();
+        const name = String(repo.name ?? '').trim();
+        if (!repoId || !name || looksLikeRepoId(name)) continue;
+        next[repoId] = name;
+      }
+      setRepoNameCache(next);
+      try {
+        window.localStorage.setItem('velocis:repoNameCache', JSON.stringify(next));
+      } catch {
+        // Ignore cache write failures.
+      }
+    } catch {
+      // Session repo list is best-effort only.
+    }
+  };
+
   const resolveRepoDisplayName = (repoId?: string, fallbackName?: string) => {
     const preferred = (fallbackName ?? '').trim();
     if (preferred && !looksLikeRepoId(preferred)) return preferred;
@@ -271,6 +292,25 @@ export function DashboardPage() {
 
     if (preferred) return preferred;
     return 'Repository';
+  };
+
+  const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  const sanitizeActivityMessage = (message: string, repoId?: string, resolvedRepoName?: string) => {
+    let nextMessage = message;
+
+    if (repoId && resolvedRepoName && !looksLikeRepoId(resolvedRepoName)) {
+      const repoIdRegex = new RegExp(`\\b${escapeRegExp(repoId)}\\b`, 'g');
+      nextMessage = nextMessage.replace(repoIdRegex, resolvedRepoName);
+    }
+
+    for (const [cachedId, cachedName] of Object.entries(repoNameCache)) {
+      if (!cachedId || !cachedName || looksLikeRepoId(cachedName)) continue;
+      const idRegex = new RegExp(`\\b${escapeRegExp(cachedId)}\\b`, 'g');
+      nextMessage = nextMessage.replace(idRegex, cachedName);
+    }
+
+    return nextMessage;
   };
 
   useEffect(() => {
@@ -319,6 +359,7 @@ export function DashboardPage() {
     }
 
     loadDashboard();
+    mergeRepoNameCacheFromSession();
 
     // Poll every 30 seconds so dashboard repo cards and activity feed reflect new pushes
     const pollInterval = setInterval(() => {
@@ -718,7 +759,7 @@ export function DashboardPage() {
                               <div className="text-[10px] font-medium text-zinc-400 dark:text-slate-500">{evt.timestamp_ago}</div>
                             </div>
                             <div>
-                              <span className="text-[13px] font-medium text-zinc-600 dark:text-slate-400">{evt.message} · </span>
+                              <span className="text-[13px] font-medium text-zinc-600 dark:text-slate-400">{sanitizeActivityMessage(evt.message, evt.repo_id, resolveRepoDisplayName(evt.repo_id, evt.repo_name))} · </span>
                               <span className="text-[13px] font-bold text-zinc-900 dark:text-slate-100">{resolveRepoDisplayName(evt.repo_id, evt.repo_name)}</span>
                             </div>
                           </div>
