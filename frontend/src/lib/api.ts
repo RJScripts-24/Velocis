@@ -567,7 +567,17 @@ export const getAnnotations = (
 
 export const postChatMessage = (
   repoId: string,
-  payload: { message: string; context?: { file_path?: string; line?: number; annotation_id?: string; ref?: string }; language?: Language },
+  payload: {
+    message: string;
+    context?: {
+      file_path?: string;
+      file_content?: string;
+      line?: number;
+      annotation_id?: string;
+      ref?: string;
+    };
+    language?: Language;
+  },
 ): Promise<ChatMessage> =>
   request(`/api/repos/${repoId}/workspace/chat`, {
     method: 'POST',

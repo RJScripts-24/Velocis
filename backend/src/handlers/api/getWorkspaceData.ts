@@ -688,7 +688,13 @@ export const sendChatMessage = async (
 
     const { message, context, language = "en" } = body as {
       message: string;
-      context?: { file_path?: string; line?: number; annotation_id?: string; ref?: string };
+      context?: {
+        file_path?: string;
+        file_content?: string;
+        line?: number;
+        annotation_id?: string;
+        ref?: string;
+      };
       language?: Language;
     };
 
@@ -705,22 +711,29 @@ export const sendChatMessage = async (
     const normalizedFilePath = context?.file_path?.startsWith("/") ? context.file_path : context?.file_path ? `/${context.file_path}` : undefined;
     let wantsEdit = Boolean(normalizedFilePath) && isEditIntent(message);
     let currentFileContent = "";
+    const inlineFileContent = typeof context?.file_content === "string"
+      ? context.file_content
+      : "";
 
     if (wantsEdit && normalizedFilePath) {
+      if (inlineFileContent.trim().length > 0) {
+        currentFileContent = inlineFileContent;
+      }
+
       let fetchedOwner = event.headers?.["x-repo-owner"] ?? "";
       const headerName = event.headers?.["x-repo-name"] ?? "";
       let name = headerName;
-      if (!name || !fetchedOwner) {
+      if ((!name || !fetchedOwner) && !currentFileContent) {
         const creds = await resolveRepoCreds(repoId);
         if (!name) name = creds.repoName ?? repoId;
         if (!fetchedOwner) fetchedOwner = creds.repoOwner ?? (await getGitHubLogin(user.githubToken)) ?? "";
       }
-      if (!fetchedOwner) {
+      if (!fetchedOwner && !currentFileContent) {
         logger.warn({ repoId, msg: "sendChatMessage: could not resolve repo owner, falling back to conversational mode" });
         wantsEdit = false;
       }
 
-      if (wantsEdit) {
+      if (wantsEdit && !currentFileContent) {
         try {
           currentFileContent = await fetchFileContent(
             fetchedOwner,
@@ -769,13 +782,18 @@ export const sendChatMessage = async (
           `User request: ${message}`,
           "",
           "Existing file content:",
-          currentFileContent,
+          truncateText(currentFileContent, 30_000),
         ].join("\n");
       }
     }
 
     if (!wantsEdit && context?.file_path) {
       userPrompt = `[File: ${context.file_path}${context.line ? ` line ${context.line}` : ""}]\n\n${message}`;
+
+      // Give Sentinel direct visibility into unsaved editor state when provided.
+      if (inlineFileContent.trim().length > 0) {
+        userPrompt += `\n\n[Current editor content]\n${truncateText(inlineFileContent, MAX_FILE_CHARS)}`;
+      }
     }
 
     let responseContent = "";

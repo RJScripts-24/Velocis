@@ -470,9 +470,17 @@ export function WorkspacePage() {
     setInputValue('');
     setIsSending(true);
     try {
+      const inlineFileContent = selectedFile
+        ? (editedFiles[selectedFile] ?? codeContent ?? '')
+        : undefined;
+
       const res = await postChatMessage(id, {
         message: text,
-        context: { file_path: selectedFile, ref: selectedBranch || 'main' },
+        context: {
+          file_path: selectedFile || undefined,
+          file_content: inlineFileContent,
+          ref: selectedBranch || 'main',
+        },
         language,
       });
       let replyContent = res.content;
