@@ -1335,7 +1335,7 @@ function CortexPageContent() {
             <div className="flex items-center gap-2 text-[13px]" style={{ color: muted }}>
               <button onClick={() => navigate('/dashboard')} className="hover:opacity-80 transition-opacity" style={{ color: muted }}>Dashboard</button>
               <span>/</span>
-              <button onClick={() => navigate(`/repo/${repoId}`)} style={{ color: muted }}>{repoName || repoId || 'Repo'}</button>
+              <button onClick={() => navigate(`/repo/${repoId}`)} style={{ color: muted }}>{repoName || 'Repository'}</button>
               <span>/</span>
               {viewMode === 'files' && drilledService ? (
                 <>

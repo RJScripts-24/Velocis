@@ -233,6 +233,45 @@ export function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [repoNameCache, setRepoNameCache] = useState<Record<string, string>>(() => {
+    try {
+      if (typeof window === 'undefined') return {};
+      const raw = window.localStorage.getItem('velocis:repoNameCache');
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const looksLikeRepoId = (value?: string) => !!value && /^\d{6,}$/.test(value.trim());
+
+  const mergeRepoNameCache = (repos: DashboardResponse['repos']) => {
+    const next = { ...repoNameCache };
+    for (const repo of repos) {
+      const name = (repo.name ?? '').trim();
+      if (!name || looksLikeRepoId(name)) continue;
+      next[repo.id] = name;
+    }
+    setRepoNameCache(next);
+    try {
+      window.localStorage.setItem('velocis:repoNameCache', JSON.stringify(next));
+    } catch {
+      // Non-fatal: cache write failure should not block UI rendering.
+    }
+  };
+
+  const resolveRepoDisplayName = (repoId?: string, fallbackName?: string) => {
+    const preferred = (fallbackName ?? '').trim();
+    if (preferred && !looksLikeRepoId(preferred)) return preferred;
+
+    if (repoId && repoNameCache[repoId]) return repoNameCache[repoId];
+
+    const fromDashboard = dashboardData.repos.find((r) => r.id === repoId || r.name === repoId);
+    if (fromDashboard?.name && !looksLikeRepoId(fromDashboard.name)) return fromDashboard.name;
+
+    if (preferred) return preferred;
+    return 'Repository';
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -258,6 +297,7 @@ export function DashboardPage() {
         if (!cancelled) {
           setDashboardData(data);
           setActivityData(data.activity_feed || []);
+          mergeRepoNameCache(data.repos || []);
 
           // Cache user name so other pages can read it without an extra API call
           if (data.user?.name) {
@@ -565,7 +605,7 @@ export function DashboardPage() {
                             style={{ fontFamily: 'Inter, system-ui, sans-serif' }}
                             onClick={() => navigate(`/repo/${repo.id}`)}
                           >
-                            {repo.name}
+                            {resolveRepoDisplayName(repo.id, repo.name)}
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
@@ -679,7 +719,7 @@ export function DashboardPage() {
                             </div>
                             <div>
                               <span className="text-[13px] font-medium text-zinc-600 dark:text-slate-400">{evt.message} · </span>
-                              <span className="text-[13px] font-bold text-zinc-900 dark:text-slate-100">{evt.repo_name}</span>
+                              <span className="text-[13px] font-bold text-zinc-900 dark:text-slate-100">{resolveRepoDisplayName(evt.repo_id, evt.repo_name)}</span>
                             </div>
                           </div>
                         );

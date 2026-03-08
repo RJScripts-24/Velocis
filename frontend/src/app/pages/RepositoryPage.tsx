@@ -370,9 +370,25 @@ export function RepositoryPage() {
   const [isLoading, setIsLoading] = useState(true);
 
   const [error, setError] = useState<string | null>(null);
+  const [repoNameCache, setRepoNameCache] = useState<Record<string, string>>(() => {
+    try {
+      if (typeof window === 'undefined') return {};
+      const raw = window.localStorage.getItem('velocis:repoNameCache');
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
 
   const { isDarkMode, setIsDarkMode } = useTheme();
   const { start } = useTutorial();
+  const looksLikeRepoId = (value?: string) => !!value && /^\d{6,}$/.test(value.trim());
+  const resolvedRepoName = useMemo(() => {
+    const currentName = (repo?.name ?? '').trim();
+    if (currentName && !looksLikeRepoId(currentName)) return currentName;
+    if (id && repoNameCache[id]) return repoNameCache[id];
+    return currentName || 'Repository';
+  }, [repo?.name, id, repoNameCache]);
 
   // Auto-launch repo tutorial on first visit
   useEffect(() => {
@@ -400,6 +416,15 @@ export function RepositoryPage() {
         if (!repoRes.ok) throw new Error(`Failed to load repository (${repoRes.status})`);
         const repoData: RepoDetail = await repoRes.json();
         if (!cancelled) setRepo(repoData);
+        if (!looksLikeRepoId(repoData.name) && id) {
+          const next = { ...repoNameCache, [id]: repoData.name };
+          setRepoNameCache(next);
+          try {
+            window.localStorage.setItem('velocis:repoNameCache', JSON.stringify(next));
+          } catch {
+            // Ignore cache write issues.
+          }
+        }
 
         // Fetch activity for this repo
         try {
@@ -606,7 +631,7 @@ export function RepositoryPage() {
                 onClick={() => navigate('/dashboard')}
               >Dashboard</span>
               <span className="text-zinc-300 dark:text-slate-700">/</span>
-              <span className="font-semibold text-zinc-900 dark:text-slate-100">{repo.name}</span>
+              <span className="font-semibold text-zinc-900 dark:text-slate-100">{resolvedRepoName}</span>
 
             </div>
           </div>
@@ -647,7 +672,7 @@ export function RepositoryPage() {
             {/* Full-width page header */}
             <div className="px-6 md:px-10 pt-8 pb-0">
               <div className="flex items-start justify-between mb-3">
-                <h1 className="text-4xl md:text-5xl font-['JetBrains_Mono',_monospace] font-bold text-zinc-900 dark:text-white tracking-tight">{repo.name}</h1>
+                <h1 className="text-4xl md:text-5xl font-['JetBrains_Mono',_monospace] font-bold text-zinc-900 dark:text-white tracking-tight">{resolvedRepoName}</h1>
               </div>
               <div className="flex items-center gap-3 mb-8 text-xs font-medium text-zinc-500 dark:text-slate-400 flex-wrap">
                 <span className="text-zinc-400 dark:text-slate-500 text-xs">Scanned {repo.last_scanned_ago}</span>
