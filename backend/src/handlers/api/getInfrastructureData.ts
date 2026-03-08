@@ -84,7 +84,7 @@ export const getInfrastructure = async (
     const res = await getDocClient().send(
       new GetCommand({
         TableName: IAC_TABLE,
-        Key: { repoId, environment: env },
+        Key: { pk: `${repoId}#${env}` },
       })
     );
     iac = res.Item;
@@ -148,7 +148,7 @@ export const getTerraform = async (
     const res = await getDocClient().send(
       new GetCommand({
         TableName: IAC_TABLE,
-        Key: { repoId, environment: env },
+        Key: { pk: `${repoId}#${env}` },
       })
     );
     iac = res.Item;
@@ -202,6 +202,7 @@ export const generateInfrastructure = async (
       new PutCommand({
         TableName: IAC_JOBS_TABLE,
         Item: {
+          pk: jobId,
           jobId,
           repoId,
           userId,

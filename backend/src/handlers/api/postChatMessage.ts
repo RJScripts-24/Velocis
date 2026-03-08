@@ -250,7 +250,7 @@ const getCodeContext = async (
   try {
     const item = await dynamo.get<Record<string, unknown>>({
       tableName: CODEBASE_CONTEXT_TABLE,
-      key: { repoId, filePath },
+      key: { pk: `${repoId}#${filePath}` },
     });
 
     if (!item) return null;

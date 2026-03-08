@@ -862,6 +862,7 @@ async function persistReviewResult(
       new PutCommand({
         TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
         Item: {
+          pk: `sentinel_${repoId}_${commitSha}`,
           activityId: `sentinel_${repoId}_${commitSha}`,
           createdAt: result.reviewedAt,
           repoId,
@@ -899,7 +900,7 @@ async function persistReviewResult(
     await docClient.send(
       new UpdateCommand({
         TableName: config.DYNAMO_REPOSITORIES_TABLE,
-        Key: { repoId },
+        Key: { pk: repoId },
         UpdateExpression:
           "SET #totalReviews = if_not_exists(#totalReviews, :zero) + :one, " +
           "#lastReviewAt = :reviewedAt, " +
@@ -951,7 +952,7 @@ async function getCachedReview(
     const result = await docClient.send(
       new GetCommand({
         TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
-        Key: { activityId: `sentinel_cache_${repoId}_${commitSha}`, createdAt: "cache" },
+        Key: { pk: `sentinel_cache_${repoId}_${commitSha}` },
       })
     );
 
@@ -982,6 +983,7 @@ async function setCachedReview(
       new PutCommand({
         TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
         Item: {
+          pk: `sentinel_cache_${repoId}_${commitSha}`,
           activityId: `sentinel_cache_${repoId}_${commitSha}`,
           createdAt: "cache",
           repoId,

@@ -715,7 +715,7 @@ async function getCachedGraph(repoId: string): Promise<CortexGraph | null> {
     const result = await docClient.send(
       new GetCommand({
         TableName: config.DYNAMO_REPOSITORIES_TABLE,
-        Key: { repoId: `${repoId}#CORTEX_GRAPH` },
+        Key: { pk: `REPO#${repoId}#CORTEX_GRAPH` },
       })
     );
 
@@ -746,6 +746,7 @@ async function setCachedGraph(repoId: string, graph: CortexGraph): Promise<void>
       new PutCommand({
         TableName: config.DYNAMO_REPOSITORIES_TABLE,
         Item: {
+          pk: `REPO#${repoId}#CORTEX_GRAPH`,
           repoId: `${repoId}#CORTEX_GRAPH`,
           graph,
           cachedAt: Date.now(),

@@ -317,8 +317,7 @@ async function loadSession(connectionId: string): Promise<ChatSession | null> {
       new GetCommand({
         TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
         Key: {
-          PK: `CONNECTION#${connectionId}`,
-          SK: "SESSION",
+          pk: `CONNECTION#${connectionId}#SESSION`,
         },
       })
     );
@@ -342,8 +341,7 @@ async function saveSession(session: ChatSession): Promise<void> {
       new PutCommand({
         TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
         Item: {
-          PK: `CONNECTION#${session.connectionId}`,
-          SK: "SESSION",
+          pk: `CONNECTION#${session.connectionId}#SESSION`,
           session,
           TTL: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
         },

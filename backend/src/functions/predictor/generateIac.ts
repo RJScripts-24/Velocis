@@ -796,7 +796,7 @@ async function getCachedResult(repoId: string): Promise<IacGenerationResult | nu
     const result = await docClient.send(
       new GetCommand({
         TableName: config.DYNAMO_REPOSITORIES_TABLE,
-        Key: { PK: `REPO#${repoId}`, SK: "IAC_RESULT" },
+        Key: { pk: `REPO#${repoId}#IAC_RESULT` },
       })
     );
 
@@ -830,8 +830,7 @@ async function setCachedResult(
       new PutCommand({
         TableName: config.DYNAMO_REPOSITORIES_TABLE,
         Item: {
-          PK: `REPO#${repoId}`,
-          SK: "IAC_RESULT",
+          pk: `REPO#${repoId}#IAC_RESULT`,
           iacResult,
           cachedAt: Date.now(),
           TTL: Math.floor(Date.now() / 1000) + 60 * 60 * 24, // 24-hour TTL
@@ -978,7 +977,7 @@ export async function generateIac(
     const prev = await docClient.send(
       new GetCommand({
         TableName: config.DYNAMO_REPOSITORIES_TABLE,
-        Key: { PK: `REPO#${repoId}`, SK: "IAC_RESULT_PREV" },
+        Key: { pk: `REPO#${repoId}#IAC_RESULT_PREV` },
       })
     );
     if (prev.Item?.iacResult?.costForecast) {
@@ -1091,8 +1090,7 @@ export async function generateIac(
       new PutCommand({
         TableName: config.DYNAMO_REPOSITORIES_TABLE,
         Item: {
-          PK: `REPO#${repoId}`,
-          SK: "IAC_RESULT_PREV",
+          pk: `REPO#${repoId}#IAC_RESULT_PREV`,
           iacResult,
           cachedAt: Date.now(),
           TTL: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7, // 7-day TTL

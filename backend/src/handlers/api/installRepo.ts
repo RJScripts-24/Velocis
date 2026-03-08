@@ -338,7 +338,7 @@ export const installRepo = async (
   try {
     const existingRepo = await dynamoClient.get<{ repoId: string; userId?: string }>({
       tableName: DYNAMO_TABLES.REPOSITORIES,
-      key: { repoId },
+      key: { pk: repoId },
     });
     // Only block re-install if the record is healthy and owned by this user.
     // A corrupt record (missing userId, caused by a PutCommand overwrite) should

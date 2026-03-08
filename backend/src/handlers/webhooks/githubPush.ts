@@ -123,6 +123,7 @@ async function handlePullRequest(
       new PutCommand({
         TableName: SENTINEL_TABLE,
         Item: {
+          pk: scanId,
           id: scanId,
           repoId,
           recordType: "PR_REVIEW",
@@ -148,6 +149,7 @@ async function handlePullRequest(
       new PutCommand({
         TableName: PIPELINE_TABLE,
         Item: {
+          pk: runId,
           runId,
           repoId,
           branch: pr?.head?.ref ?? "",
@@ -190,7 +192,7 @@ async function handlePullRequestReview(
     new PutCommand({
       TableName: ACTIVITY_TABLE,
       Item: {
-        id: `evt_${randomUUID().replace(/-/g, "").slice(0, 10)}`,
+        pk: `evt_${randomUUID().replace(/-/g, "").slice(0, 10)}`,
         repoId,
         repoName: repository?.name ?? "",
         agent: "sentinel",
@@ -222,7 +224,7 @@ async function handleDeployment(
     new PutCommand({
       TableName: TIMELINE_TABLE,
       Item: {
-        id: `deploy_${randomUUID().replace(/-/g, "").slice(0, 10)}`,
+        pk: `deploy_${randomUUID().replace(/-/g, "").slice(0, 10)}`,
         repoId,
         positionPct: 100, // Latest event is at 100%; historical events scaled later
         label: `Deploy ${deployment?.ref ?? ""}`,
@@ -238,7 +240,7 @@ async function handleDeployment(
     new PutCommand({
       TableName: process.env.DEPLOYS_TABLE ?? "velocis-deployments",
       Item: {
-        id: `deploy_${randomUUID().replace(/-/g, "").slice(0, 10)}`,
+        pk: `deploy_${randomUUID().replace(/-/g, "").slice(0, 10)}`,
         repoId,
         repoName: repository?.name ?? "",
         environment: deployment?.environment ?? "production",
@@ -520,14 +522,14 @@ async function runAgentPipeline(ctx: {
   try {
     const repoDoc = await dynamoClient.get({
       tableName: config.DYNAMO_REPOSITORIES_TABLE,
-      key: { repoId }
+      key: { pk: repoId }
     });
     if (repoDoc && repoDoc.isAutomated) {
       isAutomated = true;
     } else {
       const fallbackRepo = await dynamoClient.get({
         tableName: process.env.REPOS_TABLE ?? "velocis-repos",
-        key: { repoId }
+        key: { pk: repoId }
       });
       if (fallbackRepo && fallbackRepo.isAutomated) {
         isAutomated = true;

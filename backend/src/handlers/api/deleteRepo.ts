@@ -53,7 +53,7 @@ export const handler = async (
       items.map((item) =>
         dynamoClient.remove({
           tableName: DYNAMO_TABLES.REPOSITORIES,
-          key: { repoId: item.repoId },
+          key: { pk: item.repoId },
         })
       )
     );

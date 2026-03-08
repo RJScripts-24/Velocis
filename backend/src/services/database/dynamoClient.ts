@@ -228,6 +228,10 @@ async function upsert(params: DynamoUpsertParams): Promise<void> {
   const now = new Date().toISOString();
 
   const enrichedItem = {
+    // Ensure the DynamoDB partition key 'pk' is always present.
+    // If the item already contains a 'pk' field that's a non-empty string, honour it.
+    // Otherwise derive it from item[params.key] so all callers don't need to manage this.
+    ...(!(item["pk"] as string | undefined) && { pk: item[params.key] }),
     ...item,
     updatedAt: now,
     // Only set createdAt if it's not already in the item

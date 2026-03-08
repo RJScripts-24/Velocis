@@ -203,6 +203,7 @@ export const triggerScan = async (
     new PutCommand({
       TableName: SCAN_JOBS_TABLE,
       Item: {
+        pk: scanId,
         scanId,
         repoId,
         userId,

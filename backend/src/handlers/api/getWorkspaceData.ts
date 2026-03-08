@@ -433,7 +433,7 @@ async function resolveRepoName(repoId: string): Promise<string | null> {
   try {
     const rec = await dynamoClient.get<{ repoName?: string }>({
       tableName: DYNAMO_TABLES.REPOSITORIES,
-      key: { repoId },
+      key: { pk: repoId },
     });
     return rec?.repoName ?? null;
   } catch {
@@ -446,7 +446,7 @@ async function resolveRepoCreds(repoId: string): Promise<{ repoName: string | nu
   try {
     const rec = await dynamoClient.get<{ repoName?: string; repoOwner?: string }>({
       tableName: DYNAMO_TABLES.REPOSITORIES,
-      key: { repoId },
+      key: { pk: repoId },
     });
     return { repoName: rec?.repoName ?? null, repoOwner: rec?.repoOwner ?? null };
   } catch {
@@ -854,6 +854,7 @@ export const sendChatMessage = async (
         new PutCommand({
           TableName: CHAT_TABLE,
           Item: {
+            pk: messageId,
             messageId,
             repoId,
             userId: user.userId,
@@ -1085,6 +1086,7 @@ export const reviewCodebase = async (
         new PutCommand({
           TableName: CHAT_TABLE,
           Item: {
+            pk: messageId,
             messageId,
             repoId,
             userId: user.userId,

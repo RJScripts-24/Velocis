@@ -248,7 +248,7 @@ async function executeFortressPipeline(args: {
     await dynamo.send(
       new UpdateCommand({
         TableName: PIPELINE_TABLE,
-        Key: { runId },
+        Key: { pk: runId },
         UpdateExpression: "SET stepStates.#s = :v",
         ExpressionAttributeNames: { "#s": stepId },
         ExpressionAttributeValues: {
@@ -267,7 +267,7 @@ async function executeFortressPipeline(args: {
     await dynamo.send(
       new UpdateCommand({
         TableName: PIPELINE_TABLE,
-        Key: { runId },
+        Key: { pk: runId },
         UpdateExpression: "SET #status = :s, finishedAt = :f, durationS = :d",
         ExpressionAttributeNames: { "#status": "status" },
         ExpressionAttributeValues: {
@@ -491,6 +491,7 @@ export const triggerPipeline = async (
       new PutCommand({
         TableName: PIPELINE_TABLE,
         Item: {
+          pk: runId,
           runId,
           repoId,
           userId,
@@ -545,7 +546,7 @@ export const getPipelineRunDetail = async (
   if (!repoId || !runId) return errors.badRequest("Missing repoId or runId.");
 
   const res = await dynamo.send(
-    new GetCommand({ TableName: PIPELINE_TABLE, Key: { runId } })
+    new GetCommand({ TableName: PIPELINE_TABLE, Key: { pk: runId } })
   );
 
   const run = res.Item;

@@ -413,7 +413,7 @@ async function authorizeRequest(
     const result = await docClient.send(
       new GetCommand({
         TableName: config.DYNAMO_REPOSITORIES_TABLE,
-        Key: { PK: `REPO#${repoId}`, SK: "METADATA" },
+        Key: { pk: `REPO#${repoId}#METADATA` },
       })
     );
 
@@ -584,8 +584,7 @@ async function fetchFortressHistory(
       new GetCommand({
         TableName: config.DYNAMO_AI_ACTIVITY_TABLE,
         Key: {
-          PK: `REPO#${repoId}`,
-          SK: `FORTRESS#${filePath}`,
+          pk: `REPO#${repoId}#FORTRESS#${filePath}`,
         },
       })
     );
@@ -630,8 +629,7 @@ async function fetchSentinelFindings(
       new GetCommand({
         TableName: config.DYNAMO_REPOSITORIES_TABLE,
         Key: {
-          PK: `REPO#${repoId}`,
-          SK: "SENTINEL_STATS",
+          pk: `REPO#${repoId}#SENTINEL_STATS`,
         },
       })
     );

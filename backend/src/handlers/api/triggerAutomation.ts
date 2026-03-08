@@ -294,7 +294,7 @@ function updateProgressStep(
 async function persistAutomationReport(repoId: string, report: AutomationReportRecord): Promise<void> {
     await dynamoClient.update({
         tableName: DYNAMO_TABLES.REPOSITORIES,
-        key: { repoId },
+        key: { pk: repoId },
         updates: { automationReport: { ...report, updatedAt: new Date().toISOString() } },
     });
 }
@@ -312,7 +312,7 @@ async function checkIsAutomated(repoId: string, startedAt: string): Promise<bool
         // Direct hash-key lookup — O(1), no pagination, reliable
         const result = await docClient.send(new GetCommand({
             TableName: DYNAMO_TABLES.REPOSITORIES,
-            Key: { repoId },
+            Key: { pk: repoId },
         }));
         const item = result.Item;
         if (!item) return true; // Record not found — don't abort

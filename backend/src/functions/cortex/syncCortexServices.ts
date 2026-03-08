@@ -54,7 +54,7 @@ interface ServiceGroup {
 
 /** The DynamoDB row shape written to CORTEX_TABLE (matches what getCortexServices.ts reads) */
 interface CortexServiceRow {
-    id: string;                      // DynamoDB partition key — "REPO#<repoId>#SVC#<serviceId>"
+    pk: string;                      // DynamoDB partition key — "REPO#<repoId>#SVC#<serviceId>"
     repoId: string;
     recordType: "SERVICE";           // getCortexServices.ts filters on this
     serviceId: number;               // Numeric ID used by the frontend
@@ -861,7 +861,7 @@ function buildServiceConnections(
  * interact with immediately and shows what the page looks like with data.
  */
 function buildDemoServiceRows(repoId: string, now: string): CortexServiceRow[] {
-    const demos: Omit<CortexServiceRow, "id" | "repoId" | "recordType" | "updatedAt">[] = [
+    const demos: Omit<CortexServiceRow, "pk" | "repoId" | "recordType" | "updatedAt">[] = [
         {
             serviceId: 1,
             name: "API Gateway",
@@ -930,7 +930,7 @@ function buildDemoServiceRows(repoId: string, now: string): CortexServiceRow[] {
 
     return demos.map(d => ({
         ...d,
-        id: `REPO#${repoId}#SVC#${d.serviceId}`,
+        pk: `REPO#${repoId}#SVC#${d.serviceId}`,
         repoId,
         recordType: "SERVICE" as const,
         updatedAt: now,
@@ -1029,7 +1029,7 @@ export async function syncCortexServices(
                 const files = p.group.nodes.map(n => n.filePath);
 
                 return {
-                    id: `REPO#${repoId}#SVC#${serviceId}`,
+                    pk: `REPO#${repoId}#SVC#${serviceId}`,
                     repoId,
                     recordType: "SERVICE" as const,
                     serviceId,
@@ -1083,7 +1083,7 @@ export async function syncCortexServices(
                             RequestItems: {
                                 [CORTEX_TABLE]: batch.map(item => ({
                                     DeleteRequest: {
-                                        Key: { id: item.id },
+                                        Key: { pk: item.pk },
                                     },
                                 })),
                             },
@@ -1126,7 +1126,7 @@ export async function syncCortexServices(
             new PutCommand({
                 TableName: TIMELINE_TABLE,
                 Item: {
-                    id: `scan_${randomUUID().replace(/-/g, "").slice(0, 12)}`,
+                    pk: `scan_${randomUUID().replace(/-/g, "").slice(0, 12)}`,
                     repoId,
                     positionPct: 100,
                     label: `System Scan: ${scanStatus}`,
