@@ -1141,11 +1141,20 @@ function CortexPageContent() {
   /* ── Node click ─────────────────────────────────────────────────────── */
   const onNodeClick = useCallback(async (_: React.MouseEvent, node: Node) => {
     if (viewMode === 'services') {
-      const svcData = node.data as ServiceData;
-      setSelectedService(svcData);
-      setDrilledService(svcData); setSelectedFileNode(null); setLoading(true);
+      // Only service nodes should trigger drilldown; ignore swimlane/background nodes.
+      if (node.type !== 'serviceNode' || !repoId) return;
+
+      const svcData = node.data as Partial<ServiceData>;
+      const serviceId = Number(svcData?.id ?? node.id);
+      if (!Number.isFinite(serviceId)) return;
+
+      const resolvedService = services.find(s => s.id === serviceId)
+        ?? ({ ...(svcData as ServiceData), id: serviceId } as ServiceData);
+
+      setSelectedService(resolvedService);
+      setDrilledService(resolvedService); setSelectedFileNode(null); setLoading(true);
       try {
-        const res = await getCortexServiceFiles(repoId!, svcData.id);
+        const res = await getCortexServiceFiles(repoId, serviceId);
         const rawFiles: FileNodeData[] = res.files.map((f: any) => ({
           id: f.id, name: f.name, path: f.path,
           language: f.language || f.name.split('.').pop() || 'unknown',
