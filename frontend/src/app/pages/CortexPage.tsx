@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import {
   getCortexServices, getCortexServiceFiles, getCortexTimeline,
-  rebuildCortex, getRepo,
+  rebuildCortex, getRepo, getSessionRepos,
   type CortexServicesResponse,
 } from '../../lib/api';
 import lightLogoImg from '../../../LightLogo.png';
@@ -953,6 +953,50 @@ function CortexPageContent() {
 
   // Repo identity
   const [repoName, setRepoName] = useState('');
+  const [repoNameCache, setRepoNameCache] = useState<Record<string, string>>(() => {
+    try {
+      if (typeof window === 'undefined') return {};
+      const raw = window.localStorage.getItem('velocis:repoNameCache');
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+  const looksLikeRepoId = (value?: string) => !!value && /^\d{6,}$/.test(value.trim());
+  const resolvedRepoName = useMemo(() => {
+    const current = (repoName ?? '').trim();
+    if (current && !looksLikeRepoId(current)) return current;
+    if (repoId && repoNameCache[repoId]) return repoNameCache[repoId];
+    return 'Repository';
+  }, [repoName, repoId, repoNameCache]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await getSessionRepos();
+        if (cancelled) return;
+        const next = { ...repoNameCache };
+        for (const repoItem of res.repos ?? []) {
+          const rid = String(repoItem.id ?? '').trim();
+          const name = String(repoItem.name ?? '').trim();
+          if (!rid || !name || looksLikeRepoId(name)) continue;
+          next[rid] = name;
+        }
+        setRepoNameCache(next);
+        try {
+          window.localStorage.setItem('velocis:repoNameCache', JSON.stringify(next));
+        } catch {
+          // Ignore cache write failures.
+        }
+      } catch {
+        // Best-effort only.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Data state
   const [loading, setLoading] = useState(true);
@@ -1021,7 +1065,18 @@ function CortexPageContent() {
           getCortexServices(repoId),
           getCortexTimeline(repoId).catch(() => ({ events: [] })),
         ]);
-        getRepo(repoId).then(r => setRepoName(r.name)).catch(() => { });
+        getRepo(repoId).then(r => {
+          if (!looksLikeRepoId(r.name)) {
+            setRepoName(r.name);
+            const next = { ...repoNameCache, [repoId]: r.name };
+            setRepoNameCache(next);
+            try {
+              window.localStorage.setItem('velocis:repoNameCache', JSON.stringify(next));
+            } catch {
+              // Ignore cache write failures.
+            }
+          }
+        }).catch(() => { });
         // Step 1: services that have source files
         const hasFiles = new Set(
           (res.services as any[]).filter(s => s.metrics.file_count > 0).map(s => s.id.toString())
@@ -1335,7 +1390,7 @@ function CortexPageContent() {
             <div className="flex items-center gap-2 text-[13px]" style={{ color: muted }}>
               <button onClick={() => navigate('/dashboard')} className="hover:opacity-80 transition-opacity" style={{ color: muted }}>Dashboard</button>
               <span>/</span>
-              <button onClick={() => navigate(`/repo/${repoId}`)} style={{ color: muted }}>{repoName || 'Repository'}</button>
+              <button onClick={() => navigate(`/repo/${repoId}`)} style={{ color: muted }}>{resolvedRepoName}</button>
               <span>/</span>
               {viewMode === 'files' && drilledService ? (
                 <>

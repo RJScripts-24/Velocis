@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { motion } from 'motion/react';
 import {
@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router';
 import { useTheme } from '../../lib/theme';
-import { getRepo } from '../../lib/api';
+import { getRepo, getSessionRepos } from '../../lib/api';
 import { useTutorial, PIPELINE_TUTORIAL_KEY, PIPELINE_STEPS } from '../../lib/tutorial';
 import lightLogoImg from '../../../LightLogo.png';
 import darkLogoImg from '../../../DarkLogo.png';
@@ -115,6 +115,22 @@ export function PipelinePage() {
   }, [start]);
 
   const [repoName, setRepoName] = useState<string>('');
+  const [repoNameCache, setRepoNameCache] = useState<Record<string, string>>(() => {
+    try {
+      if (typeof window === 'undefined') return {};
+      const raw = window.localStorage.getItem('velocis:repoNameCache');
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+  const looksLikeRepoId = (value?: string) => !!value && /^\d{6,}$/.test(value.trim());
+  const resolvedRepoName = useMemo(() => {
+    const current = (repoName ?? '').trim();
+    if (current && !looksLikeRepoId(current)) return current;
+    if (id && repoNameCache[id]) return repoNameCache[id];
+    return 'Repository';
+  }, [repoName, id, repoNameCache]);
 
   // ── Fortress QA Strategist ────────────────────────────────────────────────
   const [isFortressLoading, setIsFortressLoading] = useState(false);
@@ -126,7 +142,18 @@ export function PipelinePage() {
   // ── Restore cached Fortress data on mount ────────────────────────────────
   useEffect(() => {
     if (!id) return;
-    getRepo(id).then(r => setRepoName(r.name)).catch(() => {});
+    getRepo(id).then(r => {
+      if (!looksLikeRepoId(r.name)) {
+        setRepoName(r.name);
+        const next = { ...repoNameCache, [id]: r.name };
+        setRepoNameCache(next);
+        try {
+          window.localStorage.setItem('velocis:repoNameCache', JSON.stringify(next));
+        } catch {
+          // Ignore cache write failures.
+        }
+      }
+    }).catch(() => {});
     try {
       const cachedQA = localStorage.getItem(`velocis:fortress:qa:${id}`);
       if (cachedQA) {
@@ -141,6 +168,32 @@ export function PipelinePage() {
       }
     } catch { /* ignore corrupt cache */ }
   }, [id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await getSessionRepos();
+        if (cancelled) return;
+        const next = { ...repoNameCache };
+        for (const repoItem of res.repos ?? []) {
+          const rid = String(repoItem.id ?? '').trim();
+          const name = String(repoItem.name ?? '').trim();
+          if (!rid || !name || looksLikeRepoId(name)) continue;
+          next[rid] = name;
+        }
+        setRepoNameCache(next);
+        try {
+          window.localStorage.setItem('velocis:repoNameCache', JSON.stringify(next));
+        } catch {
+          // Ignore cache write failures.
+        }
+      } catch {
+        // Best-effort only.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const fetchQAPlan = useCallback(async () => {
     if (isFortressLoading) return;
@@ -303,7 +356,7 @@ export function PipelinePage() {
                 onClick={() => navigate(`/repo/${id}`)}
                 className="flex items-center gap-1 hover:text-gray-900 dark:hover:text-white transition-colors font-medium"
               >
-                <Folder className="w-3.5 h-3.5" /><span className="hidden sm:inline">{repoName}</span>
+                <Folder className="w-3.5 h-3.5" /><span className="hidden sm:inline">{resolvedRepoName}</span>
               </button>
               <span>/</span>
               <span className="text-gray-900 dark:text-white font-semibold flex items-center gap-1.5">
@@ -337,7 +390,7 @@ export function PipelinePage() {
             <p className="text-[11px] text-gray-500 dark:text-slate-500 mt-0.5">
               Powered by <span className="font-semibold text-blue-400">DeepSeek V3</span> via Amazon Bedrock
               <span className="mx-1.5 text-gray-300 dark:text-slate-700">·</span>
-              <span className="font-mono text-orange-400">{repoName}</span>
+              <span className="font-mono text-orange-400">{resolvedRepoName}</span>
             </p>
           </div>
         </div>

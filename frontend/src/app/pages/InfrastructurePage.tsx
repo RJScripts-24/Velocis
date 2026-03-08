@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
 import { ChevronDown, Download, RefreshCw, Shield, Lock, Zap, RotateCcw, DollarSign, TrendingDown, Server, Database, Activity, CloudCog, Home, Folder, Sun, Moon, Copy, Maximize2, Terminal } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router';
 import { useTheme } from '../../lib/theme';
-import { predictInfrastructure, getWorkspaceFiles, getFileContent, type InfraPredictionData, getRepo } from '../../lib/api';
+import { predictInfrastructure, getWorkspaceFiles, getFileContent, type InfraPredictionData, getRepo, getSessionRepos } from '../../lib/api';
 import { useTutorial, INFRA_TUTORIAL_KEY, INFRA_STEPS } from '../../lib/tutorial';
 import lightLogoImg from '../../../LightLogo.png';
 import darkLogoImg from '../../../DarkLogo.png';
@@ -46,11 +46,38 @@ export function InfrastructurePage() {
 
   const themeClass = isDarkMode ? 'dark' : '';
   const [repoName, setRepoName] = useState<string>('');
+  const [repoNameCache, setRepoNameCache] = useState<Record<string, string>>(() => {
+    try {
+      if (typeof window === 'undefined') return {};
+      const raw = window.localStorage.getItem('velocis:repoNameCache');
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+  const looksLikeRepoId = (value?: string) => !!value && /^\d{6,}$/.test(value.trim());
+  const resolvedRepoName = useMemo(() => {
+    const current = (repoName ?? '').trim();
+    if (current && !looksLikeRepoId(current)) return current;
+    if (id && repoNameCache[id]) return repoNameCache[id];
+    return 'Repository';
+  }, [repoName, id, repoNameCache]);
 
   // ── Restore cached infra data on mount ──────────────────────────────────
   useEffect(() => {
     if (!id) return;
-    getRepo(id).then(r => setRepoName(r.name)).catch(() => {});
+    getRepo(id).then(r => {
+      if (!looksLikeRepoId(r.name)) {
+        setRepoName(r.name);
+        const next = { ...repoNameCache, [id]: r.name };
+        setRepoNameCache(next);
+        try {
+          window.localStorage.setItem('velocis:repoNameCache', JSON.stringify(next));
+        } catch {
+          // Ignore cache write failures.
+        }
+      }
+    }).catch(() => {});
     try {
       const cached = localStorage.getItem(`velocis:infra:${id}`);
       if (cached) {
@@ -60,6 +87,32 @@ export function InfrastructurePage() {
       }
     } catch { /* ignore corrupt cache */ }
   }, [id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await getSessionRepos();
+        if (cancelled) return;
+        const next = { ...repoNameCache };
+        for (const repoItem of res.repos ?? []) {
+          const rid = String(repoItem.id ?? '').trim();
+          const name = String(repoItem.name ?? '').trim();
+          if (!rid || !name || looksLikeRepoId(name)) continue;
+          next[rid] = name;
+        }
+        setRepoNameCache(next);
+        try {
+          window.localStorage.setItem('velocis:repoNameCache', JSON.stringify(next));
+        } catch {
+          // Ignore cache write failures.
+        }
+      } catch {
+        // Best-effort only.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // ── File extensions worth analysing for infrastructure prediction ─────
   const CODE_EXTENSIONS = new Set([
@@ -363,7 +416,7 @@ export function InfrastructurePage() {
                   className="flex items-center gap-1.5 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
                 >
                   <Folder className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">{repoName}</span>
+                  <span className="hidden sm:inline">{resolvedRepoName}</span>
                 </button>
                 <span className="text-zinc-300 dark:text-slate-700">/</span>
                 <span className="text-zinc-900 dark:text-slate-100 font-semibold">Infrastructure</span>

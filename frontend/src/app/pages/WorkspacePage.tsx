@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChevronDown, Shield, Send, Paperclip, FileCode, Sun, Moon, AlertCircle, Lightbulb, Info, Home, Folder, Sparkles, Zap, CheckCircle2, Activity, Search, History, Clock, MessageSquare, Plus, GitBranch, Upload } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router';
 import Editor from '@monaco-editor/react';
-import { getWorkspaceFiles, WorkspaceFile, getFileContent, getAnnotations, postChatMessage, getChatHistory, reviewWorkspaceCode, getRepo, getWorkspaceBranches, pushWorkspaceFile, ApiError } from '../../lib/api';
+import { getWorkspaceFiles, WorkspaceFile, getFileContent, getAnnotations, postChatMessage, getChatHistory, reviewWorkspaceCode, getRepo, getSessionRepos, getWorkspaceBranches, pushWorkspaceFile, ApiError } from '../../lib/api';
 import { useTheme } from '../../lib/theme';
 import { translateText } from '../../lib/translate';
 import { useTutorial, WORKSPACE_TUTORIAL_KEY, WORKSPACE_STEPS } from '../../lib/tutorial';
@@ -171,6 +171,15 @@ export function WorkspacePage() {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [allHistoryMessages, setAllHistoryMessages] = useState<Message[]>([]);
   const [repoName, setRepoName] = useState<string>('');
+  const [repoNameCache, setRepoNameCache] = useState<Record<string, string>>(() => {
+    try {
+      if (typeof window === 'undefined') return {};
+      const raw = window.localStorage.getItem('velocis:repoNameCache');
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
   const [branches, setBranches] = useState<string[]>([]);
   const [selectedBranch, setSelectedBranch] = useState<string>('');
   const [baseFileContents, setBaseFileContents] = useState<Record<string, string>>({});
@@ -187,6 +196,39 @@ export function WorkspacePage() {
   const [pushAuthError, setPushAuthError] = useState('');
   const [installAppUrl, setInstallAppUrl] = useState('');
   const [injectableCode, setInjectableCode] = useState<string | null>(null);
+  const looksLikeRepoId = (value?: string) => !!value && /^\d{6,}$/.test(value.trim());
+  const resolvedRepoName = useMemo(() => {
+    const current = (repoName ?? '').trim();
+    if (current && !looksLikeRepoId(current)) return current;
+    if (id && repoNameCache[id]) return repoNameCache[id];
+    return 'Repository';
+  }, [repoName, id, repoNameCache]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await getSessionRepos();
+        if (cancelled) return;
+        const next = { ...repoNameCache };
+        for (const repoItem of res.repos ?? []) {
+          const rid = String(repoItem.id ?? '').trim();
+          const name = String(repoItem.name ?? '').trim();
+          if (!rid || !name || looksLikeRepoId(name)) continue;
+          next[rid] = name;
+        }
+        setRepoNameCache(next);
+        try {
+          window.localStorage.setItem('velocis:repoNameCache', JSON.stringify(next));
+        } catch {
+          // Ignore cache write failures.
+        }
+      } catch {
+        // Best-effort only.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // Dark mode state
   const { isDarkMode, setIsDarkMode } = useTheme();
@@ -270,7 +312,18 @@ export function WorkspacePage() {
   // Fetch repo metadata and chat history on mount
   useEffect(() => {
     if (!id) return;
-    getRepo(id).then(r => setRepoName(r.name)).catch(() => {});
+    getRepo(id).then(r => {
+      if (!looksLikeRepoId(r.name)) {
+        setRepoName(r.name);
+        const next = { ...repoNameCache, [id]: r.name };
+        setRepoNameCache(next);
+        try {
+          window.localStorage.setItem('velocis:repoNameCache', JSON.stringify(next));
+        } catch {
+          // Ignore cache write failures.
+        }
+      }
+    }).catch(() => {});
 
     // Immediately restore cached messages so history is visible before API returns
     try {
@@ -785,7 +838,7 @@ export function WorkspacePage() {
                   className="flex items-center gap-1.5 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
                 >
                   <Folder className="w-4 h-4" />
-                  <span className="hidden sm:inline">{repoName}</span>
+                  <span className="hidden sm:inline">{resolvedRepoName}</span>
                 </button>
                 <span className="text-zinc-300 dark:text-slate-700">/</span>
                 <span className="text-zinc-900 dark:text-slate-100 font-semibold flex items-center gap-1.5">
