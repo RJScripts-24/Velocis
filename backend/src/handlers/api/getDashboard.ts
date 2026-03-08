@@ -319,7 +319,8 @@ export const handler = async (
         const owner: string | undefined =
           r.repoOwner ??
           (r.repoFullName ? String(r.repoFullName).split('/')[0] : undefined);
-        const name: string | undefined = resolvedNameMap[id] ?? r.repoName ?? r.repoSlug;
+        const repoNameFromFullName: string | undefined = r.repoFullName ? String(r.repoFullName).split('/')[1] : undefined;
+        const name: string | undefined = resolvedNameMap[id] ?? r.repoName ?? repoNameFromFullName ?? r.repoSlug;
         if (owner && name && id && !/^\d{7,}$/.test(name)) {
           const [sparkline, total] = await Promise.all([
             fetchSparkline(owner, name, githubToken),
@@ -334,7 +335,7 @@ export const handler = async (
 
   // ── Shape repo cards ─────────────────────────────────────────────────────────
   const repoDashCards = uniqueRepos.map((r) => {
-    const id = String(r.repoSlug ?? r.repoId ?? "");
+    const id = String(r.repoId ?? r.repoSlug ?? "");
     const sparkline = sparklineMap[id] ?? [];
     const total = totalCommitsMap[id] ?? sparkline.reduce((s, v) => s + v, 0);
     let trendLabel = r.commitTrendLabel ?? "";
@@ -348,7 +349,7 @@ export const handler = async (
     }
     return {
       id,
-      name: resolvedNameMap[String(r.repoId ?? r.repoSlug ?? "")] ?? r.repoName ?? r.repoSlug,
+      name: resolvedNameMap[String(r.repoId ?? r.repoSlug ?? "")] ?? r.repoName ?? (r.repoFullName ? String(r.repoFullName).split('/')[1] : undefined) ?? r.repoSlug ?? String(r.repoId ?? ""),
       status: r.status ?? "healthy",
       language: r.language ?? null,
       last_activity: (r.lastActivity ?? []).map((a: any) => ({

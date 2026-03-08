@@ -19,6 +19,24 @@ const docClient = getDocClient();
 const REPOSITORIES_TABLE = config.DYNAMO_REPOSITORIES_TABLE;
 const CORTEX_TABLE = process.env.CORTEX_TABLE ?? "velocis-cortex";
 
+function isValidationException(err: unknown): boolean {
+  return !!err && typeof err === "object" && (err as { name?: string }).name === "ValidationException";
+}
+
+function isLikelyRepositoryRecord(item: any): boolean {
+  if (!item || typeof item !== "object") return false;
+  if (item.activityId || item.agent === "fortress" || item.agent === "sentinel" || item.agent === "cortex") {
+    return false;
+  }
+  return Boolean(
+    item.repoSlug ||
+    item.repoFullName ||
+    item.repoOwner ||
+    item.installationId ||
+    (typeof item.pk === "string" && typeof item.repoId === "string" && item.pk === item.repoId)
+  );
+}
+
 function parseCookieValue(cookieHeader: string | undefined, name: string): string | null {
   if (!cookieHeader) return null;
   const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${name}=([^;]+)`));
@@ -67,17 +85,17 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
     const repoResult = await docClient.send(
       new ScanCommand({
         TableName: REPOSITORIES_TABLE,
-        FilterExpression: "repoSlug = :s OR repoId = :s",
-        ExpressionAttributeValues: { ":s": repoId },
+        FilterExpression: "(repoSlug = :s OR repoId = :s) AND (userId = :uid OR attribute_not_exists(userId))",
+        ExpressionAttributeValues: { ":s": repoId, ":uid": sessionRecord.userId },
       })
     );
 
-    if (!repoResult.Items || repoResult.Items.length === 0) {
+    const repo = (repoResult.Items ?? []).find(isLikelyRepositoryRecord);
+    if (!repo) {
       return errors.notFound("Repository not found");
     }
-
-    const repo = repoResult.Items[0];
-    logger.info({ repoId: repo.repoId, repoFullName: repo.repoFullName, repoOwner: repo.repoOwner, repoName: repo.repoName }, 'Found repo');
+    const canonicalRepoId = String(repo.repoId ?? repoId);
+    logger.info({ repoId: canonicalRepoId, repoFullName: repo.repoFullName, repoOwner: repo.repoOwner, repoName: repo.repoName }, 'Found repo');
 
     // Prefer the GitHub App installation token — it has full, scoped access to
     // the repo and is always fresh.  Fall back to the user OAuth token only if
@@ -108,14 +126,14 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
       name = repo.repoName;
     } else {
       // Fallback: resolve owner from the USERS_TABLE using the githubId
-      logger.info({ repoId, userId: sessionRecord.userId }, 'Resolving owner from USERS_TABLE');
+      logger.info({ repoId: canonicalRepoId, userId: sessionRecord.userId }, 'Resolving owner from USERS_TABLE');
       try {
         const userRes = await docClient.send(new GetCommand({ TableName: DYNAMO_TABLES.USERS, Key: { pk: `USER#${sessionRecord.userId}` } }));
         owner = userRes.Item?.username ?? userRes.Item?.githubLogin ?? userRes.Item?.displayName ?? "";
 
         if (!owner) {
           // Second fallback: fetch from GitHub via /user
-          logger.info({ repoId }, 'Resolving owner from GitHub /user API');
+          logger.info({ repoId: canonicalRepoId }, 'Resolving owner from GitHub /user API');
           const ghRes = await fetch(`https://api.github.com/user`, {
             headers: { Authorization: `Bearer ${githubToken}`, Accept: 'application/vnd.github+json' },
           });
@@ -124,16 +142,28 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
           owner = ghUser.login;
         }
 
-        name = repo.repoName ?? repo.repoId ?? repoId;
+        name = repo.repoName ?? repo.repoId ?? canonicalRepoId;
 
         logger.info({ owner, name }, 'Resolved repo owner/name from fallbacks');
-        // Back-fill the DynamoDB record so future rebuilds work without this fallback
-        await docClient.send(new UpdateCommand({
-          TableName: REPOSITORIES_TABLE,
-          Key: { repoId: repo.repoId },
-          UpdateExpression: 'SET repoOwner = :o, repoFullName = :f, repoName = :n',
-          ExpressionAttributeValues: { ':o': owner, ':f': `${owner}/${name}`, ':n': name },
-        }));
+        // Back-fill the DynamoDB record so future rebuilds work without this fallback.
+        // Support both single-table (pk) and legacy (repoId) key schemas.
+        const repoPk = typeof repo.pk === "string" && repo.pk.length > 0 ? repo.pk : canonicalRepoId;
+        try {
+          await docClient.send(new UpdateCommand({
+            TableName: REPOSITORIES_TABLE,
+            Key: { pk: repoPk },
+            UpdateExpression: 'SET repoOwner = :o, repoFullName = :f, repoName = :n',
+            ExpressionAttributeValues: { ':o': owner, ':f': `${owner}/${name}`, ':n': name },
+          }));
+        } catch (updateErr) {
+          if (!isValidationException(updateErr)) throw updateErr;
+          await docClient.send(new UpdateCommand({
+            TableName: REPOSITORIES_TABLE,
+            Key: { repoId: canonicalRepoId },
+            UpdateExpression: 'SET repoOwner = :o, repoFullName = :f, repoName = :n',
+            ExpressionAttributeValues: { ':o': owner, ':f': `${owner}/${name}`, ':n': name },
+          }));
+        }
       } catch (err) {
         logger.error({ repo, err }, 'Could not resolve repo owner');
         return errors.badRequest("Repository is missing owner/name information. Please reinstall this repository from the onboarding page.");
@@ -143,13 +173,22 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
     // 3. Pre-wipe stale data so the old map disappears immediately
     // 3a. Delete the cached graph so getCortexServiceFiles can't return stale nodes
     try {
-      await docClient.send(new DeleteCommand({
-        TableName: REPOSITORIES_TABLE,
-        Key: { repoId: `${repoId}#CORTEX_GRAPH` },
-      }));
-      logger.info({ repoId }, 'Pre-wipe: old graph cache deleted');
+      const cacheKey = `REPO#${canonicalRepoId}#CORTEX_GRAPH`;
+      try {
+        await docClient.send(new DeleteCommand({
+          TableName: REPOSITORIES_TABLE,
+          Key: { pk: cacheKey },
+        }));
+      } catch (deleteErr) {
+        if (!isValidationException(deleteErr)) throw deleteErr;
+        await docClient.send(new DeleteCommand({
+          TableName: REPOSITORIES_TABLE,
+          Key: { repoId: `${canonicalRepoId}#CORTEX_GRAPH` },
+        }));
+      }
+      logger.info({ repoId: canonicalRepoId }, 'Pre-wipe: old graph cache deleted');
     } catch (e) {
-      logger.warn({ repoId, e }, 'Pre-wipe: graph cache delete failed — non-fatal');
+      logger.warn({ repoId: canonicalRepoId, e }, 'Pre-wipe: graph cache delete failed — non-fatal');
     }
 
     // 3b. Delete all stale SERVICE rows so listServices returns empty during rebuild
@@ -157,7 +196,7 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
       const stale = await docClient.send(new ScanCommand({
         TableName: CORTEX_TABLE,
         FilterExpression: 'repoId = :r AND recordType = :t',
-        ExpressionAttributeValues: { ':r': repoId, ':t': 'SERVICE' },
+        ExpressionAttributeValues: { ':r': canonicalRepoId, ':t': 'SERVICE' },
       }));
       const items = stale.Items ?? [];
       if (items.length > 0) {
@@ -170,16 +209,16 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
             },
           }));
         }
-        logger.info({ repoId, count: items.length }, 'Pre-wipe: stale service rows deleted');
+        logger.info({ repoId: canonicalRepoId, count: items.length }, 'Pre-wipe: stale service rows deleted');
       }
     } catch (e) {
-      logger.warn({ repoId, e }, 'Pre-wipe: service row delete failed — non-fatal');
+      logger.warn({ repoId: canonicalRepoId, e }, 'Pre-wipe: service row delete failed — non-fatal');
     }
 
     // 4. Rebuild the graph
-    logger.info(`Building Cortex graph for ${owner}/${name} (repoId=${repoId}, nodes will be fetched live from GitHub)`);
+    logger.info(`Building Cortex graph for ${owner}/${name} (repoId=${canonicalRepoId}, nodes will be fetched live from GitHub)`);
     const graph = await buildCortexGraph({
-      repoId,
+      repoId: canonicalRepoId,
       repoOwner: owner,
       repoName: name,
       accessToken: githubToken,
@@ -191,9 +230,9 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
 
     // Graph is cached to DynamoDB by buildCortexGraph() itself (setCachedGraph).
     // Sync services into the CORTEX_TABLE for the service-level map view.
-    await syncCortexServices(repoId, graph);
+    await syncCortexServices(canonicalRepoId, graph);
 
-    logger.info(`Cortex rebuild complete for ${repoId}: ${graph.nodes.length} nodes, ${graph.edges.length} edges`);
+    logger.info(`Cortex rebuild complete for ${canonicalRepoId}: ${graph.nodes.length} nodes, ${graph.edges.length} edges`);
 
     return ok({
       success: true,
