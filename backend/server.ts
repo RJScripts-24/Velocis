@@ -10,7 +10,7 @@
 
 import "dotenv/config";
 import express, { Request, Response, NextFunction } from "express";
-import cors, { CorsOptions } from "cors";
+import cors from "cors";
 import serverless from "serverless-http";
 import { APIGatewayProxyEvent, APIGatewayProxyResult, Context } from "aws-lambda";
 import { randomUUID } from "crypto";
@@ -48,45 +48,22 @@ import * as triggerAutomation from "./src/handlers/api/triggerAutomation";
 // ── App setup ────────────────────────────────────────────────────────────────
 const app = express();
 const PORT = process.env.PORT ?? 3001;
-const ALLOWED_ORIGINS = Array.from(
-  new Set(
-    (process.env.ALLOWED_ORIGINS ?? [
-      "http://localhost:5173",
-      "https://main.d32db3pq6wbaq4.amplifyapp.com",
-      "https://app.velocis.dev",
-    ].join(","))
-      .split(",")
-      .map((o) => o.trim())
-      .filter(Boolean)
-  )
-);
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? "http://localhost:5173")
+  .split(",")
+  .map((o) => o.trim());
 
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
-// CORS for browser clients hitting the EC2 API domain.
-const corsOptions: CorsOptions = {
-  origin: (origin, callback) => {
-    // Allow same-origin/non-browser clients (curl, server-to-server).
-    if (!origin) return callback(null, true);
-    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
-    return callback(new Error(`CORS blocked for origin: ${origin}`));
-  },
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: [
-    "Content-Type",
-    "Authorization",
-    "x-repo-owner",
-    "x-repo-name",
-    "Cookie",
-    "X-Requested-With",
-  ],
-  optionsSuccessStatus: 204,
-};
-
-app.use(cors(corsOptions));
-app.options("*", cors(corsOptions));
+// CORS — explicitly allow the Amplify frontend with credentials
+app.use(
+  cors({
+    origin: 'https://main.d32db3pq6wbaq4.amplifyapp.com',
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  })
+);
 
 // ── Lambda adapter ───────────────────────────────────────────────────────────
 

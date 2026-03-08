@@ -222,7 +222,7 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
       repoOwner: owner,
       repoName: name,
       accessToken: githubToken,
-      enableAiSummaries: true,
+      enableAiSummaries: false, // Keep graph small — avoids DynamoDB 400KB item size limit
       forceRebuild: true,
     });
 
