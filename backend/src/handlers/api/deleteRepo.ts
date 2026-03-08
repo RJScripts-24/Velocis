@@ -48,14 +48,28 @@ export const handler = async (
       return errors.notFound(`Repo '${id}' not found`);
     }
 
-    // Delete all matching items (guards against duplicates)
+    // Delete all matching items (guards against duplicates).
+    // Some environments use a dedicated repos table keyed by `repoId`, while
+    // others point REPOSITORIES to a single-table design keyed by `pk`.
+    // Try repoId first, then fallback to pk on schema mismatch.
     await Promise.all(
-      items.map((item) =>
-        dynamoClient.remove({
-          tableName: DYNAMO_TABLES.REPOSITORIES,
-          key: { repoId: item.repoId },
-        })
-      )
+      items.map(async (item) => {
+        try {
+          await dynamoClient.remove({
+            tableName: DYNAMO_TABLES.REPOSITORIES,
+            key: { repoId: item.repoId },
+          });
+        } catch (err: any) {
+          const msg = String(err?.message ?? err);
+          const isSchemaMismatch = msg.includes("does not match the schema");
+          if (!isSchemaMismatch) throw err;
+
+          await dynamoClient.remove({
+            tableName: DYNAMO_TABLES.REPOSITORIES,
+            key: { pk: item.pk ?? item.repoId },
+          });
+        }
+      })
     );
 
     logger.info({ id, count: items.length, msg: "deleteRepo: repo deleted" });
