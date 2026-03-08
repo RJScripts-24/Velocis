@@ -30,47 +30,20 @@ import { dynamoClient, DYNAMO_TABLES, getDocClient } from "../../services/databa
 import { getUserToken } from "../../services/github/auth.js";
 import * as crypto from "crypto";
 
-/** Fetch the total number of commits for a repo using GitHub's commit list
- * endpoint with per_page=1 and parsing the `Link` header's last page number.
- */
-async function fetchTotalCommits(
-  owner: string,
-  repoName: string,
-  githubToken: string
-): Promise<number> {
-  try {
-    const headers: Record<string, string> = {
-      Accept: "application/vnd.github.v3+json",
-      "User-Agent": "Velocis-App",
-    };
-    if (githubToken) headers["Authorization"] = `Bearer ${githubToken}`;
-
-    const res = await axios.get(
-      `https://api.github.com/repos/${owner}/${repoName}/commits?per_page=1`,
-      { headers, timeout: 8000 }
-    );
-
-    const linkHeader: string = res.headers?.link ?? "";
-    const match = linkHeader.match(/[?&]page=(\d+)>; rel="last"/);
-    if (match) return parseInt(match[1], 10);
-
-    // If no Link header the result fits in one page — count items returned
-    return Array.isArray(res.data) ? res.data.length : 0;
-  } catch {
-    return 0;
-  }
+interface CommitHistorySeries {
+  monthlyCounts: number[];
+  totalCommits: number;
 }
 
-/** Fetch the last 35 days of daily commit counts for a repo's sparkline.
- * Uses GitHub's /stats/commit_activity endpoint (returns last 52 weeks of
- * Sunday→Saturday buckets, each with a `days` array of 7 daily counts).
- * Flattens into a single array and returns the last 35 values.
+/**
+ * Fetch all commit pages from GitHub and aggregate monthly commit counts for
+ * an all-time graph. Uses Link rel="next" pagination until exhausted.
  */
-async function fetchSparkline(
+async function fetchAllTimeCommitHistory(
   owner: string,
   repoName: string,
   githubToken: string
-): Promise<number[]> {
+): Promise<CommitHistorySeries> {
   try {
     const headers: Record<string, string> = {
       Accept: "application/vnd.github.v3+json",
@@ -78,19 +51,37 @@ async function fetchSparkline(
     };
     if (githubToken) headers["Authorization"] = `Bearer ${githubToken}`;
 
-    const res = await axios.get(
-      `https://api.github.com/repos/${owner}/${repoName}/stats/commit_activity`,
-      { headers, timeout: 8000 }
-    );
+    let nextUrl = `https://api.github.com/repos/${owner}/${repoName}/commits?per_page=100`;
+    let pageCount = 0;
+    let totalCommits = 0;
+    const monthCount = new Map<string, number>();
 
-    // 202 = GitHub is computing stats, return empty for now
-    if (res.status === 202 || !Array.isArray(res.data)) return [];
+    while (nextUrl && pageCount < 500) {
+      const res = await axios.get(nextUrl, { headers, timeout: 10000 });
+      const commits = Array.isArray(res.data) ? res.data : [];
+      if (commits.length === 0) break;
 
-    // Flatten all weeks' daily arrays, take last 35 days
-    const daily: number[] = res.data.flatMap((w: any) => w.days ?? []);
-    return daily.slice(-35);
+      totalCommits += commits.length;
+      for (const commit of commits) {
+        const commitDate: string | undefined = commit?.commit?.committer?.date ?? commit?.commit?.author?.date;
+        if (!commitDate) continue;
+        const monthKey = commitDate.slice(0, 7); // YYYY-MM
+        monthCount.set(monthKey, (monthCount.get(monthKey) ?? 0) + 1);
+      }
+
+      const linkHeader = String(res.headers?.link ?? "");
+      const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+      nextUrl = nextMatch?.[1] ?? "";
+      pageCount += 1;
+    }
+
+    const orderedMonths = Array.from(monthCount.keys()).sort();
+    return {
+      monthlyCounts: orderedMonths.map((m) => monthCount.get(m) ?? 0),
+      totalCommits,
+    };
   } catch {
-    return [];
+    return { monthlyCounts: [], totalCommits: 0 };
   }
 }
 
@@ -324,12 +315,9 @@ export const handler = async (
         const safeRepoName = repoNameCandidate && !/^\d{7,}$/.test(repoNameCandidate) ? repoNameCandidate : undefined;
         const name: string | undefined = resolvedNameMap[id] ?? safeRepoName ?? repoNameFromFullName ?? r.repoSlug;
         if (owner && name && id && !/^\d{7,}$/.test(name)) {
-          const [sparkline, total] = await Promise.all([
-            fetchSparkline(owner, name, githubToken),
-            fetchTotalCommits(owner, name, githubToken),
-          ]);
-          sparklineMap[id] = sparkline;
-          totalCommitsMap[id] = total;
+          const commitHistory = await fetchAllTimeCommitHistory(owner, name, githubToken);
+          sparklineMap[id] = commitHistory.monthlyCounts;
+          totalCommitsMap[id] = commitHistory.totalCommits;
         }
       })
     );
