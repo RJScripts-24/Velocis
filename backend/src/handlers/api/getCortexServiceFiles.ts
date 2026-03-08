@@ -20,7 +20,7 @@
  */
 
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
-import { DynamoDBDocumentClient, GetCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
 import { getDocClient } from "../../services/database/dynamoClient.js";
 import { logger } from "../../utils/logger.js";
 import { ok, errors } from "../../utils/apiResponse.js";
@@ -62,20 +62,27 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
 
     logger.info(`Fetching file-level data for repo ${repoId}, service ${serviceId}`);
 
-    // 1. Get the service record to find its files
-    const serviceKey = `REPO#${repoId}#SVC#${serviceId}`;
+    // 1. Get the service record to find its files.
+    // CORTEX_TABLE rows are keyed by pk, but getCortexServices already uses
+    // this attribute-based lookup pattern safely across environments.
     const serviceResult = await docClient.send(
-      new GetCommand({
+      new ScanCommand({
         TableName: CORTEX_TABLE,
-        Key: { id: serviceKey },
+        FilterExpression: "repoId = :r AND recordType = :t AND serviceId = :sid",
+        ExpressionAttributeValues: {
+          ":r": repoId,
+          ":t": "SERVICE",
+          ":sid": parseInt(serviceId, 10),
+        },
+        Limit: 1,
       })
     );
 
-    if (!serviceResult.Item) {
+    if (!serviceResult.Items?.[0]) {
       return errors.notFound("Service not found");
     }
 
-    const service = serviceResult.Item;
+    const service = serviceResult.Items[0];
     const filePaths: string[] = service.files || [];
 
     if (filePaths.length === 0) {
@@ -96,13 +103,13 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
     }
 
     // 2. Get the complete file-level graph for this repo
-    const graphKey = `${repoId}#CORTEX_GRAPH`;
+    const graphKey = `REPO#${repoId}#CORTEX_GRAPH`;
     logger.info(`Looking for graph with key: ${graphKey} in table: ${REPOSITORIES_TABLE}`);
     
     const graphResult = await docClient.send(
       new GetCommand({
         TableName: REPOSITORIES_TABLE,
-        Key: { repoId: graphKey },
+        Key: { pk: graphKey },
       })
     );
 
