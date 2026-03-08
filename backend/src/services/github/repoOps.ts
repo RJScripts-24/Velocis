@@ -860,8 +860,34 @@ export async function fetchRepoTree(
   params: FetchRepoTreeParams
 ): Promise<RepoTreeItem[]> {
   const { repoFullName, token, ref = "HEAD", recursive = true } = params;
-  const [owner, repo] = splitRepoFullName(repoFullName);
+  let [owner, repo] = splitRepoFullName(repoFullName);
   const octokit = buildOctokit(token);
+
+  // The GitHub REST API does not accept numeric IDs in the owner/repo path.
+  // When the repo fragment is a pure integer (e.g. the Velocis repoId was used
+  // as a fallback), resolve the actual slug via GET /repositories/{id} first.
+  if (/^\d+$/.test(repo)) {
+    try {
+      const { data: repoMeta } = await octokit.request(
+        "GET /repositories/{repository_id}",
+        { repository_id: parseInt(repo, 10) }
+      );
+      owner = repoMeta.owner.login;
+      repo = repoMeta.name;
+      logger.info({
+        msg: "repoOps.fetchRepoTree: resolved numeric repo ID to slug",
+        repoFullName,
+        resolvedOwner: owner,
+        resolvedRepo: repo,
+      });
+    } catch (resolveErr) {
+      logger.warn({
+        msg: "repoOps.fetchRepoTree: could not resolve numeric repo ID — proceeding with raw value",
+        repoFullName,
+        error: String(resolveErr),
+      });
+    }
+  }
 
   try {
     logger.info({
