@@ -77,21 +77,25 @@ const DashboardNetworkBackground: React.FC = () => {
           const dy = a.y - b.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
 
-          if (dist < 130) {
-            const alpha = (1 - dist / 130) * 0.2;
+          if (dist < 145) {
+            const alpha = (1 - dist / 145) * 0.5;
             const [r, g, bch] = linePalette[(i + j) % linePalette.length];
             ctx.beginPath();
             ctx.strokeStyle = `rgba(${r}, ${g}, ${bch}, ${alpha})`;
-            ctx.lineWidth = 1;
+            ctx.lineWidth = 1.35;
+            ctx.shadowBlur = 8;
+            ctx.shadowColor = `rgba(${r}, ${g}, ${bch}, 0.25)`;
             ctx.moveTo(a.x, a.y);
             ctx.lineTo(b.x, b.y);
             ctx.stroke();
+            ctx.shadowBlur = 0;
+            ctx.shadowColor = 'transparent';
           }
         }
 
         ctx.beginPath();
         ctx.arc(a.x, a.y, a.r, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(100, 116, 139, 0.22)';
+        ctx.fillStyle = 'rgba(59, 130, 246, 0.35)';
         ctx.fill();
 
         a.x += a.vx;
@@ -115,7 +119,7 @@ const DashboardNetworkBackground: React.FC = () => {
   return (
     <canvas
       ref={canvasRef}
-      className="pointer-events-none fixed inset-0 z-0"
+      className="pointer-events-none fixed inset-0 z-[1]"
       aria-hidden="true"
     />
   );
