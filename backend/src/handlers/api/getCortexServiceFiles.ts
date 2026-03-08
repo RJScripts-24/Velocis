@@ -101,6 +101,7 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
           id: service.serviceId,
           name: service.name,
           layer: service.layer,
+          status: service.status,
         },
         files: [],
         imports: [],
@@ -130,6 +131,7 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
           id: service.serviceId,
           name: service.name,
           layer: service.layer,
+          status: service.status,
         },
         files: [],
         imports: [],
@@ -177,6 +179,7 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
           id: service.serviceId,
           name: service.name,
           layer: service.layer,
+          status: service.status,
         },
         files: [],
         imports: [],
@@ -264,6 +267,12 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
     const avgComplexity = fileNodes.length > 0
       ? fileNodes.reduce((sum, f) => sum + f.complexity, 0) / fileNodes.length
       : 0;
+    const mostComplex = fileNodes.reduce<FileNode | null>((currentMost, file) => {
+      if (!currentMost || file.complexity > currentMost.complexity) {
+        return file;
+      }
+      return currentMost;
+    }, null);
 
     // 8. Return response
     logger.info(`Returning response for service ${service.name}: ${fileNodes.length} files, ${imports.length} imports`);
@@ -284,7 +293,7 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
         totalFiles: fileNodes.length,
         totalLOC,
         avgComplexity: Math.round(avgComplexity),
-        mostComplex: fileNodes.sort((a, b) => b.complexity - a.complexity)[0]?.name,
+        mostComplex: mostComplex?.name,
         entryPoint: findEntryPoint(fileNodes),
       },
     });

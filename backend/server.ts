@@ -48,9 +48,15 @@ import * as triggerAutomation from "./src/handlers/api/triggerAutomation";
 // ── App setup ────────────────────────────────────────────────────────────────
 const app = express();
 const PORT = process.env.PORT ?? 3001;
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? "http://localhost:5173")
+const DEFAULT_ALLOWED_ORIGINS = [
+  "http://localhost:5173",
+  "http://localhost:5174",
+  "https://main.d32db3pq6wbaq4.amplifyapp.com",
+];
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? DEFAULT_ALLOWED_ORIGINS.join(","))
   .split(",")
-  .map((o) => o.trim());
+  .map((o) => o.trim())
+  .filter(Boolean);
 
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
@@ -58,7 +64,15 @@ app.use(express.urlencoded({ extended: true }));
 // CORS — explicitly allow the Amplify frontend with credentials
 app.use(
   cors({
-    origin: 'https://main.d32db3pq6wbaq4.amplifyapp.com',
+    origin: (origin, callback) => {
+      // Allow same-origin/server-side requests with no Origin header.
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      callback(null, ALLOWED_ORIGINS.includes(origin));
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
