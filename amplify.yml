@@ -34,6 +34,9 @@ applications:
         - source: /onboarding
           target: /index.html
           status: 200
+        - source: /onboarding/
+          target: /index.html
+          status: 200
         - source: '</^[^.]+$|\.(?!(css|gif|ico|jpg|js|png|txt|svg|woff|woff2|ttf|map|json)$)([^.]+$)/>'
           target: /index.html
           status: 200
