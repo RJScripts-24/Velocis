@@ -203,8 +203,6 @@ export function PipelinePage() {
     if (isFortressLoading) return;
     setIsFortressLoading(true);
     setQaError(null);
-    setQaPlanMarkdown('');
-    setFilesAnalyzed([]);
     try {
       const BASE_URL = import.meta.env.VITE_API_BASE_URL as string;
       const res = await fetch(`${BASE_URL}/api/fortress/qa-plan`, {
@@ -229,11 +227,32 @@ export function PipelinePage() {
         }));
       } catch { /* storage full — ignore */ }
     } catch (err: any) {
-      setQaError(err?.message ?? 'Failed to generate QA plan.');
+      const rawMessage = err?.message ?? 'Failed to generate QA plan.';
+      const isLikelyNetworkOrCors = /failed to fetch|networkerror|load failed/i.test(rawMessage);
+
+      if (!qaPlanMarkdown && id) {
+        // Rehydrate from last known good cache when live call fails.
+        try {
+          const cachedQA = localStorage.getItem(`velocis:fortress:qa:${id}`);
+          if (cachedQA) {
+            const parsed = JSON.parse(cachedQA);
+            setQaPlanMarkdown(parsed.markdown ?? '');
+            setFilesAnalyzed(parsed.files ?? []);
+          }
+        } catch {
+          // Ignore corrupt cache and keep the current UI state.
+        }
+      }
+
+      setQaError(
+        isLikelyNetworkOrCors
+          ? 'Network/CORS issue while contacting Fortress. Showing the last saved QA plan if available.'
+          : rawMessage
+      );
     } finally {
       setIsFortressLoading(false);
     }
-  }, [isFortressLoading, id]);
+  }, [isFortressLoading, id, qaPlanMarkdown]);
 
   const handleCopyQA = useCallback(async () => {
     if (!qaPlanMarkdown) return;
@@ -256,7 +275,6 @@ export function PipelinePage() {
     if (isDocsLoading) return;
     setIsDocsLoading(true);
     setDocsError(null);
-    setApiDocsMarkdown('');
     try {
       const BASE_URL = import.meta.env.VITE_API_BASE_URL as string;
       const res = await fetch(`${BASE_URL}/api/fortress/api-docs`, {
@@ -279,11 +297,31 @@ export function PipelinePage() {
         }));
       } catch { /* storage full — ignore */ }
     } catch (err: any) {
-      setDocsError(err?.message ?? 'Failed to generate API documentation.');
+      const rawMessage = err?.message ?? 'Failed to generate API documentation.';
+      const isLikelyNetworkOrCors = /failed to fetch|networkerror|load failed/i.test(rawMessage);
+
+      if (!apiDocsMarkdown && id) {
+        // Rehydrate from last known good cache when live call fails.
+        try {
+          const cachedDocs = localStorage.getItem(`velocis:fortress:docs:${id}`);
+          if (cachedDocs) {
+            const parsed = JSON.parse(cachedDocs);
+            setApiDocsMarkdown(parsed.markdown ?? '');
+          }
+        } catch {
+          // Ignore corrupt cache and keep the current UI state.
+        }
+      }
+
+      setDocsError(
+        isLikelyNetworkOrCors
+          ? 'Network/CORS issue while contacting Fortress. Showing the last saved API docs if available.'
+          : rawMessage
+      );
     } finally {
       setIsDocsLoading(false);
     }
-  }, [isDocsLoading, id]);
+  }, [isDocsLoading, id, apiDocsMarkdown]);
 
   const handleCopyDocs = useCallback(async () => {
     if (!apiDocsMarkdown) return;
