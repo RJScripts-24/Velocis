@@ -38,28 +38,54 @@ interface RebuildJobRecord {
   stats?: { nodes: number; edges: number; services: number };
 }
 
+function isKeySchemaMismatch(err: unknown): boolean {
+  return !!err
+    && typeof err === "object"
+    && (err as { name?: string }).name === "ValidationException"
+    && String((err as { message?: string }).message ?? "").toLowerCase().includes("key element");
+}
+
+const SCAN_JOB_KEY_FIELDS = ["scanId", "jobId", "pk"] as const;
+
+function buildKeyForField(field: typeof SCAN_JOB_KEY_FIELDS[number], id: string): Record<string, string> {
+  return { [field]: id } as Record<string, string>;
+}
+
 async function putJob(record: RebuildJobRecord): Promise<void> {
-  await docClient.send(new UpdateCommand({
-    TableName: SCAN_JOBS_TABLE,
-    Key: { scanId: record.scanId },
-    UpdateExpression:
-      "SET jobType = :jobType, repoId = :repoId, userId = :userId, #status = :status, progressPct = :progressPct, currentStep = :currentStep, #message = :message, createdAt = :createdAt, updatedAt = :updatedAt",
-    ExpressionAttributeNames: {
-      "#status": "status",
-      "#message": "message",
-    },
-    ExpressionAttributeValues: {
-      ":jobType": record.jobType,
-      ":repoId": record.repoId,
-      ":userId": record.userId,
-      ":status": record.status,
-      ":progressPct": record.progressPct,
-      ":currentStep": record.currentStep,
-      ":message": record.message,
-      ":createdAt": record.createdAt,
-      ":updatedAt": record.updatedAt,
-    },
-  }));
+  let lastErr: unknown = null;
+  for (const keyField of SCAN_JOB_KEY_FIELDS) {
+    try {
+      await docClient.send(new UpdateCommand({
+        TableName: SCAN_JOBS_TABLE,
+        Key: buildKeyForField(keyField, record.scanId),
+        UpdateExpression:
+          "SET jobType = :jobType, repoId = :repoId, userId = :userId, #status = :status, progressPct = :progressPct, currentStep = :currentStep, #message = :message, createdAt = :createdAt, updatedAt = :updatedAt, scanId = :scanId, jobId = :jobId, pk = :pk",
+        ExpressionAttributeNames: {
+          "#status": "status",
+          "#message": "message",
+        },
+        ExpressionAttributeValues: {
+          ":jobType": record.jobType,
+          ":repoId": record.repoId,
+          ":userId": record.userId,
+          ":status": record.status,
+          ":progressPct": record.progressPct,
+          ":currentStep": record.currentStep,
+          ":message": record.message,
+          ":createdAt": record.createdAt,
+          ":updatedAt": record.updatedAt,
+          ":scanId": record.scanId,
+          ":jobId": record.scanId,
+          ":pk": record.scanId,
+        },
+      }));
+      return;
+    } catch (err) {
+      lastErr = err;
+      if (!isKeySchemaMismatch(err)) throw err;
+    }
+  }
+  throw lastErr;
 }
 
 async function updateJob(
@@ -82,13 +108,23 @@ async function updateJob(
 
   if (setParts.length === 0) return;
 
-  await docClient.send(new UpdateCommand({
-    TableName: SCAN_JOBS_TABLE,
-    Key: { scanId },
-    UpdateExpression: `SET ${setParts.join(", ")}`,
-    ExpressionAttributeNames: names,
-    ExpressionAttributeValues: values,
-  }));
+  let lastErr: unknown = null;
+  for (const keyField of SCAN_JOB_KEY_FIELDS) {
+    try {
+      await docClient.send(new UpdateCommand({
+        TableName: SCAN_JOBS_TABLE,
+        Key: buildKeyForField(keyField, scanId),
+        UpdateExpression: `SET ${setParts.join(", ")}`,
+        ExpressionAttributeNames: names,
+        ExpressionAttributeValues: values,
+      }));
+      return;
+    } catch (err) {
+      lastErr = err;
+      if (!isKeySchemaMismatch(err)) throw err;
+    }
+  }
+  throw lastErr;
 }
 
 function isValidationException(err: unknown): boolean {
@@ -390,11 +426,33 @@ export async function getStatus(event: APIGatewayProxyEvent): Promise<APIGateway
       return errors.unauthorized("Session expired");
     }
 
-    const jobRes = await docClient.send(new GetCommand({
-      TableName: SCAN_JOBS_TABLE,
-      Key: { scanId: jobId },
-    }));
-    const job = jobRes.Item as RebuildJobRecord | undefined;
+    let job: RebuildJobRecord | undefined;
+    for (const keyField of SCAN_JOB_KEY_FIELDS) {
+      try {
+        const jobRes = await docClient.send(new GetCommand({
+          TableName: SCAN_JOBS_TABLE,
+          Key: buildKeyForField(keyField, jobId),
+        }));
+        if (jobRes.Item) {
+          job = jobRes.Item as RebuildJobRecord;
+          break;
+        }
+      } catch (err) {
+        if (!isKeySchemaMismatch(err)) throw err;
+      }
+    }
+
+    // Final fallback for odd legacy rows: scan by any id field.
+    if (!job) {
+      const scanned = await docClient.send(new ScanCommand({
+        TableName: SCAN_JOBS_TABLE,
+        FilterExpression: "scanId = :id OR jobId = :id OR pk = :id",
+        ExpressionAttributeValues: { ":id": jobId },
+        Limit: 1,
+      }));
+      job = scanned.Items?.[0] as RebuildJobRecord | undefined;
+    }
+
     if (!job || job.jobType !== "cortex-rebuild" || job.repoId !== repoId) {
       return errors.notFound("Rebuild job not found");
     }
