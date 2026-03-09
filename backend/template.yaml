@@ -126,14 +126,14 @@ Parameters:
 
   FrontendOrigin:
     Type:    String
-    Default: "https://app.velocis.dev"
+    Default: "https://main.d32db3pq6wbaq4.amplifyapp.com"
     Description: >-
       The Amplify (or custom) domain of the frontend, e.g.
       https://main.d1abc123.amplifyapp.com  Used for CORS.
 
   GithubOAuthRedirectUri:
     Type:    String
-    Default: "https://app.velocis.dev/auth/callback"
+    Default: "https://main.d32db3pq6wbaq4.amplifyapp.com/auth/callback"
     Description: "GitHub OAuth redirect URI — must match the GitHub App settings."
 
 # ─────────────────────────────────────────────────────────────────────────────
