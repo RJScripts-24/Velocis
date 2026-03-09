@@ -44,6 +44,10 @@ export const routeConfig = [
     element: <CortexPage />,
   },
   {
+    path: "/repo/:id/cortex/",
+    element: <CortexPage />,
+  },
+  {
     path: "/repo/:id/workspace",
     element: <WorkspacePage />,
   },
