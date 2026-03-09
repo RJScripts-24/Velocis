@@ -469,8 +469,38 @@ export const getCortexServiceFiles = (
 ): Promise<CortexServiceFilesResponse> =>
   request(`/api/repos/${repoId}/cortex/services/${serviceId}/files`);
 
-export const rebuildCortex = (repoId: string): Promise<{ success: boolean; message: string; stats: { nodes: number; edges: number; services: number } }> =>
+export interface CortexRebuildStartResponse {
+  accepted: boolean;
+  job_id: string;
+  status: 'queued' | 'running';
+  message: string;
+}
+
+export interface CortexRebuildStatusResponse {
+  job_id: string;
+  repo_id: string;
+  status: 'queued' | 'running' | 'completed' | 'failed';
+  progress_pct: number;
+  current_step: string;
+  message: string;
+  error: string | null;
+  stats: { nodes: number; edges: number; services: number } | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
+
+export const startCortexRebuild = (repoId: string): Promise<CortexRebuildStartResponse> =>
   request(`/api/repos/${repoId}/cortex/rebuild`, { method: 'POST' });
+
+export const getCortexRebuildStatus = (
+  repoId: string,
+  jobId: string,
+): Promise<CortexRebuildStatusResponse> =>
+  request(`/api/repos/${repoId}/cortex/rebuild/${jobId}`);
+
+// Legacy alias retained for existing call sites.
+export const rebuildCortex = startCortexRebuild;
 
 // ─── 10. Workspace ────────────────────────────────────────────────────────────
 export interface WorkspaceFile {

@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import {
   getCortexServices, getCortexServiceFiles, getCortexTimeline,
-  rebuildCortex, getRepo, getSessionRepos,
+  rebuildCortex, getCortexRebuildStatus, getRepo, getSessionRepos,
   type CortexServicesResponse,
 } from '../../lib/api';
 import lightLogoImg from '../../../LightLogo.png';
@@ -1010,6 +1010,9 @@ function CortexPageContent() {
   const [criticalId, setCriticalId] = useState<number | null>(null);
   const [timelineData, setTimelineData] = useState<{ position: number; label: string; color: string }[]>([]);
   const [rebuilding, setRebuilding] = useState(false);
+  const [rebuildProgressPct, setRebuildProgressPct] = useState(0);
+  const [rebuildStep, setRebuildStep] = useState('');
+  const [rebuildMessage, setRebuildMessage] = useState('');
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [hoveredEvent, setHoveredEvent] = useState<number | null>(null);
 
@@ -1166,6 +1169,45 @@ function CortexPageContent() {
     return edges.filter(e => ids.has(e.source) && ids.has(e.target));
   }, [edges, filteredNodes]);
 
+  const applyServiceSnapshot = useCallback((res: CortexServicesResponse) => {
+    const hasFiles = new Set(
+      (res.services as any[]).filter(s => s.metrics.file_count > 0).map(s => s.id.toString())
+    );
+    const refIds = new Set<string>();
+    for (const svc of res.services as any[]) {
+      if (hasFiles.has(svc.id.toString())) {
+        for (const tid of svc.connections ?? []) refIds.add(tid.toString());
+      }
+    }
+    const valid = (res.services as ServiceData[]).filter(s => hasFiles.has(s.id.toString()) || refIds.has(s.id.toString()));
+    if (valid.length === 0) return;
+
+    allServicesById.current = new Map((res.services as ServiceData[]).map((s: ServiceData) => [s.id, s]));
+    setServices(valid);
+    setLastUpdated(res.last_updated_ago);
+    setBlastPairs(new Set((res.blast_radius_pairs || []).map((p: any) => `${p.source_id}-${p.target_id}`)));
+    setCriticalId(res.critical_service_id);
+
+    const flowNodes: Node[] = valid.map(svc => ({ id: svc.id.toString(), type: 'serviceNode', data: svc, position: { x: 0, y: 0 } }));
+    const validIds = new Set(flowNodes.map(n => n.id));
+    const blastSet = new Set((res.blast_radius_pairs || []).map((p: any) => `${p.source_id}-${p.target_id}`));
+    const rawConns = (res.services as any[]).flatMap(svc =>
+      (svc.connections ?? [])
+        .filter((tid: number) => validIds.has(svc.id.toString()) && validIds.has(tid.toString()))
+        .map((tid: number) => ({
+          source: svc.id.toString(),
+          target: tid.toString(),
+          isCritical: svc.status === 'critical',
+          isBlast: blastSet.has(`${svc.id}-${tid}`),
+        }))
+    );
+    const { nodes: serviceNodes, swimlaneNodes } = getServiceLayout(flowNodes, rawConns);
+    const ln = [...swimlaneNodes, ...serviceNodes];
+    const le = buildSmartEdges(ln.filter(n => n.type === 'serviceNode'), rawConns);
+    setNodes(ln.map(n => ({ ...n, data: { ...n.data, isDark: isDarkRef.current } })));
+    setEdges(le);
+  }, [setNodes, setEdges]);
+
   /* ── Handlers ───────────────────────────────────────────────────────── */
   const handleFitView = useCallback(() => fitViewRef.current({ duration: 800, padding: 0.2 }), []);
   const handleExport = useCallback(async () => {
@@ -1180,13 +1222,71 @@ function CortexPageContent() {
   const handleRebuild = useCallback(async () => {
     if (!repoId || rebuilding) return;
     setRebuilding(true);
+    setRebuildProgressPct(0);
+    setRebuildStep('queued');
+    setRebuildMessage('Rebuild queued');
     // Clear the old map immediately so the user sees an empty state while rebuild runs
     setServices([]);
     setNodes([]);
     setEdges([]);
-    try { await rebuildCortex(repoId); window.location.reload(); }
-    catch { alert('Rebuild failed — check console.'); setRebuilding(false); }
-  }, [repoId, rebuilding]);
+    try {
+      const start = await rebuildCortex(repoId);
+      const jobId = (start as any)?.job_id as string | undefined;
+      if (!jobId) {
+        setRebuilding(false);
+        return;
+      }
+
+      const deadline = Date.now() + 15 * 60 * 1000;
+      let tick = 0;
+      while (Date.now() < deadline) {
+        const status = await getCortexRebuildStatus(repoId, jobId);
+        setRebuildProgressPct(status.progress_pct ?? 0);
+        setRebuildStep(status.current_step ?? 'running');
+        setRebuildMessage(status.message ?? 'Building graph');
+
+        // Pull latest service snapshot while rebuild runs so graph appears progressively.
+        if (tick % 2 === 0) {
+          try {
+            const res = await getCortexServices(repoId);
+            applyServiceSnapshot(res);
+          } catch {
+            // Best effort only; status polling is the source of truth.
+          }
+        }
+        tick += 1;
+
+        if (status.status === 'completed') {
+          try {
+            const [res, tlRes] = await Promise.all([
+              getCortexServices(repoId),
+              getCortexTimeline(repoId).catch(() => ({ events: [] })),
+            ]);
+            applyServiceSnapshot(res);
+            setTimelineData(((tlRes as any).events || []).map((e: any) => ({ position: e.position_pct, label: e.label, color: e.color || '#6b7280' })));
+          } catch {
+            // Ignore final refresh failures; current graph state remains visible.
+          }
+          setRebuilding(false);
+          setRebuildProgressPct(100);
+          setRebuildStep('completed');
+          setRebuildMessage('Rebuild complete');
+          return;
+        }
+        if (status.status === 'failed') {
+          throw new Error(status.error || 'Cortex rebuild failed');
+        }
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+
+      throw new Error('Cortex rebuild timed out while waiting for completion.');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Rebuild failed — check console.');
+      setRebuilding(false);
+      setRebuildStep('failed');
+      setRebuildMessage('Rebuild failed');
+    }
+  }, [repoId, rebuilding, applyServiceSnapshot]);
 
   const backToServices = useCallback(() => {
     setViewMode('services'); setDrilledService(null); setSelectedFileNode(null);
@@ -1462,8 +1562,13 @@ function CortexPageContent() {
                         opacity: rebuilding ? 0.7 : 1,
                       }}>
                       <GitBranch className={`w-3.5 h-3.5 ${rebuilding ? 'cx-spin' : ''}`} />
-                      {rebuilding ? 'Building…' : lastUpdated ? 'Rebuild' : 'Build'}
+                      {rebuilding ? `Building ${rebuildProgressPct}%` : lastUpdated ? 'Rebuild' : 'Build'}
                     </button>
+                    {rebuilding && (
+                      <p className="text-[11px] px-1" style={{ color: muted }}>
+                        {rebuildMessage || `Stage: ${rebuildStep || 'running'}`}
+                      </p>
+                    )}
                     {[
                       { icon: hideHealthy ? Eye : EyeOff, action: () => setHideHealthy(p => !p), label: hideHealthy ? 'Show Healthy' : 'Hide Healthy', active: hideHealthy },
                       { icon: Maximize2, action: handleFitView, label: 'Fit View', active: false },
@@ -1561,7 +1666,7 @@ function CortexPageContent() {
                     className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all"
                     style={{ backgroundColor: '#8b5cf6', color: '#fff', opacity: rebuilding ? 0.7 : 1 }}>
                     {rebuilding ? <Loader2 className="w-4 h-4 cx-spin" /> : <RefreshCw className="w-4 h-4" />}
-                    {rebuilding ? 'Building…' : 'Build Graph'}
+                    {rebuilding ? `Building ${rebuildProgressPct}%` : 'Build Graph'}
                   </button>
                 </div>
               </div>
@@ -1588,7 +1693,9 @@ function CortexPageContent() {
                   <div className="w-1.5 h-1.5 rounded-full bg-violet-400 cx-live-dot" />
                   {viewMode === 'files' && drilledService
                     ? `${drilledService.name} · ${fileNodeDataList.length} files`
-                    : `Architecture Map · ${services.length} services`}
+                    : rebuilding
+                      ? `Rebuilding ${rebuildProgressPct}% · ${rebuildStep || 'running'}`
+                      : `Architecture Map · ${services.length} services`}
                 </div>
 
                 {viewMode === 'files' && (

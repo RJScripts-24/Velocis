@@ -316,6 +316,7 @@ app.get("/api/repos/:repoId/cortex/services/:serviceId", wrap(getCortexServices.
 app.get("/api/repos/:repoId/cortex/timeline", wrap(getCortexServices.getCortexTimeline as LambdaHandler));
 app.get("/api/repos/:repoId/cortex/services/:serviceId/files", wrap(getCortexServiceFiles.handler as LambdaHandler));
 app.post("/api/repos/:repoId/cortex/rebuild", wrap(rebuildCortex.handler as LambdaHandler));
+app.get("/api/repos/:repoId/cortex/rebuild/:jobId", wrap(rebuildCortex.getStatus as LambdaHandler));
 app.get("/api/repos/:repoId/cortex", wrap(getCortexData.handler as LambdaHandler));
 
 // § 10 — Workspace

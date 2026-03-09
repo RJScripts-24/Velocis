@@ -18,6 +18,78 @@ import * as crypto from "crypto";
 const docClient = getDocClient();
 const REPOSITORIES_TABLE = config.DYNAMO_REPOSITORIES_TABLE;
 const CORTEX_TABLE = process.env.CORTEX_TABLE ?? "velocis-cortex";
+const SCAN_JOBS_TABLE = process.env.SCAN_JOBS_TABLE ?? "velocis-scan-jobs";
+
+type RebuildJobStatus = "queued" | "running" | "completed" | "failed";
+
+interface RebuildJobRecord {
+  scanId: string;
+  jobType: "cortex-rebuild";
+  repoId: string;
+  userId: string;
+  status: RebuildJobStatus;
+  progressPct: number;
+  currentStep: string;
+  message: string;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  error?: string;
+  stats?: { nodes: number; edges: number; services: number };
+}
+
+async function putJob(record: RebuildJobRecord): Promise<void> {
+  await docClient.send(new UpdateCommand({
+    TableName: SCAN_JOBS_TABLE,
+    Key: { scanId: record.scanId },
+    UpdateExpression:
+      "SET jobType = :jobType, repoId = :repoId, userId = :userId, #status = :status, progressPct = :progressPct, currentStep = :currentStep, #message = :message, createdAt = :createdAt, updatedAt = :updatedAt",
+    ExpressionAttributeNames: {
+      "#status": "status",
+      "#message": "message",
+    },
+    ExpressionAttributeValues: {
+      ":jobType": record.jobType,
+      ":repoId": record.repoId,
+      ":userId": record.userId,
+      ":status": record.status,
+      ":progressPct": record.progressPct,
+      ":currentStep": record.currentStep,
+      ":message": record.message,
+      ":createdAt": record.createdAt,
+      ":updatedAt": record.updatedAt,
+    },
+  }));
+}
+
+async function updateJob(
+  scanId: string,
+  patch: Partial<Omit<RebuildJobRecord, "scanId" | "jobType" | "repoId" | "userId" | "createdAt">>
+): Promise<void> {
+  const setParts: string[] = [];
+  const names: Record<string, string> = {};
+  const values: Record<string, unknown> = {};
+  const now = new Date().toISOString();
+  const next = { ...patch, updatedAt: now } as Record<string, unknown>;
+
+  Object.entries(next).forEach(([key, value]) => {
+    const n = `#${key}`;
+    const v = `:${key}`;
+    names[n] = key;
+    values[v] = value;
+    setParts.push(`${n} = ${v}`);
+  });
+
+  if (setParts.length === 0) return;
+
+  await docClient.send(new UpdateCommand({
+    TableName: SCAN_JOBS_TABLE,
+    Key: { scanId },
+    UpdateExpression: `SET ${setParts.join(", ")}`,
+    ExpressionAttributeNames: names,
+    ExpressionAttributeValues: values,
+  }));
+}
 
 function isValidationException(err: unknown): boolean {
   return !!err && typeof err === "object" && (err as { name?: string }).name === "ValidationException";
@@ -170,82 +242,181 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
       }
     }
 
-    // 3. Pre-wipe stale data so the old map disappears immediately
-    // 3a. Delete the cached graph so getCortexServiceFiles can't return stale nodes
-    try {
-      const cacheKey = `REPO#${canonicalRepoId}#CORTEX_GRAPH`;
-      try {
-        await docClient.send(new DeleteCommand({
-          TableName: REPOSITORIES_TABLE,
-          Key: { pk: cacheKey },
-        }));
-      } catch (deleteErr) {
-        if (!isValidationException(deleteErr)) throw deleteErr;
-        await docClient.send(new DeleteCommand({
-          TableName: REPOSITORIES_TABLE,
-          Key: { repoId: `${canonicalRepoId}#CORTEX_GRAPH` },
-        }));
-      }
-      logger.info({ repoId: canonicalRepoId }, 'Pre-wipe: old graph cache deleted');
-    } catch (e) {
-      logger.warn({ repoId: canonicalRepoId, e }, 'Pre-wipe: graph cache delete failed — non-fatal');
-    }
-
-    // 3b. Delete all stale SERVICE rows so listServices returns empty during rebuild
-    try {
-      const stale = await docClient.send(new ScanCommand({
-        TableName: CORTEX_TABLE,
-        FilterExpression: 'repoId = :r AND recordType = :t',
-        ExpressionAttributeValues: { ':r': canonicalRepoId, ':t': 'SERVICE' },
-      }));
-      const items = stale.Items ?? [];
-      if (items.length > 0) {
-        const chunks: any[][] = [];
-        for (let i = 0; i < items.length; i += 25) chunks.push(items.slice(i, i + 25));
-        for (const chunk of chunks) {
-          await docClient.send(new BatchWriteCommand({
-            RequestItems: {
-              [CORTEX_TABLE]: chunk.map(item => ({ DeleteRequest: { Key: { id: item.id } } })),
-            },
-          }));
-        }
-        logger.info({ repoId: canonicalRepoId, count: items.length }, 'Pre-wipe: stale service rows deleted');
-      }
-    } catch (e) {
-      logger.warn({ repoId: canonicalRepoId, e }, 'Pre-wipe: service row delete failed — non-fatal');
-    }
-
-    // 4. Rebuild the graph
-    logger.info(`Building Cortex graph for ${owner}/${name} (repoId=${canonicalRepoId}, nodes will be fetched live from GitHub)`);
-    const graph = await buildCortexGraph({
+    const scanId = `cortex-rebuild-${canonicalRepoId}-${crypto.randomUUID()}`;
+    const now = new Date().toISOString();
+    await putJob({
+      scanId,
+      jobType: "cortex-rebuild",
       repoId: canonicalRepoId,
-      repoOwner: owner,
-      repoName: name,
-      accessToken: githubToken,
-      enableAiSummaries: false, // Keep graph small — avoids DynamoDB 400KB item size limit
-      forceRebuild: true,
+      userId: sessionRecord.userId,
+      status: "queued",
+      progressPct: 0,
+      currentStep: "queued",
+      message: "Rebuild queued",
+      createdAt: now,
+      updatedAt: now,
     });
 
-    logger.info(`Graph built: ${graph.nodes.length} nodes, ${graph.edges.length} edges — syncing services`);
+    const runRebuild = async () => {
+      try {
+        await updateJob(scanId, {
+          status: "running",
+          progressPct: 10,
+          currentStep: "cleanup",
+          message: "Clearing stale Cortex data",
+        });
 
-    // Graph is cached to DynamoDB by buildCortexGraph() itself (setCachedGraph).
-    // Sync services into the CORTEX_TABLE for the service-level map view.
-    await syncCortexServices(canonicalRepoId, graph);
+        // 1) Pre-wipe stale data so the old map disappears immediately
+        try {
+          const cacheKey = `REPO#${canonicalRepoId}#CORTEX_GRAPH`;
+          try {
+            await docClient.send(new DeleteCommand({
+              TableName: REPOSITORIES_TABLE,
+              Key: { pk: cacheKey },
+            }));
+          } catch (deleteErr) {
+            if (!isValidationException(deleteErr)) throw deleteErr;
+            await docClient.send(new DeleteCommand({
+              TableName: REPOSITORIES_TABLE,
+              Key: { repoId: `${canonicalRepoId}#CORTEX_GRAPH` },
+            }));
+          }
+        } catch (e) {
+          logger.warn({ repoId: canonicalRepoId, e }, 'Pre-wipe: graph cache delete failed — non-fatal');
+        }
 
-    logger.info(`Cortex rebuild complete for ${canonicalRepoId}: ${graph.nodes.length} nodes, ${graph.edges.length} edges`);
+        try {
+          const stale = await docClient.send(new ScanCommand({
+            TableName: CORTEX_TABLE,
+            FilterExpression: 'repoId = :r AND recordType = :t',
+            ExpressionAttributeValues: { ':r': canonicalRepoId, ':t': 'SERVICE' },
+          }));
+          const items = stale.Items ?? [];
+          if (items.length > 0) {
+            const chunks: any[][] = [];
+            for (let i = 0; i < items.length; i += 25) chunks.push(items.slice(i, i + 25));
+            for (const chunk of chunks) {
+              await docClient.send(new BatchWriteCommand({
+                RequestItems: {
+                  [CORTEX_TABLE]: chunk.map(item => ({ DeleteRequest: { Key: { id: item.id } } })),
+                },
+              }));
+            }
+          }
+        } catch (e) {
+          logger.warn({ repoId: canonicalRepoId, e }, 'Pre-wipe: service row delete failed — non-fatal');
+        }
+
+        await updateJob(scanId, {
+          progressPct: 45,
+          currentStep: "graph-build",
+          message: "Building Cortex graph",
+        });
+
+        const graph = await buildCortexGraph({
+          repoId: canonicalRepoId,
+          repoOwner: owner,
+          repoName: name,
+          accessToken: githubToken,
+          enableAiSummaries: false,
+          forceRebuild: true,
+        });
+
+        await updateJob(scanId, {
+          progressPct: 80,
+          currentStep: "service-sync",
+          message: "Syncing services",
+        });
+
+        await syncCortexServices(canonicalRepoId, graph);
+
+        await updateJob(scanId, {
+          status: "completed",
+          progressPct: 100,
+          currentStep: "completed",
+          message: "Cortex rebuild complete",
+          completedAt: new Date().toISOString(),
+          stats: {
+            nodes: graph.nodes.length,
+            edges: graph.edges.length,
+            services: graph.stats.totalFiles,
+          },
+        });
+      } catch (jobErr) {
+        logger.error({ repoId: canonicalRepoId, scanId, error: jobErr }, "Cortex rebuild job failed");
+        await updateJob(scanId, {
+          status: "failed",
+          currentStep: "failed",
+          message: "Cortex rebuild failed",
+          error: jobErr instanceof Error ? jobErr.message : "Unknown error",
+          completedAt: new Date().toISOString(),
+        });
+      }
+    };
+
+    // Fire-and-forget so API responds immediately and avoids gateway timeouts.
+    setTimeout(() => {
+      void runRebuild();
+    }, 0);
 
     return ok({
-      success: true,
-      message: "Cortex graph rebuilt successfully",
-      stats: {
-        nodes: graph.nodes.length,
-        edges: graph.edges.length,
-        services: graph.stats.totalFiles,
-      },
-    });
+      accepted: true,
+      job_id: scanId,
+      status: "queued",
+      message: "Cortex rebuild started",
+    }, 202);
 
   } catch (error) {
     logger.error({ error, msg: "Failed to rebuild Cortex", stack: error instanceof Error ? error.stack : undefined });
     return errors.internal("Failed to rebuild Cortex graph");
+  }
+}
+
+export async function getStatus(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  try {
+    const { repoId, jobId } = event.pathParameters || {};
+    if (!repoId || !jobId) return errors.badRequest("Missing repoId or jobId");
+
+    const cookieHeader = event.headers?.["cookie"] ?? event.headers?.["Cookie"];
+    const sessionToken = parseCookieValue(cookieHeader, "velocis_session");
+    if (!sessionToken) return errors.unauthorized("No session found");
+
+    const sessionTokenHash = crypto.createHash("sha256").update(sessionToken).digest("hex");
+    const sessionRecord = await dynamoClient.get<{ userId: string; expiresAt: string }>({
+      tableName: DYNAMO_TABLES.USERS,
+      key: { pk: `SESSION#${sessionTokenHash}` },
+    });
+    if (!sessionRecord || new Date(sessionRecord.expiresAt) <= new Date()) {
+      return errors.unauthorized("Session expired");
+    }
+
+    const jobRes = await docClient.send(new GetCommand({
+      TableName: SCAN_JOBS_TABLE,
+      Key: { scanId: jobId },
+    }));
+    const job = jobRes.Item as RebuildJobRecord | undefined;
+    if (!job || job.jobType !== "cortex-rebuild" || job.repoId !== repoId) {
+      return errors.notFound("Rebuild job not found");
+    }
+    if (job.userId !== sessionRecord.userId) {
+      return errors.forbidden();
+    }
+
+    return ok({
+      job_id: job.scanId,
+      repo_id: job.repoId,
+      status: job.status,
+      progress_pct: job.progressPct,
+      current_step: job.currentStep,
+      message: job.message,
+      error: job.error ?? null,
+      stats: job.stats ?? null,
+      created_at: job.createdAt,
+      updated_at: job.updatedAt,
+      completed_at: job.completedAt ?? null,
+    });
+  } catch (error) {
+    logger.error({ error, msg: "Failed to fetch Cortex rebuild status" });
+    return errors.internal("Failed to fetch rebuild status");
   }
 }

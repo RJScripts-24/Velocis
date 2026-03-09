@@ -461,6 +461,27 @@ Resources:
             Path:   /repos/{repoId}/cortex
             Method: GET
 
+  CortexRebuildFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler:     src/handlers/api/rebuildCortex.handler
+      Description: POST /repos/:repoId/cortex/rebuild (async kickoff)
+      Timeout:     29
+      MemorySize:  512
+      Events:
+        StartRebuild:
+          Type: Api
+          Properties:
+            RestApiId: !Ref VelocisApi
+            Path:   /repos/{repoId}/cortex/rebuild
+            Method: POST
+        GetRebuildStatus:
+          Type: Api
+          Properties:
+            RestApiId: !Ref VelocisApi
+            Path:   /repos/{repoId}/cortex/rebuild/{jobId}
+            Method: GET
+
   # ──────────────────────────────────────────────────────────────────────────
   # § 10 — WORKSPACE (Monaco Editor + Sentinel Chat)
   # ──────────────────────────────────────────────────────────────────────────
