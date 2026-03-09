@@ -15,8 +15,6 @@ import CareerPage from "./pages/CareerPage";
 import ContactPage from "./pages/ContactPage";
 import Security from "./pages/Security";
 import Blog from "./pages/Blog";
-import DocsPage from "./pages/documentation";
-import PricingPage from "./pages/pricing";
 
 export const routeConfig = [
   {
@@ -41,10 +39,6 @@ export const routeConfig = [
   },
   {
     path: "/repo/:id/cortex",
-    element: <CortexPage />,
-  },
-  {
-    path: "/repo/:id/cortex/",
     element: <CortexPage />,
   },
   {
@@ -86,14 +80,6 @@ export const routeConfig = [
   {
     path: "/blog",
     element: <Blog />,
-  },
-  {
-    path: "/documentation",
-    element: <DocsPage />,
-  },
-  {
-    path: "/pricing",
-    element: <PricingPage />,
   },
 ];
 

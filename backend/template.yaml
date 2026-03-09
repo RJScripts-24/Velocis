@@ -126,14 +126,14 @@ Parameters:
 
   FrontendOrigin:
     Type:    String
-    Default: "https://main.d32db3pq6wbaq4.amplifyapp.com"
+    Default: "https://app.velocis.dev"
     Description: >-
       The Amplify (or custom) domain of the frontend, e.g.
       https://main.d1abc123.amplifyapp.com  Used for CORS.
 
   GithubOAuthRedirectUri:
     Type:    String
-    Default: "https://main.d32db3pq6wbaq4.amplifyapp.com/auth/callback"
+    Default: "https://app.velocis.dev/auth/callback"
     Description: "GitHub OAuth redirect URI — must match the GitHub App settings."
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -460,34 +460,6 @@ Resources:
             RestApiId: !Ref VelocisApi
             Path:   /repos/{repoId}/cortex
             Method: GET
-
-  CortexServiceFilesFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      Handler:     src/handlers/api/getCortexServiceFiles.handler
-      Description: GET /repos/:repoId/cortex/services/:serviceId/files
-      Timeout:     60
-      Events:
-        Api:
-          Type: Api
-          Properties:
-            RestApiId: !Ref VelocisApi
-            Path:   /repos/{repoId}/cortex/services/{serviceId}/files
-            Method: GET
-
-  CortexRebuildFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      Handler:     src/handlers/api/rebuildCortex.handler
-      Description: POST /repos/:repoId/cortex/rebuild
-      Timeout:     120
-      Events:
-        Api:
-          Type: Api
-          Properties:
-            RestApiId: !Ref VelocisApi
-            Path:   /repos/{repoId}/cortex/rebuild
-            Method: POST
 
   # ──────────────────────────────────────────────────────────────────────────
   # § 10 — WORKSPACE (Monaco Editor + Sentinel Chat)

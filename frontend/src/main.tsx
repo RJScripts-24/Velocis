@@ -5,11 +5,6 @@ import "./styles/index.css";
 import "./styles/tokens.css";
 
 try {
-	if (window.location.pathname.length > 1 && window.location.pathname.endsWith("/")) {
-		const normalizedPath = window.location.pathname.replace(/\/+$/, "") || "/";
-		window.history.replaceState(null, "", normalizedPath + window.location.search + window.location.hash);
-	}
-
 	const pendingRedirect = sessionStorage.getItem("velocis:spa-redirect");
 	const currentPath = window.location.pathname + window.location.search + window.location.hash;
 	const isRootLikePath = window.location.pathname === "/" || window.location.pathname === "/index.html";

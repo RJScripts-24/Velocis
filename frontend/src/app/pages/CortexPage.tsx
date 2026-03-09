@@ -1029,28 +1029,6 @@ function CortexPageContent() {
   const [fileImports, setFileImports] = useState<Array<{ from: string; to: string; count: number; functions: string[] }>>([]);
   const [selectedFileNode, setSelectedFileNode] = useState<FileNodeData | null>(null);
 
-  const normalizeId = useCallback((value: unknown): string | null => {
-    if (value === null || value === undefined) return null;
-    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
-    const trimmed = String(value).trim();
-    if (!trimmed) return null;
-    const asNum = Number(trimmed);
-    if (!Number.isNaN(asNum) && Number.isFinite(asNum)) return String(asNum);
-    return trimmed;
-  }, []);
-
-  const normalizeConnectionTargets = useCallback((connections: unknown): string[] => {
-    if (!Array.isArray(connections)) return [];
-    const targets = connections
-      .map((c: any) => {
-        if (typeof c === 'number' || typeof c === 'string') return normalizeId(c);
-        if (!c || typeof c !== 'object') return null;
-        return normalizeId(c.target_id ?? c.targetId ?? c.target ?? c.to ?? c.serviceId ?? c.id);
-      })
-      .filter((id): id is string => Boolean(id));
-    return Array.from(new Set(targets));
-  }, [normalizeId]);
-
   // ReactFlow
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -1099,9 +1077,21 @@ function CortexPageContent() {
             }
           }
         }).catch(() => { });
-        // Use all services returned by backend. file_count can be stale/zero for
-        // valid nodes, and filtering on it can hide legitimate dependency edges.
-        const valid = res.services as ServiceData[];
+        // Step 1: services that have source files
+        const hasFiles = new Set(
+          (res.services as any[]).filter(s => s.metrics.file_count > 0).map(s => s.id.toString())
+        );
+        // Step 2: also include services that are TARGETS of those — they may have 0 files
+        //         (config/infra services) but are still real nodes used by others
+        const referencedIds = new Set<string>();
+        for (const svc of res.services as any[]) {
+          if (hasFiles.has(svc.id.toString())) {
+            for (const tid of svc.connections ?? []) referencedIds.add(tid.toString());
+          }
+        }
+        const valid = (res.services as ServiceData[]).filter(
+          s => hasFiles.has(s.id.toString()) || referencedIds.has(s.id.toString())
+        );
         if (valid.length === 0) { setError('__NOT_GENERATED__'); setLoading(false); return; }
         // Build a full lookup map (ALL services, even those with 0 LOC) so dep-flow target
         // resolution never silently drops a connection whose target was filtered from display.
@@ -1114,27 +1104,21 @@ function CortexPageContent() {
         setCriticalId(res.critical_service_id);
         setTimelineData(((tlRes as any).events || []).map((e: any) => ({ position: e.position_pct, label: e.label, color: e.color || '#6b7280' })));
 
-        const flowNodes: Node[] = valid
-          .map(svc => ({ sid: normalizeId((svc as any).id), svc }))
-          .filter((v): v is { sid: string; svc: ServiceData } => Boolean(v.sid))
-          .map(({ sid, svc }) => ({ id: sid, type: 'serviceNode', data: svc, position: { x: 0, y: 0 } }));
+        const flowNodes: Node[] = valid.map(svc => ({ id: svc.id.toString(), type: 'serviceNode', data: svc, position: { x: 0, y: 0 } }));
         const validIds = new Set(flowNodes.map(n => n.id));
         const blastSet = new Set((res.blast_radius_pairs || []).map((p: any) => `${p.source_id}-${p.target_id}`));
         // Build connections from ALL services (not just valid) so that connections
         // from filtered-out services to visible nodes are also captured.
         // Keep only edges where both endpoints are rendered nodes.
-        const rawConns = (res.services as any[]).flatMap(svc => {
-          const sourceId = normalizeId(svc?.id);
-          if (!sourceId || !validIds.has(sourceId)) return [];
-          return normalizeConnectionTargets(svc?.connections)
-            .filter((tid: string) => validIds.has(tid))
-            .map((tid: string) => ({
-              source: sourceId,
-              target: tid,
+        const rawConns = (res.services as any[]).flatMap(svc =>
+          (svc.connections ?? [])
+            .filter((tid: number) => validIds.has(svc.id.toString()) && validIds.has(tid.toString()))
+            .map((tid: number) => ({
+              source: svc.id.toString(), target: tid.toString(),
               isCritical: svc.status === 'critical',
-              isBlast: blastSet.has(`${sourceId}-${tid}`),
-            }));
-        });
+              isBlast: blastSet.has(`${svc.id}-${tid}`),
+            }))
+        );
         const { nodes: serviceNodes, swimlaneNodes } = getServiceLayout(flowNodes, rawConns);
         const ln = [...swimlaneNodes, ...serviceNodes]; // swimlanes render behind service nodes
         const le = buildSmartEdges(ln.filter(n => n.type === 'serviceNode'), rawConns);
@@ -1144,7 +1128,7 @@ function CortexPageContent() {
       } finally { setLoading(false); }
     };
     fetchData();
-  }, [repoId, setNodes, setEdges, normalizeId, normalizeConnectionTargets]); // fitView intentionally omitted — accessed via ref
+  }, [repoId, setNodes, setEdges]); // fitView intentionally omitted — accessed via ref
 
   /* ── Auto-refresh ────────────────────────────────────────────────────── */
   useEffect(() => {
@@ -1152,50 +1136,16 @@ function CortexPageContent() {
     const iv = setInterval(async () => {
       try {
         const res = await getCortexServices(repoId);
-        const valid = res.services as ServiceData[];
-        if (valid.length === 0) {
-          setServices([]);
-          setNodes([]);
-          setEdges([]);
-          setError('__NOT_GENERATED__');
-          return;
-        }
-
-        setError(null);
+        const hasFiles = new Set((res.services as any[]).filter(s => s.metrics.file_count > 0).map(s => s.id.toString()));
+        const refIds = new Set<string>();
+        for (const svc of res.services as any[]) { if (hasFiles.has(svc.id.toString())) { for (const tid of svc.connections ?? []) refIds.add(tid.toString()); } }
+        const valid = (res.services as ServiceData[]).filter(s => hasFiles.has(s.id.toString()) || refIds.has(s.id.toString()));
         allServicesById.current = new Map((res.services as ServiceData[]).map((s: ServiceData) => [s.id, s]));
-        setServices(valid);
-        setLastUpdated(res.last_updated_ago);
-        setBlastPairs(new Set((res.blast_radius_pairs || []).map((p: any) => `${p.source_id}-${p.target_id}`)));
-        setCriticalId(res.critical_service_id);
-
-        const flowNodes: Node[] = valid
-          .map(svc => ({ sid: normalizeId((svc as any).id), svc }))
-          .filter((v): v is { sid: string; svc: ServiceData } => Boolean(v.sid))
-          .map(({ sid, svc }) => ({ id: sid, type: 'serviceNode', data: svc, position: { x: 0, y: 0 } }));
-        const validIds = new Set(flowNodes.map(n => n.id));
-        const blastSet = new Set((res.blast_radius_pairs || []).map((p: any) => `${p.source_id}-${p.target_id}`));
-        const rawConns = (res.services as any[]).flatMap(svc => {
-          const sourceId = normalizeId(svc?.id);
-          if (!sourceId || !validIds.has(sourceId)) return [];
-          return normalizeConnectionTargets(svc?.connections)
-            .filter((tid: string) => validIds.has(tid))
-            .map((tid: string) => ({
-              source: sourceId,
-              target: tid,
-              isCritical: svc.status === 'critical',
-              isBlast: blastSet.has(`${sourceId}-${tid}`),
-            }));
-        });
-
-        const { nodes: serviceNodes, swimlaneNodes } = getServiceLayout(flowNodes, rawConns);
-        const ln = [...swimlaneNodes, ...serviceNodes];
-        const le = buildSmartEdges(ln.filter(n => n.type === 'serviceNode'), rawConns);
-        setNodes(ln.map(n => ({ ...n, data: { ...n.data, isDark: isDarkRef.current } })));
-        setEdges(le);
+        setServices(valid); setLastUpdated(res.last_updated_ago);
       } catch { }
     }, 30000);
     return () => clearInterval(iv);
-  }, [autoRefresh, repoId, viewMode, setNodes, setEdges, normalizeId, normalizeConnectionTargets]);
+  }, [autoRefresh, repoId, viewMode]);
 
   /* ── Filtered nodes/edges ───────────────────────────────────────────── */
   const filteredNodes = useMemo(() => {
@@ -1246,16 +1196,15 @@ function CortexPageContent() {
   /* ── Node click ─────────────────────────────────────────────────────── */
   const onNodeClick = useCallback(async (_: React.MouseEvent, node: Node) => {
     if (viewMode === 'services') {
-      if (!repoId) return;
+      // Only service nodes should trigger drilldown; ignore swimlane/background nodes.
+      if (node.type !== 'serviceNode' || !repoId) return;
 
       const svcData = node.data as Partial<ServiceData>;
-      const candidateId = svcData?.id ?? node.id;
+      const serviceId = Number(svcData?.id ?? node.id);
+      if (!Number.isFinite(serviceId)) return;
 
-      // Resolve from the canonical services state so drill-down works even if
-      // ReactFlow node metadata is partial or node.type is not set as expected.
-      const resolvedService = services.find(s => String(s.id) === String(candidateId));
-      if (!resolvedService) return;
-      const serviceId = resolvedService.id;
+      const resolvedService = services.find(s => s.id === serviceId)
+        ?? ({ ...(svcData as ServiceData), id: serviceId } as ServiceData);
 
       setSelectedService(resolvedService);
       setDrilledService(resolvedService); setSelectedFileNode(null); setLoading(true);
@@ -1396,7 +1345,7 @@ function CortexPageContent() {
         }));
       }
     }
-  }, [viewMode, repoId, services, setNodes, setEdges, fileNodeDataList, selectedFileNode, edges]); // fitView via ref — no dep needed
+  }, [viewMode, repoId, setNodes, setEdges, fileNodeDataList, selectedFileNode, edges]); // fitView via ref — no dep needed
 
   const onConnect = useCallback((p: Connection) => setEdges(eds => addEdge(p, eds)), [setEdges]);
 
@@ -1474,7 +1423,7 @@ function CortexPageContent() {
           {/* Right actions */}
           <div className="flex items-center gap-2">
 
-            <button onClick={() => setIsDark(!isDark)} title="Toggle theme" className="p-1.5 rounded-md" style={{ color: muted }}
+            <button onClick={() => setIsDark(p => !p)} title="Toggle theme" className="p-1.5 rounded-md" style={{ color: muted }}
               onMouseEnter={e => (e.currentTarget.style.backgroundColor = isDark ? '#1e2535' : '#f3f4f6')}
               onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}>
               {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}

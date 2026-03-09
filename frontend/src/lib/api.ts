@@ -469,23 +469,8 @@ export const getCortexServiceFiles = (
 ): Promise<CortexServiceFilesResponse> =>
   request(`/api/repos/${repoId}/cortex/services/${serviceId}/files`);
 
-export const rebuildCortex = async (repoId: string): Promise<{ success: boolean; message: string; stats: { nodes: number; edges: number; services: number } }> => {
-  try {
-    return await request(`/api/repos/${repoId}/cortex/rebuild`, { method: 'POST' });
-  } catch (error) {
-    const is404 = error instanceof ApiError && /HTTP 404/i.test(error.message);
-    if (!is404) throw error;
-
-    try {
-      return await request(`/repos/${repoId}/cortex/rebuild`, { method: 'POST' });
-    } catch {
-      throw new ApiError(
-        'Cortex rebuild endpoint is unavailable on this backend deployment. Deploy the latest backend routes (POST /api/repos/:repoId/cortex/rebuild).',
-        'CORTEX_REBUILD_ENDPOINT_MISSING'
-      );
-    }
-  }
-};
+export const rebuildCortex = (repoId: string): Promise<{ success: boolean; message: string; stats: { nodes: number; edges: number; services: number } }> =>
+  request(`/api/repos/${repoId}/cortex/rebuild`, { method: 'POST' });
 
 // ─── 10. Workspace ────────────────────────────────────────────────────────────
 export interface WorkspaceFile {
