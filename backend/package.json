@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "esbuild server.ts --bundle --platform=node --format=esm --packages=external --outdir=dist",
+    "build": "esbuild server.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist/server.cjs",
     "build:lambda": "tsc && cp package.json dist/ && cd dist && npm install --omit=dev --prefer-offline",
     "test": "echo \"Error: no test specified\" && exit 1",
     "init:tables": "tsx src/scripts/initCortexTables.ts",

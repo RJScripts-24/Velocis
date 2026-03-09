@@ -63,6 +63,7 @@ jobs:
             npm ci
             npm run build
 
-            # Zero-downtime style restart: reload existing process, or start it if missing.
-            pm2 reload velocis-backend --update-env || pm2 start dist/server.js --name velocis-backend
+            # Restart the backend process using the new .cjs build output.
+            pm2 delete velocis-backend || true
+            pm2 start dist/server.cjs --name velocis-backend
             pm2 save
