@@ -32,6 +32,7 @@ const bedrockClient = new BedrockRuntimeClient({
 });
 
 const DEEPSEEK_MODEL = "deepseek.v3.2";
+const BEDROCK_FALLBACK_MESSAGE = "Bedrock Services are currently in high demand please try again later ";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SYSTEM PROMPT
@@ -106,23 +107,27 @@ export async function generateQATestPlan(codeContent: string): Promise<string> {
   // HTTP request — otherwise a hung Bedrock socket keeps Node alive forever.
   const abort = new AbortController();
   const abortTimer = setTimeout(() => abort.abort(), 85_000); // slightly under client timeout
-  let response;
   try {
-    response = await bedrockClient.send(command, { abortSignal: abort.signal });
-  } finally {
-    clearTimeout(abortTimer);
-  }
-
-  // Safely extract the text from the response
-  const content = response.output?.message?.content;
-  if (Array.isArray(content) && content.length > 0) {
-    const firstBlock = content[0];
-    if ("text" in firstBlock && typeof firstBlock.text === "string") {
-      return firstBlock.text;
+    let response;
+    try {
+      response = await bedrockClient.send(command, { abortSignal: abort.signal });
+    } finally {
+      clearTimeout(abortTimer);
     }
+
+    // Safely extract the text from the response
+    const content = response.output?.message?.content;
+    if (Array.isArray(content) && content.length > 0) {
+      const firstBlock = content[0];
+      if ("text" in firstBlock && typeof firstBlock.text === "string") {
+        return firstBlock.text;
+      }
+    }
+  } catch {
+    return BEDROCK_FALLBACK_MESSAGE;
   }
 
-  return "";
+  return BEDROCK_FALLBACK_MESSAGE;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -176,16 +181,20 @@ export async function generateApiDocs(codeContent: string): Promise<string> {
     },
   };
 
-  const command = new ConverseCommand(input);
-  const response = await bedrockClient.send(command);
+  try {
+    const command = new ConverseCommand(input);
+    const response = await bedrockClient.send(command);
 
-  const outputContent = response.output?.message?.content;
-  if (Array.isArray(outputContent) && outputContent.length > 0) {
-    const firstBlock = outputContent[0];
-    if ("text" in firstBlock && typeof firstBlock.text === "string") {
-      return firstBlock.text;
+    const outputContent = response.output?.message?.content;
+    if (Array.isArray(outputContent) && outputContent.length > 0) {
+      const firstBlock = outputContent[0];
+      if ("text" in firstBlock && typeof firstBlock.text === "string") {
+        return firstBlock.text;
+      }
     }
+  } catch {
+    return BEDROCK_FALLBACK_MESSAGE;
   }
 
-  return "";
+  return BEDROCK_FALLBACK_MESSAGE;
 }
