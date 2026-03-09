@@ -1077,21 +1077,9 @@ function CortexPageContent() {
             }
           }
         }).catch(() => { });
-        // Step 1: services that have source files
-        const hasFiles = new Set(
-          (res.services as any[]).filter(s => s.metrics.file_count > 0).map(s => s.id.toString())
-        );
-        // Step 2: also include services that are TARGETS of those — they may have 0 files
-        //         (config/infra services) but are still real nodes used by others
-        const referencedIds = new Set<string>();
-        for (const svc of res.services as any[]) {
-          if (hasFiles.has(svc.id.toString())) {
-            for (const tid of svc.connections ?? []) referencedIds.add(tid.toString());
-          }
-        }
-        const valid = (res.services as ServiceData[]).filter(
-          s => hasFiles.has(s.id.toString()) || referencedIds.has(s.id.toString())
-        );
+        // Use all services returned by backend. file_count can be stale/zero for
+        // valid nodes, and filtering on it can hide legitimate dependency edges.
+        const valid = res.services as ServiceData[];
         if (valid.length === 0) { setError('__NOT_GENERATED__'); setLoading(false); return; }
         // Build a full lookup map (ALL services, even those with 0 LOC) so dep-flow target
         // resolution never silently drops a connection whose target was filtered from display.
@@ -1136,16 +1124,45 @@ function CortexPageContent() {
     const iv = setInterval(async () => {
       try {
         const res = await getCortexServices(repoId);
-        const hasFiles = new Set((res.services as any[]).filter(s => s.metrics.file_count > 0).map(s => s.id.toString()));
-        const refIds = new Set<string>();
-        for (const svc of res.services as any[]) { if (hasFiles.has(svc.id.toString())) { for (const tid of svc.connections ?? []) refIds.add(tid.toString()); } }
-        const valid = (res.services as ServiceData[]).filter(s => hasFiles.has(s.id.toString()) || refIds.has(s.id.toString()));
+        const valid = res.services as ServiceData[];
+        if (valid.length === 0) {
+          setServices([]);
+          setNodes([]);
+          setEdges([]);
+          setError('__NOT_GENERATED__');
+          return;
+        }
+
+        setError(null);
         allServicesById.current = new Map((res.services as ServiceData[]).map((s: ServiceData) => [s.id, s]));
-        setServices(valid); setLastUpdated(res.last_updated_ago);
+        setServices(valid);
+        setLastUpdated(res.last_updated_ago);
+        setBlastPairs(new Set((res.blast_radius_pairs || []).map((p: any) => `${p.source_id}-${p.target_id}`)));
+        setCriticalId(res.critical_service_id);
+
+        const flowNodes: Node[] = valid.map(svc => ({ id: svc.id.toString(), type: 'serviceNode', data: svc, position: { x: 0, y: 0 } }));
+        const validIds = new Set(flowNodes.map(n => n.id));
+        const blastSet = new Set((res.blast_radius_pairs || []).map((p: any) => `${p.source_id}-${p.target_id}`));
+        const rawConns = (res.services as any[]).flatMap(svc =>
+          (svc.connections ?? [])
+            .filter((tid: number) => validIds.has(svc.id.toString()) && validIds.has(tid.toString()))
+            .map((tid: number) => ({
+              source: svc.id.toString(),
+              target: tid.toString(),
+              isCritical: svc.status === 'critical',
+              isBlast: blastSet.has(`${svc.id}-${tid}`),
+            }))
+        );
+
+        const { nodes: serviceNodes, swimlaneNodes } = getServiceLayout(flowNodes, rawConns);
+        const ln = [...swimlaneNodes, ...serviceNodes];
+        const le = buildSmartEdges(ln.filter(n => n.type === 'serviceNode'), rawConns);
+        setNodes(ln.map(n => ({ ...n, data: { ...n.data, isDark: isDarkRef.current } })));
+        setEdges(le);
       } catch { }
     }, 30000);
     return () => clearInterval(iv);
-  }, [autoRefresh, repoId, viewMode]);
+  }, [autoRefresh, repoId, viewMode, setNodes, setEdges]);
 
   /* ── Filtered nodes/edges ───────────────────────────────────────────── */
   const filteredNodes = useMemo(() => {
