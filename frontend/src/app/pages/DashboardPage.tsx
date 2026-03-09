@@ -425,6 +425,24 @@ export function DashboardPage() {
 
   const currentDate = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 
+  const formatRepoInstallDateTime = (raw?: string | null) => {
+    if (!raw) return null;
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return raw;
+
+    const date = parsed.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+    const time = parsed.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    return `${date} at ${time}`;
+  };
+
   if (isLoading) {
     return <LoadingAnimation text="Loading dashboard…" />;
   }
@@ -645,6 +663,7 @@ export function DashboardPage() {
                   const trendColor = repo.commit_trend_direction === 'down' ? 'text-rose-600 dark:text-rose-500' : repo.commit_trend_direction === 'up' ? 'text-emerald-600 dark:text-emerald-500' : 'text-amber-600 dark:text-amber-500';
                   const barColor = repo.status === 'critical' ? '#ef4444' : repo.status === 'warning' ? '#f59e0b' : '#10b981';
                   const mockSeries = createMockCommitGraph(repo.id, 60);
+                  const installDateTime = formatRepoInstallDateTime((repo as any).installed_at ?? (repo as any).installedAt ?? null);
                   return (
                     <div
                       key={repo.id}
@@ -659,6 +678,11 @@ export function DashboardPage() {
                           >
                             {resolveRepoDisplayName(repo.id, repo.name)}
                           </div>
+                          {installDateTime && (
+                            <div className="mt-1 text-[11px] font-medium text-zinc-500 dark:text-slate-400">
+                              Installed: {installDateTime}
+                            </div>
+                          )}
                         </div>
                         <div className="flex items-center gap-2">
                           <RepoCardMenu
