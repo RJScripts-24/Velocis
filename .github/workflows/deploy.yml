@@ -1,0 +1,68 @@
+name: Deploy Backend to EC2
+
+on:
+  # Run deployment only when code is pushed to main.
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Build and Deploy to EC2
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1) Pull repository contents into the GitHub runner.
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2) Install Node.js so we can validate/install dependencies before deploy.
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      # 3) Basic build preparation on runner (fast failure if package setup is broken).
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      # 4) SSH into EC2 and perform in-place deployment.
+      - name: Deploy on EC2 over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -e
+
+            # Repository root on EC2.
+            PROJECT_DIR=~/Velocis
+
+            cd "$PROJECT_DIR"
+
+            # Keep the local checkout aligned with origin/main.
+            git fetch origin main
+            git checkout main
+            git reset --hard origin/main
+
+            # Deploy only the backend service under ~/Velocis/backend.
+            cd backend
+
+            # Create .env from GitHub Secret (multi-line safe).
+            # PRODUCTION_ENV should contain full KEY=VALUE lines.
+            cat > .env <<'EOF'
+            ${{ secrets.PRODUCTION_ENV }}
+            EOF
+
+            # Install all dependencies first since build needs devDependencies.
+            npm ci
+            npm run build
+
+            # Zero-downtime style restart: reload existing process, or start it if missing.
+            pm2 reload velocis-backend --update-env || pm2 start dist/server.js --name velocis-backend
+            pm2 save
