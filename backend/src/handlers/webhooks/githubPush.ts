@@ -442,7 +442,10 @@ async function handlePush(
     updatedAt: completedAt,
     sentinel: agentResults.sentinel.status === "success" ? agentResults.sentinel.data : null,
     fortress: agentResults.fortress.status === "success" ? agentResults.fortress.data : null,
-    infrastructure: null,           // Phase C (infra predictor) result not surfaced here yet
+    infrastructure:
+      agentResults.architecture?.status === "success"
+        ? agentResults.architecture.data
+        : null,
     error: agentResults.overallStatus !== "healthy"
       ? [
           agentResults.sentinel.status === "failed" ? `Sentinel: ${agentResults.sentinel.error}` : null,
@@ -642,7 +645,7 @@ async function runAgentPipeline(ctx: {
 
   // ── Phase C: Infrastructure Prediction (Automation Only) ───────────────────
   // Run if automation is enabled
-  let architecture = null;
+  let architecture: AgentResult | null = null;
   if (isAutomated) {
     logger.info({ requestId, msg: "Phase C: Automation enabled, running Infrastructure predictor" });
     try {
@@ -675,7 +678,7 @@ async function runAgentPipeline(ctx: {
       ? "healthy"
       : "degraded";
 
-  return { sentinel, fortress, cortex, overallStatus };
+  return { sentinel, fortress, cortex, architecture, overallStatus };
 }
 
 // ─────────────────────────────────────────────
@@ -757,5 +760,6 @@ interface AgentPipelineResult {
   sentinel: AgentResult;
   fortress: AgentResult;
   cortex: AgentResult;
+  architecture: AgentResult | null;
   overallStatus: "healthy" | "degraded";
 }
