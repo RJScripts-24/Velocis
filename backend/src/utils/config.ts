@@ -4,15 +4,10 @@
 // Fails fast at startup if required variables are missing or malformed
 
 import * as path from "path";
-import { fileURLToPath } from "url";
-import { dirname } from "path";
 import * as dotenv from "dotenv";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
 // Load .env.development (or .env) before anything reads process.env
-dotenv.config({ path: path.resolve(__dirname, "../../.env.development") });
+dotenv.config({ path: path.resolve(process.cwd(), ".env.development") });
 dotenv.config(); // fallback to .env if .env.development doesn't exist
 
 import { z } from "zod";
