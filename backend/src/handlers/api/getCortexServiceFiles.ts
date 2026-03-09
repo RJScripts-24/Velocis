@@ -62,6 +62,60 @@ function normalizePathForMatch(value: string): string {
     .toLowerCase();
 }
 
+async function findServiceRecord(repoId: string, serviceIdRaw: string): Promise<any | null> {
+  const numericServiceId = Number.parseInt(serviceIdRaw, 10);
+
+  // Newer schema: numeric serviceId.
+  if (Number.isFinite(numericServiceId)) {
+    const numericScan = await docClient.send(
+      new ScanCommand({
+        TableName: CORTEX_TABLE,
+        FilterExpression: "repoId = :r AND recordType = :t AND serviceId = :sid",
+        ExpressionAttributeValues: {
+          ":r": repoId,
+          ":t": "SERVICE",
+          ":sid": numericServiceId,
+        },
+        Limit: 1,
+      })
+    );
+    if (numericScan.Items?.[0]) return numericScan.Items[0];
+  }
+
+  // Compatibility: some rows may store serviceId as a string.
+  const stringScan = await docClient.send(
+    new ScanCommand({
+      TableName: CORTEX_TABLE,
+      FilterExpression: "repoId = :r AND recordType = :t AND serviceId = :sid",
+      ExpressionAttributeValues: {
+        ":r": repoId,
+        ":t": "SERVICE",
+        ":sid": serviceIdRaw,
+      },
+      Limit: 1,
+    })
+  );
+  if (stringScan.Items?.[0]) return stringScan.Items[0];
+
+  // Legacy-key fallback: direct key lookup by service key pattern.
+  const legacyKey = `REPO#${repoId}#SVC#${serviceIdRaw}`;
+  for (const keyAttr of ["pk", "id"] as const) {
+    try {
+      const keyLookup = await docClient.send(
+        new GetCommand({
+          TableName: CORTEX_TABLE,
+          Key: { [keyAttr]: legacyKey },
+        })
+      );
+      if (keyLookup.Item) return keyLookup.Item;
+    } catch {
+      // Ignore schema mismatch for this key shape and continue fallback.
+    }
+  }
+
+  return null;
+}
+
 export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
   try {
     const { repoId, serviceId } = event.pathParameters || {};
@@ -73,26 +127,11 @@ export async function handler(event: APIGatewayProxyEvent): Promise<APIGatewayPr
     logger.info(`Fetching file-level data for repo ${repoId}, service ${serviceId}`);
 
     // 1. Get the service record to find its files.
-    // CORTEX_TABLE rows are keyed by pk, but getCortexServices already uses
-    // this attribute-based lookup pattern safely across environments.
-    const serviceResult = await docClient.send(
-      new ScanCommand({
-        TableName: CORTEX_TABLE,
-        FilterExpression: "repoId = :r AND recordType = :t AND serviceId = :sid",
-        ExpressionAttributeValues: {
-          ":r": repoId,
-          ":t": "SERVICE",
-          ":sid": parseInt(serviceId, 10),
-        },
-        Limit: 1,
-      })
-    );
-
-    if (!serviceResult.Items?.[0]) {
+    const service = await findServiceRecord(repoId, serviceId);
+    if (!service) {
       return errors.notFound("Service not found");
     }
 
-    const service = serviceResult.Items[0];
     const filePaths: string[] = service.files || [];
 
     if (filePaths.length === 0) {
