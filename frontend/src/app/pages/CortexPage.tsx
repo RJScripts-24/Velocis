@@ -1029,6 +1029,28 @@ function CortexPageContent() {
   const [fileImports, setFileImports] = useState<Array<{ from: string; to: string; count: number; functions: string[] }>>([]);
   const [selectedFileNode, setSelectedFileNode] = useState<FileNodeData | null>(null);
 
+  const normalizeId = useCallback((value: unknown): string | null => {
+    if (value === null || value === undefined) return null;
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+    const trimmed = String(value).trim();
+    if (!trimmed) return null;
+    const asNum = Number(trimmed);
+    if (!Number.isNaN(asNum) && Number.isFinite(asNum)) return String(asNum);
+    return trimmed;
+  }, []);
+
+  const normalizeConnectionTargets = useCallback((connections: unknown): string[] => {
+    if (!Array.isArray(connections)) return [];
+    const targets = connections
+      .map((c: any) => {
+        if (typeof c === 'number' || typeof c === 'string') return normalizeId(c);
+        if (!c || typeof c !== 'object') return null;
+        return normalizeId(c.target_id ?? c.targetId ?? c.target ?? c.to ?? c.serviceId ?? c.id);
+      })
+      .filter((id): id is string => Boolean(id));
+    return Array.from(new Set(targets));
+  }, [normalizeId]);
+
   // ReactFlow
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -1092,21 +1114,27 @@ function CortexPageContent() {
         setCriticalId(res.critical_service_id);
         setTimelineData(((tlRes as any).events || []).map((e: any) => ({ position: e.position_pct, label: e.label, color: e.color || '#6b7280' })));
 
-        const flowNodes: Node[] = valid.map(svc => ({ id: svc.id.toString(), type: 'serviceNode', data: svc, position: { x: 0, y: 0 } }));
+        const flowNodes: Node[] = valid
+          .map(svc => ({ sid: normalizeId((svc as any).id), svc }))
+          .filter((v): v is { sid: string; svc: ServiceData } => Boolean(v.sid))
+          .map(({ sid, svc }) => ({ id: sid, type: 'serviceNode', data: svc, position: { x: 0, y: 0 } }));
         const validIds = new Set(flowNodes.map(n => n.id));
         const blastSet = new Set((res.blast_radius_pairs || []).map((p: any) => `${p.source_id}-${p.target_id}`));
         // Build connections from ALL services (not just valid) so that connections
         // from filtered-out services to visible nodes are also captured.
         // Keep only edges where both endpoints are rendered nodes.
-        const rawConns = (res.services as any[]).flatMap(svc =>
-          (svc.connections ?? [])
-            .filter((tid: number) => validIds.has(svc.id.toString()) && validIds.has(tid.toString()))
-            .map((tid: number) => ({
-              source: svc.id.toString(), target: tid.toString(),
+        const rawConns = (res.services as any[]).flatMap(svc => {
+          const sourceId = normalizeId(svc?.id);
+          if (!sourceId || !validIds.has(sourceId)) return [];
+          return normalizeConnectionTargets(svc?.connections)
+            .filter((tid: string) => validIds.has(tid))
+            .map((tid: string) => ({
+              source: sourceId,
+              target: tid,
               isCritical: svc.status === 'critical',
-              isBlast: blastSet.has(`${svc.id}-${tid}`),
-            }))
-        );
+              isBlast: blastSet.has(`${sourceId}-${tid}`),
+            }));
+        });
         const { nodes: serviceNodes, swimlaneNodes } = getServiceLayout(flowNodes, rawConns);
         const ln = [...swimlaneNodes, ...serviceNodes]; // swimlanes render behind service nodes
         const le = buildSmartEdges(ln.filter(n => n.type === 'serviceNode'), rawConns);
@@ -1116,7 +1144,7 @@ function CortexPageContent() {
       } finally { setLoading(false); }
     };
     fetchData();
-  }, [repoId, setNodes, setEdges]); // fitView intentionally omitted — accessed via ref
+  }, [repoId, setNodes, setEdges, normalizeId, normalizeConnectionTargets]); // fitView intentionally omitted — accessed via ref
 
   /* ── Auto-refresh ────────────────────────────────────────────────────── */
   useEffect(() => {
@@ -1140,19 +1168,24 @@ function CortexPageContent() {
         setBlastPairs(new Set((res.blast_radius_pairs || []).map((p: any) => `${p.source_id}-${p.target_id}`)));
         setCriticalId(res.critical_service_id);
 
-        const flowNodes: Node[] = valid.map(svc => ({ id: svc.id.toString(), type: 'serviceNode', data: svc, position: { x: 0, y: 0 } }));
+        const flowNodes: Node[] = valid
+          .map(svc => ({ sid: normalizeId((svc as any).id), svc }))
+          .filter((v): v is { sid: string; svc: ServiceData } => Boolean(v.sid))
+          .map(({ sid, svc }) => ({ id: sid, type: 'serviceNode', data: svc, position: { x: 0, y: 0 } }));
         const validIds = new Set(flowNodes.map(n => n.id));
         const blastSet = new Set((res.blast_radius_pairs || []).map((p: any) => `${p.source_id}-${p.target_id}`));
-        const rawConns = (res.services as any[]).flatMap(svc =>
-          (svc.connections ?? [])
-            .filter((tid: number) => validIds.has(svc.id.toString()) && validIds.has(tid.toString()))
-            .map((tid: number) => ({
-              source: svc.id.toString(),
-              target: tid.toString(),
+        const rawConns = (res.services as any[]).flatMap(svc => {
+          const sourceId = normalizeId(svc?.id);
+          if (!sourceId || !validIds.has(sourceId)) return [];
+          return normalizeConnectionTargets(svc?.connections)
+            .filter((tid: string) => validIds.has(tid))
+            .map((tid: string) => ({
+              source: sourceId,
+              target: tid,
               isCritical: svc.status === 'critical',
-              isBlast: blastSet.has(`${svc.id}-${tid}`),
-            }))
-        );
+              isBlast: blastSet.has(`${sourceId}-${tid}`),
+            }));
+        });
 
         const { nodes: serviceNodes, swimlaneNodes } = getServiceLayout(flowNodes, rawConns);
         const ln = [...swimlaneNodes, ...serviceNodes];
@@ -1162,7 +1195,7 @@ function CortexPageContent() {
       } catch { }
     }, 30000);
     return () => clearInterval(iv);
-  }, [autoRefresh, repoId, viewMode, setNodes, setEdges]);
+  }, [autoRefresh, repoId, viewMode, setNodes, setEdges, normalizeId, normalizeConnectionTargets]);
 
   /* ── Filtered nodes/edges ───────────────────────────────────────────── */
   const filteredNodes = useMemo(() => {
