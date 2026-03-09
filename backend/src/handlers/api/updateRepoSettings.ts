@@ -165,14 +165,18 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
 
             logger.info({ msg: "isAutomated saved", repoId, isAutomated, tableName });
 
-            // When disabling, ALSO write automationCancelledAt directly onto the
-            // automationReport record (keyed by numericRepoId, same as persistAutomationReport).
-            // This ensures checkIsAutomated in triggerAutomation.ts finds the cancel signal
-            // even if the settings record and the report record have different keys.
-            if (!isAutomated) {
-                const numericRepoId = String(foundRepo.repoId ?? foundRepo.id ?? repoId);
-                try {
-                    cancelWriteKey = { pk: numericRepoId };
+            // Mirror isAutomated onto the numeric-pk report record (keyed by numericRepoId,
+            // same key used by persistAutomationReport / checkIsAutomated in triggerAutomation.ts).
+            // This is required because the settings record and the report record may have
+            // different DynamoDB keys; checkIsAutomated always reads the numeric-pk record.
+            //   • Disabling  → write automationCancelledAt + isAutomated:false so any running
+            //                   pipeline detects the cancel signal and stops.
+            //   • Enabling   → clear automationCancelledAt + write isAutomated:true so any
+            //                   subsequent run (including Restart) is not falsely aborted.
+            const numericRepoId = String(foundRepo.repoId ?? foundRepo.id ?? repoId);
+            try {
+                cancelWriteKey = { pk: numericRepoId };
+                if (!isAutomated) {
                     await docClient.send(new UpdateCommand({
                         TableName: tableName,
                         Key: { pk: numericRepoId },
@@ -180,9 +184,17 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
                         ExpressionAttributeValues: { ":t": now, ":a": false },
                     }));
                     logger.info({ msg: "automationCancelledAt written to report record", numericRepoId });
-                } catch (e) {
-                    logger.warn({ msg: "Failed to write automationCancelledAt to report record (non-fatal)", error: String(e) });
+                } else {
+                    await docClient.send(new UpdateCommand({
+                        TableName: tableName,
+                        Key: { pk: numericRepoId },
+                        UpdateExpression: "SET isAutomated = :a, updatedAt = :t REMOVE automationCancelledAt",
+                        ExpressionAttributeValues: { ":t": now, ":a": true },
+                    }));
+                    logger.info({ msg: "automationCancelledAt cleared on report record", numericRepoId });
                 }
+            } catch (e) {
+                logger.warn({ msg: "Failed to sync isAutomated to report record (non-fatal)", error: String(e) });
             }
         } else {
             // Repo not found in DynamoDB yet, put a minimal record
