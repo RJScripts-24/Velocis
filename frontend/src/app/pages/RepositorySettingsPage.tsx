@@ -14,6 +14,8 @@ const cardCls = [
     "ring-1 ring-inset ring-black/5 dark:ring-white/10",
 ].join(" ");
 
+const primaryCtaCls = "rounded-xl font-bold text-sm transition-all duration-200 shadow-sm bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:opacity-90 hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed";
+
 interface AutomateOption {
     id: string;
     name: string;
@@ -206,7 +208,7 @@ export function RepositorySettingsPage() {
                                 id="settings-enable-btn"
                                 onClick={handleAutomateToggle}
                                 disabled={loading || saving}
-                                className="px-8 py-3 rounded-xl font-bold text-sm transition-all shadow-sm bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:opacity-90 disabled:opacity-50"
+                                className={`${primaryCtaCls} px-8 py-3`}
                             >
                                 {loading ? 'Loading...' : saving ? 'Saving...' : 'Enable Automation'}
                             </button>
@@ -307,7 +309,7 @@ export function RepositorySettingsPage() {
                             <button
                                 onClick={handleConfirm}
                                 disabled={confirmText.toLowerCase() !== 'confirm'}
-                                className="px-6 py-2.5 rounded-[10px] font-medium text-white transition-all bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                className={`${primaryCtaCls} px-8 py-3`}
                             >
                                 Confirm Setup
                             </button>
