@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Redirecting...</title>
+  </head>
+  <body>
+    <script>
+      (function () {
+        try {
+          var attemptedPath = window.location.pathname + window.location.search + window.location.hash;
+          sessionStorage.setItem("velocis:spa-redirect", attemptedPath);
+        } catch (e) {
+          // Ignore storage errors and continue.
+        }
+        window.location.replace("/");
+      })();
+    </script>
+  </body>
+</html>
