@@ -39,10 +39,10 @@ interface RebuildJobRecord {
 }
 
 function isKeySchemaMismatch(err: unknown): boolean {
-  return !!err
-    && typeof err === "object"
-    && (err as { name?: string }).name === "ValidationException"
-    && String((err as { message?: string }).message ?? "").toLowerCase().includes("key element");
+  if (!err || typeof err !== "object") return false;
+  if ((err as { name?: string }).name !== "ValidationException") return false;
+  const msg = String((err as { message?: string }).message ?? "").toLowerCase();
+  return msg.includes("key element") || msg.includes("part of the key");
 }
 
 const SCAN_JOB_KEY_FIELDS = ["scanId", "jobId", "pk"] as const;
@@ -55,11 +55,20 @@ async function putJob(record: RebuildJobRecord): Promise<void> {
   let lastErr: unknown = null;
   for (const keyField of SCAN_JOB_KEY_FIELDS) {
     try {
+      // Build alias SET clauses for the cross-key fields, excluding whichever
+      // is used as the DynamoDB partition key (key attributes cannot be SET).
+      const aliasFields = (["scanId", "jobId", "pk"] as const).filter(f => f !== keyField);
+      const aliasParts = aliasFields.map(f => `${f} = :${f}`);
+      const aliasValues = aliasFields.reduce<Record<string, string>>(
+        (acc, f) => ({ ...acc, [`:${f}`]: record.scanId }),
+        {}
+      );
+
       await docClient.send(new UpdateCommand({
         TableName: SCAN_JOBS_TABLE,
         Key: buildKeyForField(keyField, record.scanId),
         UpdateExpression:
-          "SET jobType = :jobType, repoId = :repoId, userId = :userId, #status = :status, progressPct = :progressPct, currentStep = :currentStep, #message = :message, createdAt = :createdAt, updatedAt = :updatedAt, scanId = :scanId, jobId = :jobId, pk = :pk",
+          `SET jobType = :jobType, repoId = :repoId, userId = :userId, #status = :status, progressPct = :progressPct, currentStep = :currentStep, #message = :message, createdAt = :createdAt, updatedAt = :updatedAt${aliasParts.length ? ", " + aliasParts.join(", ") : ""}`,
         ExpressionAttributeNames: {
           "#status": "status",
           "#message": "message",
@@ -74,9 +83,7 @@ async function putJob(record: RebuildJobRecord): Promise<void> {
           ":message": record.message,
           ":createdAt": record.createdAt,
           ":updatedAt": record.updatedAt,
-          ":scanId": record.scanId,
-          ":jobId": record.scanId,
-          ":pk": record.scanId,
+          ...aliasValues,
         },
       }));
       return;
@@ -92,25 +99,27 @@ async function updateJob(
   scanId: string,
   patch: Partial<Omit<RebuildJobRecord, "scanId" | "jobType" | "repoId" | "userId" | "createdAt">>
 ): Promise<void> {
-  const setParts: string[] = [];
-  const names: Record<string, string> = {};
-  const values: Record<string, unknown> = {};
   const now = new Date().toISOString();
   const next = { ...patch, updatedAt: now } as Record<string, unknown>;
-
-  Object.entries(next).forEach(([key, value]) => {
-    const n = `#${key}`;
-    const v = `:${key}`;
-    names[n] = key;
-    values[v] = value;
-    setParts.push(`${n} = ${v}`);
-  });
-
-  if (setParts.length === 0) return;
+  const entries = Object.entries(next);
+  if (entries.length === 0) return;
 
   let lastErr: unknown = null;
   for (const keyField of SCAN_JOB_KEY_FIELDS) {
     try {
+      // Exclude the partition key field from SET (DynamoDB forbids updating key attributes)
+      const filtered = entries.filter(([k]) => k !== keyField);
+      if (filtered.length === 0) return;
+
+      const setParts: string[] = [];
+      const names: Record<string, string> = {};
+      const values: Record<string, unknown> = {};
+      filtered.forEach(([key, value]) => {
+        names[`#${key}`] = key;
+        values[`:${key}`] = value;
+        setParts.push(`#${key} = :${key}`);
+      });
+
       await docClient.send(new UpdateCommand({
         TableName: SCAN_JOBS_TABLE,
         Key: buildKeyForField(keyField, scanId),
